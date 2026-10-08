@@ -6,6 +6,11 @@
 #include <fstream>
 #include <vector>
 
+// MSVC does not expose M_PI from <cmath> without _USE_MATH_DEFINES
+#ifndef M_PI
+#define M_PI 3.14159265358979323846264338327950288
+#endif
+
 namespace {
 
 uint32_t readU32(const uint8_t* p) {

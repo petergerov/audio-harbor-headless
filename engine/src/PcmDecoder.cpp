@@ -4,6 +4,14 @@
 #include <cstdio>
 #include <cstring>
 
+#if defined(_WIN32)
+#define harbor_popen _popen
+#define harbor_pclose _pclose
+#else
+#define harbor_popen popen
+#define harbor_pclose pclose
+#endif
+
 #define DR_FLAC_IMPLEMENTATION
 #include "../third_party/dr_flac.h"
 #define DR_MP3_IMPLEMENTATION
@@ -154,31 +162,43 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
     return !out.interleaved.empty();
   }
 
-  // ALAC / AAC / M4A via ffmpeg when available (Linux; Mac uses ExtAudioFile in MacPlayer)
+  // ALAC / AAC / M4A via ffmpeg when available (Linux/Windows; Mac prefers ExtAudioFile)
   if (endsWithCi(path, ".m4a") || endsWithCi(path, ".mp4") || endsWithCi(path, ".alac") ||
       endsWithCi(path, ".aac")) {
+#if defined(_WIN32)
+    std::string quoted = "\"";
+    for (char c : path) {
+      if (c == '"') quoted += "\\\"";
+      else quoted += c;
+    }
+    quoted += "\"";
+    const char* probeRedirect = "2>NUL";
+#else
     std::string quoted = "'";
     for (char c : path) {
       if (c == '\'') quoted += "'\\''";
       else quoted += c;
     }
     quoted += "'";
+    const char* probeRedirect = "2>/dev/null";
+#endif
     char cmd[4096];
     std::snprintf(
       cmd,
       sizeof(cmd),
       "ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate,channels "
-      "-of csv=p=0:s=x %s 2>/dev/null",
-      quoted.c_str()
+      "-of csv=p=0:s=x %s %s",
+      quoted.c_str(),
+      probeRedirect
     );
-    FILE* probe = popen(cmd, "r");
+    FILE* probe = harbor_popen(cmd, "r");
     unsigned rate = 0, channels = 0;
     if (probe) {
       if (std::fscanf(probe, "%ux%u", &rate, &channels) != 2) {
         rate = 0;
         channels = 0;
       }
-      pclose(probe);
+      harbor_pclose(probe);
     }
     if (!rate || !channels) {
       error = "ALAC/AAC requires ffmpeg/ffprobe";
@@ -190,7 +210,7 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
       "ffmpeg -v error -i %s -f f32le -acodec pcm_f32le -",
       quoted.c_str()
     );
-    FILE* pipe = popen(cmd, "r");
+    FILE* pipe = harbor_popen(cmd, "r");
     if (!pipe) {
       error = "ffmpeg not available for ALAC/AAC";
       return false;
@@ -202,7 +222,7 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
       if (n == 0) break;
       samples.insert(samples.end(), buf, buf + n);
     }
-    const int status = pclose(pipe);
+    const int status = harbor_pclose(pipe);
     if (status != 0 || samples.empty()) {
       error = "ffmpeg ALAC/AAC decode failed";
       return false;
