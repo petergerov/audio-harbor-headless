@@ -146,40 +146,48 @@ export async function buildServer(ctx: AppContext) {
     };
   }>('/api/v1/play', async (req, reply) => {
     const body = req.body ?? {};
-    if (body.cataloguePath) {
-      await ctx.playback.playTrack(body.cataloguePath);
-      return ctx.playback.snapshot();
-    }
+    const roots = ctx.getConfig().library.roots;
+
+    // Context queues (album / artist / folder / playlist / label), optionally
+    // starting at cataloguePath so next/prev walk the same list the user browsed.
+    let tracks:
+      | ReturnType<typeof ctx.catalogue.albumTracks>
+      | null = null;
     if (body.albumId) {
-      const tracks = ctx.catalogue.albumTracks(body.albumId);
-      await ctx.playback.playTracks(tracks);
-      return ctx.playback.snapshot();
-    }
-    if (body.artist) {
-      const tracks = ctx.catalogue.artistTracks(body.artist);
-      await ctx.playback.playTracks(tracks);
-      return ctx.playback.snapshot();
-    }
-    if (body.folder) {
-      const paths = ctx.catalogue.resolveSelectionPaths(ctx.getConfig().library.roots, {
-        folder: body.folder,
-      });
-      const tracks = paths
+      tracks = ctx.catalogue.albumTracks(body.albumId);
+    } else if (body.artist) {
+      tracks = ctx.catalogue.artistTracks(body.artist);
+    } else if (body.folder) {
+      const paths = ctx.catalogue.resolveSelectionPaths(roots, { folder: body.folder });
+      tracks = paths
         .map((p) => ctx.catalogue.getTrack(p))
         .filter((t): t is NonNullable<typeof t> => Boolean(t));
-      await ctx.playback.playTracks(tracks);
-      return ctx.playback.snapshot();
-    }
-    if (body.playlistId) {
-      const tracks = ctx.catalogue.playlistTracks(body.playlistId);
+    } else if (body.playlistId) {
+      tracks = ctx.catalogue.playlistTracks(body.playlistId);
       if (!tracks.length) return reply.code(404).send({ error: 'playlist empty or missing' });
-      await ctx.playback.playTracks(tracks);
+    } else if (body.label) {
+      tracks = ctx.catalogue.tracksForLabel(body.label);
+      if (!tracks.length) return reply.code(404).send({ error: 'label empty or missing' });
+    }
+
+    if (tracks) {
+      let startIndex = 0;
+      if (body.cataloguePath) {
+        const idx = tracks.findIndex((t) => t.cataloguePath === body.cataloguePath);
+        if (idx >= 0) startIndex = idx;
+        else {
+          // Path not in context (e.g. stale UI) — fall back to album/single play.
+          await ctx.playback.playTrack(body.cataloguePath);
+          return ctx.playback.snapshot();
+        }
+      }
+      if (!tracks.length) return reply.code(404).send({ error: 'nothing to play' });
+      await ctx.playback.playTracks(tracks, startIndex);
       return ctx.playback.snapshot();
     }
-    if (body.label) {
-      const tracks = ctx.catalogue.tracksForLabel(body.label);
-      if (!tracks.length) return reply.code(404).send({ error: 'label empty or missing' });
-      await ctx.playback.playTracks(tracks);
+
+    if (body.cataloguePath) {
+      await ctx.playback.playTrack(body.cataloguePath);
       return ctx.playback.snapshot();
     }
     return reply.code(400).send({ error: 'nothing to play' });

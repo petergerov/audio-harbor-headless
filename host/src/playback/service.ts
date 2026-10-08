@@ -117,13 +117,17 @@ export class PlaybackService extends EventEmitter {
           return;
         }
       } catch {
-        // Fall through to single-track play.
+        // Fall through to album queue.
       }
     }
 
-    this.queue = [track];
-    this.index = 0;
-    await this.loadAndPlay(track);
+    // Default: queue the whole album so next/prev advance through siblings.
+    const album = this.catalogue.albumTracksForPath(cataloguePath);
+    const idx = Math.max(
+      0,
+      album.findIndex((t) => t.cataloguePath === cataloguePath)
+    );
+    await this.playTracks(album.length ? album : [track], idx);
   }
 
   async playTracks(tracks: Track[], startIndex = 0): Promise<void> {

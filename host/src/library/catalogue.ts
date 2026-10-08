@@ -300,12 +300,24 @@ export class Catalogue {
   albumTracks(albumId: string): Track[] {
     const album = this.albums().find((a) => a.id === albumId);
     if (!album) return [];
+    return this.tracksForAlbum(album.title, album.artist);
+  }
+
+  /** Tracks of the album that contains this path (for next/prev when a single song is tapped). */
+  albumTracksForPath(cataloguePathValue: string): Track[] {
+    const track = this.getTrack(cataloguePathValue);
+    if (!track) return [];
+    const siblings = this.tracksForAlbum(track.album, track.albumArtist);
+    return siblings.length ? siblings : [track];
+  }
+
+  private tracksForAlbum(album: string, albumArtist: string): Track[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM tracks WHERE album = ? AND album_artist = ?
          ORDER BY disc_number, track_number, title`
       )
-      .all(album.title, album.artist) as Array<Record<string, unknown>>;
+      .all(album, albumArtist) as Array<Record<string, unknown>>;
     return rows.map((r) => rowToTrack(r, this.labelsFor(String(r.catalogue_path))));
   }
 

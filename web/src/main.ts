@@ -130,6 +130,7 @@ function updateNowChrome(): void {
   // Refresh mini play icon without rebuilding the whole bar.
   const miniToggle = document.querySelector('#miniToggle');
   if (miniToggle) miniToggle.innerHTML = playing ? icons.pauseSm : icons.playSm;
+  // Desktop bar uses full play/pause glyphs inside .play-btn (handled above).
   markNowPlayingRows();
 }
 
@@ -248,16 +249,22 @@ function wantsMini(): boolean {
   return hasNowTrack() && tab !== 'now' && !isDesktopUi();
 }
 
-/** Compact header player on Library / Playlists (desktop + mobile). */
+/** Compact header player — mobile only (desktop uses the bottom bar). */
 function wantsHeaderPlayer(): boolean {
-  return hasNowTrack() && (tab === 'library' || tab === 'collections');
+  return hasNowTrack() && !isDesktopUi() && (tab === 'library' || tab === 'collections');
+}
+
+/** Desktop Showboard-style bottom player — always on while a track is loaded. */
+function wantsDesktopBar(): boolean {
+  return hasNowTrack() && isDesktopUi();
 }
 
 function renderApp(): void {
   const mini = wantsMini();
+  const bar = wantsDesktopBar();
   const wide = isDesktopUi();
   app.innerHTML = `
-    <div class="app-shell layout ${mini ? '' : 'no-mini'} ${wide ? 'wide' : ''}">
+    <div class="app-shell layout ${mini ? '' : 'no-mini'} ${wide ? 'wide' : ''} ${bar ? 'has-bar' : ''}">
       ${wide ? renderSidebar() : ''}
       <div class="content-col">
         <main class="screen" id="main"></main>
@@ -273,6 +280,7 @@ function renderApp(): void {
         </nav>`
         }
       </div>
+      ${bar ? `<footer class="now-bar" id="nowBar" aria-label="Now Playing"></footer>` : ''}
     </div>
   `;
 
@@ -334,6 +342,7 @@ function renderApp(): void {
   if (tab === 'now') renderNow(main);
   if (tab === 'settings') void renderSettings(main);
   if (mini) paintMini();
+  if (bar) paintDesktopBar();
   if (wantsHeaderPlayer()) paintHeaderPlayer();
 }
 
@@ -391,15 +400,20 @@ function updateChrome(): void {
   const shell = app.querySelector('.app-shell');
   if (!shell) return;
   const wantMini = wantsMini();
+  const wantBar = wantsDesktopBar();
+  const wantHeader = wantsHeaderPlayer();
   const mini = app.querySelector('#mini');
+  const bar = app.querySelector('#nowBar');
   const header = document.querySelector('#headerPlayer');
-  if (wantMini !== Boolean(mini) || wantsHeaderPlayer() !== Boolean(header)) {
+  if (wantMini !== Boolean(mini) || wantBar !== Boolean(bar) || wantHeader !== Boolean(header)) {
     renderApp();
     return;
   }
   shell.classList.toggle('no-mini', !wantMini);
+  shell.classList.toggle('has-bar', wantBar);
   if (wantMini) paintMini();
-  if (wantsHeaderPlayer()) paintHeaderPlayer();
+  if (wantBar) paintDesktopBar();
+  if (wantHeader) paintHeaderPlayer();
   if (tab === 'now') {
     const main = app.querySelector('#main');
     if (main) renderNow(main);
@@ -407,7 +421,7 @@ function updateChrome(): void {
 }
 
 function headerPlayerSlot(): string {
-  if (!wantsHeaderPlayer()) return `<div class="header-player" id="headerPlayer" hidden></div>`;
+  if (!wantsHeaderPlayer()) return '';
   return `<div class="header-player" id="headerPlayer" aria-label="Now Playing"></div>`;
 }
 
@@ -809,7 +823,20 @@ function paintMediaList(list: Element, inCollection = false): void {
         title: String(track.title ?? item.name ?? 'Track'),
       };
       primary = async () => {
-        await playNow({ cataloguePath: path });
+        // Queue the browse context so next/prev advance through album / artist / folder / collection.
+        const body: Record<string, unknown> = { cataloguePath: path };
+        if (inCollection && collectionKind === 'playlist' && collectionId) {
+          body.playlistId = collectionId;
+        } else if (inCollection && collectionKind === 'label' && collectionId) {
+          body.label = collectionId;
+        } else if (tab === 'library' && libraryScope === 'albums' && albumDrill) {
+          body.albumId = albumDrill.id;
+        } else if (tab === 'library' && libraryScope === 'artists' && artistDrill) {
+          body.artist = artistDrill;
+        } else if (tab === 'library' && libraryScope === 'folders' && folderPath) {
+          body.folder = folderPath;
+        }
+        await playNow(body);
       };
     } else {
       continue;
@@ -948,11 +975,16 @@ async function playNow(body: Record<string, unknown>): Promise<void> {
   playing = nowPlaying?.state === 'playing';
   localPos = Number(nowPlaying?.positionSecs ?? 0);
   // Stay on Library / Playlists — never jump to Now Playing.
-  if (!hadTrack || wantsHeaderPlayer() !== Boolean(document.querySelector('#headerPlayer'))) {
+  if (
+    !hadTrack ||
+    wantsDesktopBar() !== Boolean(document.querySelector('#nowBar')) ||
+    wantsHeaderPlayer() !== Boolean(document.querySelector('#headerPlayer'))
+  ) {
     renderApp();
     return;
   }
-  paintHeaderPlayer();
+  if (wantsDesktopBar()) paintDesktopBar();
+  if (wantsHeaderPlayer()) paintHeaderPlayer();
   if (wantsMini()) paintMini();
   paintScrub();
   markNowPlayingRows();
@@ -1559,11 +1591,9 @@ function paintHeaderPlayer(): void {
   if (!el) return;
   const track = (nowPlaying?.track as Record<string, unknown> | null) ?? null;
   if (!track) {
-    el.setAttribute('hidden', '');
     el.innerHTML = '';
     return;
   }
-  el.removeAttribute('hidden');
   el.innerHTML = `
     <button type="button" class="header-player-main" id="headerPlayerOpen" aria-label="Open Now Playing">
       <div class="header-player-art" id="headerArt">${icons.musicSm}</div>
@@ -1585,6 +1615,60 @@ function paintHeaderPlayer(): void {
     track.artworkHash ? String(track.artworkHash) : null
   );
   el.querySelector('#headerPlayerOpen')?.addEventListener('click', () => {
+    haptic('light');
+    tab = 'now';
+    renderApp();
+  });
+  bindPlayerControls(el);
+}
+
+function paintDesktopBar(): void {
+  const el = document.querySelector('#nowBar');
+  if (!el) return;
+  const track = (nowPlaying?.track as Record<string, unknown> | null) ?? null;
+  if (!track) {
+    el.innerHTML = '';
+    return;
+  }
+  const dur = Number(nowPlaying?.durationSecs ?? 0) || 0;
+  const badge = nowPlaying?.conversionBadge
+    ? `<span class="now-bar-badge">${esc(String(nowPlaying.conversionBadge))}</span>`
+    : '';
+  el.innerHTML = `
+    <button type="button" class="now-bar-track" id="nowBarOpen" aria-label="Open Now Playing">
+      <div class="now-bar-art" id="nowBarArt">${icons.musicSm}</div>
+      <span class="now-bar-text">
+        <strong class="now-title">${esc(String(track.title ?? ''))}</strong>
+        <span class="now-artist">${esc(String(track.artist ?? ''))}</span>
+      </span>
+    </button>
+    <div class="now-bar-center">
+      <div class="now-bar-transport">
+        <button type="button" data-cmd="previous" aria-label="Previous">${icons.prev}</button>
+        <button type="button" class="play-btn" data-cmd="toggle" aria-label="${playing ? 'Pause' : 'Play'}">
+          ${playing ? icons.pause : icons.play}
+        </button>
+        <button type="button" data-cmd="next" aria-label="Next">${icons.next}</button>
+      </div>
+      <div class="now-bar-scrub">
+        <span data-time-pos>${fmtTime(localPos)}</span>
+        <input data-seek type="range" min="0" max="${Math.max(dur, 1)}" step="0.1" value="${localPos}" />
+        <span data-time-end>${dur ? fmtTime(dur) : '--:--'}</span>
+      </div>
+    </div>
+    <div class="now-bar-aside">
+      ${badge}
+      <div class="now-bar-vol">
+        ${icons.volMin}
+        <input data-vol type="range" min="0" max="1" step="0.01" value="${Number(nowPlaying?.volume ?? 0.8)}" aria-label="Volume" />
+      </div>
+    </div>
+  `;
+  fillArtwork(
+    el.querySelector('#nowBarArt'),
+    track.artworkHash ? String(track.artworkHash) : null
+  );
+  el.querySelector('#nowBarOpen')?.addEventListener('click', () => {
     haptic('light');
     tab = 'now';
     renderApp();
