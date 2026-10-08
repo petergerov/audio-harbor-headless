@@ -481,6 +481,47 @@ function finalizeDff(tmp: string, out: string, preambleLen: number, dataBytes: b
   fs.renameSync(tmp, out);
 }
 
+/** Buffered writer — avoids open/close per sector (appendFileSync was the switch lag). */
+function createBufferedWriter(fd: number, bufSize = 4 * 1024 * 1024) {
+  const buf = Buffer.allocUnsafe(bufSize);
+  let pos = 0;
+  let bytes = 0n;
+  const flush = () => {
+    if (pos === 0) return;
+    fs.writeSync(fd, buf, 0, pos);
+    pos = 0;
+  };
+  return {
+    write(chunk: Buffer) {
+      let off = 0;
+      while (off < chunk.length) {
+        const n = Math.min(buf.length - pos, chunk.length - off);
+        chunk.copy(buf, pos, off, off + n);
+        pos += n;
+        off += n;
+        if (pos === buf.length) flush();
+      }
+      bytes += BigInt(chunk.length);
+    },
+    flush,
+    get dataBytes() {
+      return bytes;
+    },
+  };
+}
+
+const extracting = new Set<string>();
+
+function sacdCacheFile(filePath: string, track: SacdTrackInfo): string {
+  // Kind bump invalidates caches written with the padded (broken) FRM8 preamble.
+  const kind = track.isDst ? 'dst3' : 'dsd3';
+  return cachePath(filePath, track.number, kind);
+}
+
+function isWarmCache(out: string): boolean {
+  return fs.existsSync(out) && fs.statSync(out).size > 128 && isCurrentCache(out);
+}
+
 /** Extract SACD track to cached uncompressed DFF (DST decoded via AHDST). */
 export function resolveSacdPlaybackPath(cataloguePath: string): string {
   const parsed = parseSacdPath(cataloguePath);
@@ -493,67 +534,100 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
     throw new Error('Could not read DSD from this SACD track');
   }
 
-  // Kind bump invalidates caches written with the padded (broken) FRM8 preamble.
-  const kind = discTrack.isDst ? 'dst3' : 'dsd3';
-  const out = cachePath(parsed.filePath, parsed.track, kind);
-  if (fs.existsSync(out) && fs.statSync(out).size > 128 && isCurrentCache(out)) {
-    return out;
-  }
+  const out = sacdCacheFile(parsed.filePath, discTrack);
+  if (isWarmCache(out)) return out;
 
   const fd = fs.openSync(parsed.filePath, 'r');
   const tmp = `${out}.part`;
   let session: unknown = null;
+  extracting.add(out);
   try {
     const layout = detectLayout(fd);
     const preamble = dffPreamble(discTrack.sampleRateHz, discTrack.channels);
-    fs.writeFileSync(tmp, preamble);
-    let dataBytes = 0n;
-    const end = discTrack.startLsn + discTrack.lengthLsn;
+    const outFd = fs.openSync(tmp, 'w');
+    const writer = createBufferedWriter(outFd);
+    try {
+      writer.write(preamble);
+      const end = discTrack.startLsn + discTrack.lengthLsn;
 
-    if (discTrack.isDst) {
-      session = engineDstBegin(discTrack.sampleRateHz, discTrack.channels);
-      let current: Buffer = Buffer.alloc(0);
-      let haveFrame = false;
-      const flush = () => {
-        if (!haveFrame || !current.length) return;
-        const decoded = engineDstDecodeFrame(session, current);
-        fs.appendFileSync(tmp, decoded);
-        dataBytes += BigInt(decoded.length);
-        current = Buffer.alloc(0);
-        haveFrame = false;
-      };
-      for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
-        const sector = readSector(fd, lsn, layout);
-        for (const packet of audioPackets(sector)) {
-          if (packet.type !== 2) continue;
-          if (packet.start) {
-            flush();
-            current = Buffer.from(packet.data);
-            haveFrame = true;
-          } else if (haveFrame) {
-            current = Buffer.from(Buffer.concat([current, packet.data]));
+      if (discTrack.isDst) {
+        session = engineDstBegin(discTrack.sampleRateHz, discTrack.channels);
+        let current: Buffer = Buffer.alloc(0);
+        let haveFrame = false;
+        const flushFrame = () => {
+          if (!haveFrame || !current.length) return;
+          writer.write(engineDstDecodeFrame(session, current));
+          current = Buffer.alloc(0);
+          haveFrame = false;
+        };
+        for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
+          const sector = readSector(fd, lsn, layout);
+          for (const packet of audioPackets(sector)) {
+            if (packet.type !== 2) continue;
+            if (packet.start) {
+              flushFrame();
+              current = Buffer.from(packet.data);
+              haveFrame = true;
+            } else if (haveFrame) {
+              current = Buffer.concat([current, packet.data]);
+            }
           }
         }
-      }
-      flush();
-    } else {
-      for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
-        const sector = readSector(fd, lsn, layout);
-        const chunk = demuxAudioPackets(sector);
-        if (chunk.length) {
-          fs.appendFileSync(tmp, chunk);
-          dataBytes += BigInt(chunk.length);
+        flushFrame();
+      } else {
+        for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
+          const chunk = demuxAudioPackets(readSector(fd, lsn, layout));
+          if (chunk.length) writer.write(chunk);
         }
       }
+
+      writer.flush();
+    } finally {
+      fs.closeSync(outFd);
     }
 
-    finalizeDff(tmp, out, preamble.length, dataBytes);
+    finalizeDff(tmp, out, preamble.length, writer.dataBytes - BigInt(preamble.length));
     return out;
   } catch (err) {
     fs.rmSync(tmp, { force: true });
     throw err;
   } finally {
+    extracting.delete(out);
     if (session) engineDstEnd(session);
     fs.closeSync(fd);
+  }
+}
+
+/**
+ * Warm-cache neighboring tracks on the same ISO so next/prev (or clicks) don't
+ * block on a full demux. Runs on the event loop; safe to fire-and-forget.
+ */
+export function prefetchSacdNeighbors(cataloguePath: string, extra = 1): void {
+  const parsed = parseSacdPath(cataloguePath);
+  if (!parsed) return;
+  let tracks: SacdTrackInfo[];
+  try {
+    tracks = listSacdTracks(parsed.filePath);
+  } catch {
+    return;
+  }
+  const targets: string[] = [];
+  for (let d = 1; d <= extra; d++) {
+    for (const n of [parsed.track + d, parsed.track - d]) {
+      const t = tracks.find((x) => x.number === n);
+      if (!t) continue;
+      const out = sacdCacheFile(parsed.filePath, t);
+      if (isWarmCache(out) || extracting.has(out)) continue;
+      targets.push(t.cataloguePath);
+    }
+  }
+  for (const path of targets) {
+    setImmediate(() => {
+      try {
+        resolveSacdPlaybackPath(path);
+      } catch {
+        // Prefetch is best-effort.
+      }
+    });
   }
 }

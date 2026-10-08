@@ -12,7 +12,13 @@ import {
   engineEvents,
 } from '../engine/bridge.js';
 import type { Catalogue } from '../library/catalogue.js';
-import { resolveSacdPlaybackPath, SACD_MARKER } from '../library/sacd.js';
+import {
+  listSacdTracks,
+  parseSacdPath,
+  prefetchSacdNeighbors,
+  resolveSacdPlaybackPath,
+  SACD_MARKER,
+} from '../library/sacd.js';
 import type { DiscoveredRenderer } from '../upnp/rendererOutput.js';
 import { pauseOnRenderer, playOnRenderer, prepareNextOnRenderer } from '../upnp/rendererOutput.js';
 import type {
@@ -94,6 +100,27 @@ export class PlaybackService extends EventEmitter {
   async playTrack(cataloguePath: string): Promise<void> {
     const track = this.catalogue.getTrack(cataloguePath);
     if (!track) throw new Error('Track not found');
+
+    // Playing one SACD track queues the whole disc so next/prev + prefetch work.
+    const sacd = parseSacdPath(cataloguePath);
+    if (sacd) {
+      try {
+        const disc = listSacdTracks(sacd.filePath)
+          .map((t) => this.catalogue.getTrack(t.cataloguePath))
+          .filter((t): t is Track => Boolean(t));
+        if (disc.length) {
+          const idx = Math.max(
+            0,
+            disc.findIndex((t) => t.cataloguePath === cataloguePath)
+          );
+          await this.playTracks(disc, idx);
+          return;
+        }
+      } catch {
+        // Fall through to single-track play.
+      }
+    }
+
     this.queue = [track];
     this.index = 0;
     await this.loadAndPlay(track);
@@ -186,6 +213,7 @@ export class PlaybackService extends EventEmitter {
       await playOnRenderer(renderer, track.cataloguePath);
       await this.prepareNetworkNext(renderer);
       this.emitUpdate();
+      prefetchSacdNeighbors(track.cataloguePath, 2);
       return;
     }
     const playPath = track.cataloguePath.includes(SACD_MARKER)
@@ -194,6 +222,8 @@ export class PlaybackService extends EventEmitter {
     await engineLoad(playPath);
     enginePlay();
     this.emitUpdate();
+    // Demux next tracks while the current one plays.
+    prefetchSacdNeighbors(track.cataloguePath, 2);
   }
 
   private async prepareNetworkNext(
