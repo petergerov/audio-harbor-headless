@@ -25,9 +25,9 @@ jobs:
           - platform: darwin-arm64
             runner: macos-14
             apt: false
-          # macos-13 is Intel x86_64 — needed for a native harbor_engine.node (not Rosetta)
+          # macos-15-intel is the current x86_64 macOS runner (macos-13 retired Dec 2025)
           - platform: darwin-x64
-            runner: macos-13
+            runner: macos-15-intel
             apt: false
           - platform: linux-x64
             runner: ubuntu-24.04
