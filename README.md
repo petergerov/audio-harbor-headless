@@ -51,10 +51,13 @@ GitHub Actions builds one archive **per platform** (JUCE + native on Mac/Linux/W
 
 | Asset | Platform |
 |---|---|
-| `*-darwin-arm64.tar.gz` | Apple Silicon Mac |
+| `*-darwin-arm64.tar.gz` | Apple Silicon Mac (M1 and later) |
+| `*-darwin-x64.tar.gz` | Intel Mac |
 | `*-linux-x64.tar.gz` | Linux Intel/AMD |
 | `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 |
 | `*-win32-x64.zip` | Windows x64 |
+
+Intel and Apple Silicon Macs both use the native Core Audio path (`backend = "native"`). Pick the archive that matches `uname -m` (`arm64` vs `x86_64`). Node 20 needs a recent enough macOS (typically **11 Big Sur or newer**).
 
 ```bash
 # Example Raspberry Pi
