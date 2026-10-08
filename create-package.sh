@@ -76,13 +76,20 @@ ARCHIVE="$OUT_DIR/${NAME}.tar.gz"
 
 log() { printf '==> %s\n' "$*"; }
 
-# Copy ROOT → STAGE with excludes. Prefers rsync; falls back to tar (Windows CI).
-# Patterns are rsync-style (trailing / ok); also accepted by GNU/BSD tar.
+# Copy ROOT → STAGE with excludes.
+# Prefer tar on Windows (GitHub windows-latest has no rsync). Elsewhere: rsync if present, else tar.
 stage_tree() {
   local excludes=("$@")
   local pat
+  local use_rsync=0
   mkdir -p "$STAGE"
-  if command -v rsync >/dev/null 2>&1; then
+
+  if [[ "$PLATFORM" != win32-* ]] && [[ "${OS:-}" != "Windows_NT" ]] \
+    && command -v rsync >/dev/null 2>&1; then
+    use_rsync=1
+  fi
+
+  if [[ "$use_rsync" -eq 1 ]]; then
     local rsync_args=(-a)
     for pat in "${excludes[@]}"; do
       rsync_args+=(--exclude "$pat")
@@ -90,7 +97,8 @@ stage_tree() {
     rsync "${rsync_args[@]}" "$ROOT/" "$STAGE/"
     return
   fi
-  # Portable tar fallback when rsync is missing (e.g. GitHub Actions windows-latest)
+
+  log "Staging with tar (rsync unavailable or Windows)"
   local tar_excludes=(--exclude='.git' --exclude='./.git')
   for pat in "${excludes[@]}"; do
     pat="${pat%/}"

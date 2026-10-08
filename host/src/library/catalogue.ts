@@ -343,6 +343,27 @@ export class Catalogue {
           track: null,
         }));
     }
+
+    // Drill into SACD ISO as a virtual folder of tracks (#sacd/N).
+    if (fs.existsSync(folderPath) && fs.statSync(folderPath).isFile()) {
+      if (path.extname(folderPath).toLowerCase() === '.iso' && isSacdIso(folderPath)) {
+        const size = fs.statSync(folderPath).size;
+        return listSacdTracks(folderPath).map((sacd) => {
+          const track = this.getTrack(sacd.cataloguePath) ?? sacdToTrack(sacd, size);
+          const label = sacd.number
+            ? `${String(sacd.number).padStart(2, '0')} ${sacd.title}`
+            : sacd.title;
+          return {
+            name: label,
+            path: sacd.cataloguePath,
+            isDirectory: false,
+            track,
+          };
+        });
+      }
+      return [];
+    }
+
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) return [];
     const entries = fs.readdirSync(folderPath, { withFileTypes: true });
     const out: Array<{
@@ -356,6 +377,17 @@ export class Catalogue {
       const full = path.join(folderPath, ent.name);
       if (ent.isDirectory()) {
         out.push({ name: ent.name, path: full, isDirectory: true, track: null });
+      } else if (
+        path.extname(ent.name).toLowerCase() === '.iso' &&
+        isSacdIso(full)
+      ) {
+        // Present ISO like a folder so tracks are browsable.
+        out.push({
+          name: ent.name.replace(/\.iso$/i, ''),
+          path: full,
+          isDirectory: true,
+          track: null,
+        });
       } else if (AUDIO_EXT.has(path.extname(ent.name).toLowerCase())) {
         out.push({
           name: ent.name,
@@ -591,21 +623,41 @@ export class Catalogue {
       for (const t of this.artistTracks(sel.artist)) push(t.cataloguePath);
     }
     if (sel.folder) {
-      const entries = this.browseFolder(roots, sel.folder);
-      for (const e of entries) {
-        if (e.track) push(e.track.cataloguePath);
+      // Playing an SACD ISO "folder" → all virtual tracks on that disc.
+      if (
+        fs.existsSync(sel.folder) &&
+        fs.statSync(sel.folder).isFile() &&
+        path.extname(sel.folder).toLowerCase() === '.iso' &&
+        isSacdIso(sel.folder)
+      ) {
+        for (const sacd of listSacdTracks(sel.folder)) push(sacd.cataloguePath);
+      } else {
+        const entries = this.browseFolder(roots, sel.folder);
+        for (const e of entries) {
+          if (e.track) push(e.track.cataloguePath);
+          // Nested ISO presented as directory — expand its tracks too.
+          if (e.isDirectory && e.path.toLowerCase().endsWith('.iso')) {
+            for (const sacd of listSacdTracks(e.path)) push(sacd.cataloguePath);
+          }
+        }
+        for (const file of walkAudioFiles(sel.folder)) {
+          if (path.extname(file).toLowerCase() === '.iso' && isSacdIso(file)) {
+            for (const sacd of listSacdTracks(file)) push(sacd.cataloguePath);
+          } else {
+            push(file);
+          }
+        }
+        const prefix = sel.folder.endsWith(path.sep) ? sel.folder : sel.folder + path.sep;
+        const rows = this.db
+          .prepare(
+            `SELECT catalogue_path FROM tracks
+             WHERE catalogue_path = ? OR catalogue_path LIKE ? OR catalogue_path LIKE ?`
+          )
+          .all(sel.folder, prefix + '%', prefix + '%' + '#sacd/%') as Array<{
+          catalogue_path: string;
+        }>;
+        for (const r of rows) push(r.catalogue_path);
       }
-      // include nested audio under folder tree
-      for (const file of walkAudioFiles(sel.folder)) push(file);
-      // SACD ISO virtual tracks under folder files already in DB via scan — also pick by path prefix
-      const prefix = sel.folder.endsWith(path.sep) ? sel.folder : sel.folder + path.sep;
-      const rows = this.db
-        .prepare(
-          `SELECT catalogue_path FROM tracks
-           WHERE catalogue_path = ? OR catalogue_path LIKE ?`
-        )
-        .all(sel.folder, prefix + '%') as Array<{ catalogue_path: string }>;
-      for (const r of rows) push(r.catalogue_path);
     }
     return out;
   }

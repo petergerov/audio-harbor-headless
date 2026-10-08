@@ -35,9 +35,10 @@ jobs:
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
             apt: true
-          - platform: win32-x64
-            runner: windows-2022
-            apt: false
+          # Temporarily disabled — rsync/packaging issues on windows-2022
+          # - platform: win32-x64
+          #   runner: windows-2022
+          #   apt: false
 
     steps:
       - uses: actions/checkout@v4
@@ -137,9 +138,8 @@ jobs:
             | `*-darwin-x64.tar.gz` | Intel Mac |
             | `*-linux-x64.tar.gz` | Linux x86_64 |
             | `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 Linux |
-            | `*-win32-x64.zip` | Windows x64 |
 
-            Unpack → `./start.sh` (Windows: `start.cmd`). Requires **Node.js ${{ env.NODE_VERSION }}.x**.
+            Unpack → `./start.sh`. Requires **Node.js ${{ env.NODE_VERSION }}.x**.
             macOS: Node ${{ env.NODE_VERSION }} needs a recent enough OS (typically **macOS 11+**).
             Linux: `sudo apt install libasound2` if ALSA is missing.
           files: |

@@ -165,6 +165,9 @@ bool loadDsf(const std::string& path, DsdStream& out, std::string& error) {
   const uint8_t* f = file.data() + fmt;
   out.channels = static_cast<uint16_t>(readU32(f + 24));
   out.sampleRate = readU32(f + 28);
+  // DSF stores samples in per-channel blocks (typically 4096 bytes), not byte-interleaved.
+  uint32_t blockSize = readU32(f + 44);
+  if (blockSize == 0) blockSize = 4096;
 
   size_t data = std::string::npos;
   for (size_t i = 0; i + 4 < file.size(); ++i) {
@@ -185,13 +188,29 @@ bool loadDsf(const std::string& path, DsdStream& out, std::string& error) {
     return false;
   }
 
-  // Normalize DSF LSB-first → MSB-first (oldest bit in bit 7), matching DFF / Harbor FIR.
-  out.interleavedBits.resize(dataBytes);
-  for (size_t i = 0; i < dataBytes; ++i) {
-    out.interleavedBits[i] = bitReverse(file[dataStart + i]);
-  }
   if (out.channels == 0) out.channels = 2;
   if (out.sampleRate == 0) out.sampleRate = 2822400;
+
+  const size_t ch = out.channels;
+  const size_t stride = size_t(blockSize) * ch;
+  if (stride == 0 || dataBytes < stride) {
+    error = "DSF block layout invalid";
+    return false;
+  }
+  const size_t blocks = dataBytes / stride;
+  const size_t usable = blocks * stride;
+
+  // Convert block layout → byte-interleaved, and LSB-first → MSB-first for Harbor FIR / DoP.
+  out.interleavedBits.resize(usable);
+  size_t o = 0;
+  for (size_t b = 0; b < blocks; ++b) {
+    const size_t blockBase = dataStart + b * stride;
+    for (size_t i = 0; i < blockSize; ++i) {
+      for (size_t c = 0; c < ch; ++c) {
+        out.interleavedBits[o++] = bitReverse(file[blockBase + c * blockSize + i]);
+      }
+    }
+  }
   return true;
 }
 
