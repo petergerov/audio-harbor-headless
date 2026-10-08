@@ -32,6 +32,10 @@ export interface HarborEngine {
   setVolume(level: number): void;
   getState(): EngineState;
   setEventListener(cb: (event: string, payload: string) => void): void;
+  /** MPEG-4 DST session (opaque). Pair with dstDecodeFrame / dstEnd. */
+  dstBegin(sampleRateHz: number, channels: number): unknown;
+  dstDecodeFrame(session: unknown, frame: Buffer): Buffer;
+  dstEnd(session: unknown): void;
 }
 
 declare const engine: HarborEngine;

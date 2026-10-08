@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { engineDstBegin, engineDstDecodeFrame, engineDstEnd } from '../engine/bridge.js';
 import { dataDir } from '../paths.js';
 
 /** Virtual catalogue identity: `/path/to/disc.iso#sacd/N` */
@@ -335,33 +336,51 @@ export function listSacdTracks(filePath: string): SacdTrackInfo[] {
   }
 }
 
-function demuxAudioPackets(sector: Buffer): Buffer {
-  if (sector.length !== SECTOR) return Buffer.alloc(0);
+interface SectorPacket {
+  start: boolean;
+  type: number;
+  data: Buffer;
+}
+
+function audioPackets(sector: Buffer): SectorPacket[] {
+  if (sector.length !== SECTOR) return [];
   const header = sector[0] ?? 0;
   const packetCount = (header >> 5) & 0x07;
   const frameInfoCount = (header >> 2) & 0x07;
   const dstEncoded = (header & 0x01) !== 0;
   let off = 1;
-  const headers: Array<{ type: number; length: number }> = [];
+  const headers: Array<{ start: boolean; type: number; length: number }> = [];
   for (let i = 0; i < packetCount; i++) {
-    if (off + 2 > sector.length) return Buffer.alloc(0);
+    if (off + 2 > sector.length) return [];
     const b0 = sector[off] ?? 0;
     const b1 = sector[off + 1] ?? 0;
     headers.push({
+      start: (b0 & 0x80) !== 0,
       type: (b0 >> 3) & 0x07,
       length: ((b0 & 0x07) << 8) | b1,
     });
     off += 2;
   }
   off += frameInfoCount * (dstEncoded ? 4 : 3);
-  if (off > sector.length) return Buffer.alloc(0);
-  const chunks: Buffer[] = [];
+  if (off > sector.length) return [];
+  const packets: SectorPacket[] = [];
   for (const h of headers) {
     if (off + h.length > sector.length) break;
-    if (h.type === 2) chunks.push(sector.subarray(off, off + h.length));
+    packets.push({
+      start: h.start,
+      type: h.type,
+      data: Buffer.from(sector.subarray(off, off + h.length)),
+    });
     off += h.length;
   }
-  return Buffer.concat(chunks);
+  return packets;
+}
+
+function demuxAudioPackets(sector: Buffer): Buffer {
+  const chunks = audioPackets(sector)
+    .filter((p) => p.type === 2)
+    .map((p) => p.data);
+  return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
 }
 
 function dffPreamble(sampleRate: number, channels: number): Buffer {
@@ -421,11 +440,11 @@ function dffPreamble(sampleRate: number, channels: number): Buffer {
   return Buffer.concat([head, propHdr, prop, dsdHdr]);
 }
 
-function cachePath(filePath: string, track: number): string {
+function cachePath(filePath: string, track: number, kind: string): string {
   const dir = path.join(dataDir(), 'cache', 'sacd');
   fs.mkdirSync(dir, { recursive: true });
   const mtime = fs.statSync(filePath).mtimeMs;
-  const key = `${filePath}|${mtime}|${track}|dsd2`;
+  const key = `${filePath}|${mtime}|${track}|${kind}`;
   const digest = crypto.createHash('sha256').update(key).digest('hex').slice(0, 24);
   return path.join(dir, `${digest}.dff`);
 }
@@ -445,7 +464,23 @@ function isCurrentCache(file: string): boolean {
   }
 }
 
-/** Extract uncompressed SACD track to cached DFF. DST throws. */
+function finalizeDff(tmp: string, out: string, preambleLen: number, dataBytes: bigint): void {
+  if (dataBytes === 0n) throw new Error('Could not read DSD from this SACD track');
+  const fileSize = BigInt(preambleLen) + dataBytes;
+  const patch = Buffer.alloc(8);
+  writeU64BE(patch, 0, fileSize > 12n ? fileSize - 12n : 0n);
+  const fdOut = fs.openSync(tmp, 'r+');
+  try {
+    fs.writeSync(fdOut, patch, 0, 8, 4);
+    writeU64BE(patch, 0, dataBytes);
+    fs.writeSync(fdOut, patch, 0, 8, preambleLen - 8);
+  } finally {
+    fs.closeSync(fdOut);
+  }
+  fs.renameSync(tmp, out);
+}
+
+/** Extract SACD track to cached uncompressed DFF (DST decoded via AHDST). */
 export function resolveSacdPlaybackPath(cataloguePath: string): string {
   const parsed = parseSacdPath(cataloguePath);
   if (!parsed) return cataloguePath;
@@ -453,54 +488,70 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
   const tracks = listSacdTracks(parsed.filePath);
   const discTrack = tracks.find((t) => t.number === parsed.track);
   if (!discTrack) throw new Error('SACD track not found');
-  if (discTrack.isDst) {
-    throw new Error('This SACD track uses DST compression (decode not available yet)');
-  }
   if (discTrack.startLsn <= 0 || discTrack.lengthLsn <= 0) {
     throw new Error('Could not read DSD from this SACD track');
   }
 
-  const out = cachePath(parsed.filePath, parsed.track);
+  const kind = discTrack.isDst ? 'dst2' : 'dsd2';
+  const out = cachePath(parsed.filePath, parsed.track, kind);
   if (fs.existsSync(out) && fs.statSync(out).size > 128 && isCurrentCache(out)) {
     return out;
   }
 
   const fd = fs.openSync(parsed.filePath, 'r');
   const tmp = `${out}.part`;
+  let session: unknown = null;
   try {
     const layout = detectLayout(fd);
     const preamble = dffPreamble(discTrack.sampleRateHz, discTrack.channels);
     fs.writeFileSync(tmp, preamble);
     let dataBytes = 0n;
     const end = discTrack.startLsn + discTrack.lengthLsn;
-    for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
-      const sector = readSector(fd, lsn, layout);
-      const chunk = demuxAudioPackets(sector);
-      if (chunk.length) {
-        fs.appendFileSync(tmp, chunk);
-        dataBytes += BigInt(chunk.length);
+
+    if (discTrack.isDst) {
+      session = engineDstBegin(discTrack.sampleRateHz, discTrack.channels);
+      let current: Buffer = Buffer.alloc(0);
+      let haveFrame = false;
+      const flush = () => {
+        if (!haveFrame || !current.length) return;
+        const decoded = engineDstDecodeFrame(session, current);
+        fs.appendFileSync(tmp, decoded);
+        dataBytes += BigInt(decoded.length);
+        current = Buffer.alloc(0);
+        haveFrame = false;
+      };
+      for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
+        const sector = readSector(fd, lsn, layout);
+        for (const packet of audioPackets(sector)) {
+          if (packet.type !== 2) continue;
+          if (packet.start) {
+            flush();
+            current = Buffer.from(packet.data);
+            haveFrame = true;
+          } else if (haveFrame) {
+            current = Buffer.from(Buffer.concat([current, packet.data]));
+          }
+        }
+      }
+      flush();
+    } else {
+      for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
+        const sector = readSector(fd, lsn, layout);
+        const chunk = demuxAudioPackets(sector);
+        if (chunk.length) {
+          fs.appendFileSync(tmp, chunk);
+          dataBytes += BigInt(chunk.length);
+        }
       }
     }
-    if (dataBytes === 0n) {
-      throw new Error('Could not read DSD from this SACD track');
-    }
-    const fileSize = BigInt(preamble.length) + dataBytes;
-    const patch = Buffer.alloc(8);
-    writeU64BE(patch, 0, fileSize > 12n ? fileSize - 12n : 0n);
-    const fdOut = fs.openSync(tmp, 'r+');
-    try {
-      fs.writeSync(fdOut, patch, 0, 8, 4);
-      writeU64BE(patch, 0, dataBytes);
-      fs.writeSync(fdOut, patch, 0, 8, preamble.length - 8);
-    } finally {
-      fs.closeSync(fdOut);
-    }
-    fs.renameSync(tmp, out);
+
+    finalizeDff(tmp, out, preamble.length, dataBytes);
     return out;
   } catch (err) {
     fs.rmSync(tmp, { force: true });
     throw err;
   } finally {
+    if (session) engineDstEnd(session);
     fs.closeSync(fd);
   }
 }

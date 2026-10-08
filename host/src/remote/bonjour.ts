@@ -1,11 +1,16 @@
 import fs from 'node:fs';
 import net from 'node:net';
-import { randomUUID } from 'node:crypto';
 import { Bonjour } from 'bonjour-service';
 import type { Catalogue } from '../library/catalogue.js';
+import {
+  existingToken,
+  isAuthorized,
+  loadPairing,
+  pairWithPin,
+} from '../pairing.js';
 import type { PlaybackService } from '../playback/service.js';
-import { isAuthorized, loadPairing, pairWithPin } from '../pairing.js';
 import type { HarborConfig } from '../types.js';
+import { toUuid, wireNowPlaying, wireQueue } from './wire.js';
 
 const PROTOCOL_VERSION = 2;
 const SERVICE_TYPE = 'audioharbor';
@@ -64,19 +69,44 @@ function feedFrames(buffer: Buffer): { frames: Decoded[]; rest: Buffer } {
 }
 
 export async function startBonjourRemote(opts: BonjourRemoteOptions): Promise<void> {
-  const serverId = randomUUID();
+  const pairing = loadPairing();
+  const serverId = pairing.serverId;
 
   const server = net.createServer((socket) => {
     let buffer: Buffer = Buffer.alloc(0);
     let authed = false;
+    let subscribed = false;
+    let gen = 1;
 
     const sendBody = (body: unknown, id?: number) => {
-      socket.write(encodeJson({ v: PROTOCOL_VERSION, id, body }));
+      const envelope: { v: number; body: unknown; id?: number } = {
+        v: PROTOCOL_VERSION,
+        body,
+      };
+      if (id !== undefined && id !== null) envelope.id = id;
+      socket.write(encodeJson(envelope));
     };
 
     const sendBinary = (payload: Buffer) => {
       socket.write(encodeBinary(payload));
     };
+
+    const pushSnapshots = () => {
+      if (!authed || !subscribed) return;
+      gen += 1;
+      sendBody({ nowPlaying: { snapshot: wireNowPlaying(opts.playback.snapshot(), gen) } });
+      sendBody({ queue: { snapshot: wireQueue(opts.playback.queueSnapshot(), gen) } });
+    };
+
+    // Harbor Mac/iOS: server speaks first with unsolicited hello.
+    sendBody({
+      hello: {
+        serverName: opts.getConfig().server.name,
+        version: PROTOCOL_VERSION,
+        capabilities: ['transport', 'queueJump', 'browse', 'search', 'artwork'],
+        serverID: serverId,
+      },
+    });
 
     socket.on('data', (chunk: Buffer) => {
       buffer = Buffer.from(Buffer.concat([buffer, chunk]));
@@ -84,22 +114,33 @@ export async function startBonjourRemote(opts: BonjourRemoteOptions): Promise<vo
       buffer = decoded.rest;
       for (const frame of decoded.frames) {
         if (frame.kind !== 'json') continue;
-        void handleFrame(frame.envelope, sendBody, sendBinary, () => authed, (v) => {
-          authed = v;
-        }, opts, serverId);
+        void handleFrame(
+          frame.envelope,
+          sendBody,
+          sendBinary,
+          () => authed,
+          (v) => {
+            authed = v;
+          },
+          () => {
+            subscribed = true;
+            pushSnapshots();
+          },
+          opts,
+          serverId
+        );
       }
     });
 
-    const push = () => {
-      if (!authed) return;
-      sendBody({ nowPlaying: { snapshot: opts.playback.snapshot() } });
-      sendBody({ queue: { snapshot: opts.playback.queueSnapshot() } });
-    };
-    opts.playback.on('nowPlaying', push);
-    opts.playback.on('queue', push);
+    const onUpdate = () => pushSnapshots();
+    opts.playback.on('nowPlaying', onUpdate);
+    opts.playback.on('queue', onUpdate);
     socket.on('close', () => {
-      opts.playback.off('nowPlaying', push);
-      opts.playback.off('queue', push);
+      opts.playback.off('nowPlaying', onUpdate);
+      opts.playback.off('queue', onUpdate);
+    });
+    socket.on('error', () => {
+      /* ignore */
     });
   });
 
@@ -113,6 +154,7 @@ export async function startBonjourRemote(opts: BonjourRemoteOptions): Promise<vo
       port: opts.port,
       txt: {
         v: String(PROTOCOL_VERSION),
+        id: serverId,
         caps: 'transport,queueJump,browse,search,artwork',
       },
     });
@@ -127,6 +169,7 @@ async function handleFrame(
   sendBinary: (payload: Buffer) => void,
   isAuthed: () => boolean,
   setAuthed: (v: boolean) => void,
+  onSubscribe: () => void,
   opts: BonjourRemoteOptions,
   serverId: string
 ): Promise<void> {
@@ -137,41 +180,41 @@ async function handleFrame(
   const data = (kind ? body[kind] : {}) as Record<string, unknown>;
 
   if (kind === 'hello') {
+    // Client hello with auth — respond with paired (Harbor always acks with paired).
     const auth = data.auth as { pairingCode?: string; token?: string } | undefined;
     let tokenOut: string | null = null;
     let ok = false;
-    if (auth?.token && isAuthorized(auth.token)) ok = true;
-    if (auth?.pairingCode) {
-      tokenOut = pairWithPin(auth.pairingCode);
+
+    if (auth?.token) {
+      tokenOut = existingToken(auth.token);
       ok = Boolean(tokenOut);
     }
-    if (!ok) {
-      send({ error: { code: 'unauthorized', message: 'pairing required' } }, id);
+    if (!ok && auth?.pairingCode) {
+      tokenOut = pairWithPin(String(auth.pairingCode));
+      ok = Boolean(tokenOut);
+    }
+
+    if (!ok || !tokenOut) {
+      send(
+        {
+          error: {
+            code: 'unauthorized',
+            message: 'Invalid pairing code or token',
+          },
+        },
+        id
+      );
       return;
     }
+
     setAuthed(true);
-    send(
-      {
-        hello: {
-          serverName: opts.getConfig().server.name,
-          version: PROTOCOL_VERSION,
-          capabilities: ['transport', 'queueJump', 'browse', 'search', 'artwork'],
-          serverID: serverId,
-        },
-      },
-      id
-    );
-    if (tokenOut) {
-      // Harbor uses Data; send base64 string for JSON wire
-      send({ paired: { token: Buffer.from(tokenOut).toString('base64') } });
-    }
-    send({ nowPlaying: { snapshot: opts.playback.snapshot() } });
-    send({ queue: { snapshot: opts.playback.queueSnapshot() } });
+    // Swift Decodes Data from base64 string.
+    send({ paired: { token: tokenOut } }, id);
     return;
   }
 
   if (!isAuthed()) {
-    send({ error: { code: 'unauthorized', message: 'not paired' } }, id);
+    send({ error: { code: 'unauthorized', message: 'Not paired' } }, id);
     return;
   }
 
@@ -181,29 +224,46 @@ async function handleFrame(
   }
 
   if (kind === 'subscribe') {
-    send({ nowPlaying: { snapshot: opts.playback.snapshot() } }, id);
-    send({ queue: { snapshot: opts.playback.queueSnapshot() } });
+    onSubscribe();
     return;
   }
 
   if (kind === 'transport') {
     const command = data.command as Record<string, unknown>;
     const name = Object.keys(command ?? {})[0];
-    if (name === 'play') await opts.playback.transport({ type: 'play' });
-    if (name === 'pause') await opts.playback.transport({ type: 'pause' });
-    if (name === 'toggle') await opts.playback.transport({ type: 'toggle' });
-    if (name === 'stop') await opts.playback.transport({ type: 'stop' });
-    if (name === 'next') await opts.playback.transport({ type: 'next' });
-    if (name === 'previous') await opts.playback.transport({ type: 'previous' });
-    if (name === 'seek') {
+    if (name === 'playPause' || name === 'toggle') {
+      await opts.playback.transport({ type: 'toggle' });
+    } else if (name === 'play') {
+      await opts.playback.transport({ type: 'play' });
+    } else if (name === 'pause') {
+      await opts.playback.transport({ type: 'pause' });
+    } else if (name === 'stop') {
+      await opts.playback.transport({ type: 'stop' });
+    } else if (name === 'next') {
+      await opts.playback.transport({ type: 'next' });
+    } else if (name === 'previous') {
+      await opts.playback.transport({ type: 'previous' });
+    } else if (name === 'seek') {
       const seconds = Number((command.seek as { seconds?: number })?.seconds ?? 0);
       await opts.playback.transport({ type: 'seek', seconds });
-    }
-    if (name === 'setVolume') {
+    } else if (name === 'setVolume') {
       const level = Number((command.setVolume as { level?: number })?.level ?? 0);
       await opts.playback.transport({ type: 'setVolume', level });
+    } else if (name === 'playQueueIndex') {
+      const idx = Number((command.playQueueIndex as { index?: number })?.index ?? 0);
+      const q = opts.playback.queueSnapshot();
+      if (q.tracks[idx]) await opts.playback.playTracks(q.tracks, idx);
+    } else if (name === 'setShuffle') {
+      const on = Boolean((command.setShuffle as { on?: boolean })?.on);
+      await opts.playback.transport({ type: 'setShuffle', enabled: on });
+    } else if (name === 'setRepeat') {
+      const mode = String((command.setRepeat as { mode?: string })?.mode ?? 'off') as
+        | 'off'
+        | 'all'
+        | 'one';
+      await opts.playback.transport({ type: 'setRepeat', mode });
     }
-    send({ nowPlaying: { snapshot: opts.playback.snapshot() } }, id);
+    send({ nowPlaying: { snapshot: wireNowPlaying(opts.playback.snapshot()) } }, id);
     return;
   }
 
@@ -217,25 +277,40 @@ async function handleFrame(
     } else if (selection?.album && typeof selection.album === 'object') {
       const albumId = String((selection.album as { id?: string }).id ?? '');
       if (albumId) {
-        await opts.playback.playTracks(opts.catalogue.albumTracks(albumId));
+        const allAlbums = opts.catalogue.albums();
+        const album =
+          allAlbums.find((a) => a.id === albumId) ||
+          allAlbums.find((a) => toUuid(a.id) === albumId);
+        if (album) await opts.playback.playTracks(opts.catalogue.albumTracks(album.id));
       }
+    } else if (selection?.artist && typeof selection.artist === 'object') {
+      const name = String((selection.artist as { name?: string }).name ?? '');
+      if (name) await opts.playback.playTracks(opts.catalogue.artistTracks(name));
     } else if (typeof selection?.queueJump === 'number') {
       const q = opts.playback.queueSnapshot();
       const idx = selection.queueJump;
       if (q.tracks[idx]) await opts.playback.playTracks(q.tracks, idx);
     }
-    send({ nowPlaying: { snapshot: opts.playback.snapshot() } }, id);
+    send({ nowPlaying: { snapshot: wireNowPlaying(opts.playback.snapshot()) } }, id);
     return;
   }
 
   if (kind === 'browse') {
-    const request = data.request as { scope?: string; path?: string; query?: string };
+    const request = data.request as {
+      scope?: string;
+      parentID?: string;
+      path?: string;
+      query?: string;
+      offset?: number;
+      limit?: number;
+    };
     const cfg = opts.getConfig();
     if (request?.query) {
+      const tracks = opts.catalogue.search(request.query);
       send(
         {
           browseResult: {
-            items: opts.catalogue.search(request.query).map((t) => ({ track: t })),
+            items: tracks.map((t) => ({ track: wireTrack(t) })),
             hasMore: false,
           },
         },
@@ -243,9 +318,9 @@ async function handleFrame(
       );
       return;
     }
-    const scope = (request?.scope ?? 'albums') as 'folders' | 'albums' | 'artists';
-    const raw = opts.catalogue.browse(scope, cfg.library.roots, request?.path);
-    send({ browseResult: { items: raw, hasMore: false } }, id);
+    const scope = request?.scope ?? 'albums';
+    const items = browseItems(opts.catalogue, cfg.library.roots, scope, request?.parentID);
+    send({ browseResult: { items, hasMore: false } }, id);
     return;
   }
 
@@ -253,7 +328,7 @@ async function handleFrame(
     send(
       {
         searchResult: {
-          tracks: opts.catalogue.search(String(data.query ?? '')),
+          tracks: opts.catalogue.search(String(data.query ?? '')).map(wireTrack),
         },
       },
       id
@@ -268,10 +343,7 @@ async function handleFrame(
       send({ error: { code: 'notFound', message: 'artwork' } }, id);
       return;
     }
-    let bytes = fs.readFileSync(file);
-    const maxPixel = Number(data.maxPixel ?? 0);
-    // Keep original; client scales. Cap payload size for LAN.
-    if (bytes.length > 512 * 1024) bytes = bytes.subarray(0, 512 * 1024);
+    const bytes = fs.readFileSync(file);
     send({ artworkHeader: { hash, byteCount: bytes.length } }, id);
     sendBinary(bytes);
     return;
@@ -310,6 +382,94 @@ async function handleFrame(
   }
 
   send({ error: { code: 'unsupported', message: kind ?? 'unknown' } }, id);
+  void isAuthorized;
+  void serverId;
 }
 
-void loadPairing;
+function wireTrack(t: import('../types.js').Track): Record<string, unknown> {
+  return {
+    id: toUuid(t.id),
+    cataloguePath: t.cataloguePath,
+    title: t.title,
+    artist: t.artist,
+    album: t.album,
+    trackNumber: t.trackNumber,
+    year: t.year,
+    duration: t.durationSecs ?? 0,
+    format: t.format,
+    sampleRateHz: t.sampleRate,
+    bitDepth: t.bitDepth,
+    channelCount: t.channels,
+    artworkHash: t.artworkHash,
+  };
+}
+
+function browseItems(
+  catalogue: Catalogue,
+  roots: string[],
+  scope: string,
+  parentID?: string
+): unknown[] {
+  if (scope === 'albums') {
+    return catalogue.albums().map((a) => ({
+      album: {
+        id: toUuid(a.id),
+        title: a.title,
+        artist: a.artist,
+        trackCount: a.trackCount,
+        artworkHash: a.artworkHash,
+      },
+    }));
+  }
+  if (scope === 'artists') {
+    return catalogue.artists().map((a) => ({
+      artist: { name: a.name, trackCount: a.trackCount },
+    }));
+  }
+  if (scope === 'albumTracks' && parentID) {
+    const album =
+      catalogue.albums().find((a) => toUuid(a.id) === parentID) ||
+      catalogue.albums().find((a) => a.id === parentID);
+    if (!album) return [];
+    return catalogue.albumTracks(album.id).map((t) => ({ track: wireTrack(t) }));
+  }
+  if (scope === 'artistTracks' && parentID) {
+    return catalogue.artistTracks(parentID).map((t) => ({ track: wireTrack(t) }));
+  }
+  if (scope === 'playlists') {
+    return catalogue.listPlaylists().map((p) => ({
+      playlist: {
+        id: p.id.includes('-') ? p.id : toUuid(p.id),
+        name: p.name,
+        trackCount: p.paths.length,
+      },
+    }));
+  }
+  if (scope === 'playlistTracks' && parentID) {
+    const pl = catalogue.listPlaylists().find((p) => p.id === parentID);
+    if (!pl) return [];
+    return pl.paths
+      .map((p) => catalogue.getTrack(p))
+      .filter((t): t is NonNullable<typeof t> => Boolean(t))
+      .map((t) => ({ track: wireTrack(t) }));
+  }
+  if (scope === 'folders') {
+    const raw = catalogue.browseFolder(roots, parentID ?? null);
+    return raw.map((item) => {
+      if (item.isDirectory) {
+        return {
+          folder: {
+            id: item.path,
+            name: item.name,
+            childHint: null,
+          },
+        };
+      }
+      if (item.track) return { track: wireTrack(item.track) };
+      return {
+        folder: { id: item.path, name: item.name, childHint: null },
+      };
+    });
+  }
+  return [];
+}

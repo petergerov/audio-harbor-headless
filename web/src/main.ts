@@ -645,4 +645,10 @@ function escAttr(s: string): string {
   return esc(s).replaceAll("'", '&#39;');
 }
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  });
+}
+
 void boot();

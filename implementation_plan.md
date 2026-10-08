@@ -240,11 +240,14 @@ Config: `~/.audio-harbor-headless/config.toml` — DLNA via `sharing.enabled = t
 - Bonjour: Artwork-Frames + `trackOptions` / `editTrack`
 - Web: Artwork-Blob-Cache + `navigator.vibrate` Haptics
 - SACD ISO: Stereo-TOC Listing + uncompressed Extract → cached DFF
+- SACD/DFF DST: AHDSTDecoder vendored + extract → cached DFF
+- ALAC/AAC: Mac via ExtAudioFile; Linux via ffmpeg/ffprobe Fallback
+- UPnP DIDL: bitrate / sampleFrequency / bitsPerSample / nrAudioChannels + DLNA flags
+- Web: Service Worker offline shell (`sw.js`)
 
 ### Noch offen
 
-1. SACD DST-Decode (native AHDST / libdst)
-2. Linux/Mac: ALAC über Engine (JUCE oder Core Audio schon auf Mac)
-3. UPnP: Wi‑Fi-Stream-Qualität / Bitrate-Hints
-4. Web: Service Worker offline shell
-5. Harbor-FIR Feintuning (flat to 25 kHz, ≥ 120 dB Stopband-Messung)
+1. Harbor-FIR Feintuning (flat to 25 kHz, ≥ 120 dB Stopband-Messung)
+2. Native ALAC ohne ffmpeg auf Linux (JUCE / libalac)
+3. DFF-embedded DST Chunks (nicht nur SACD ISO)
+4. Renderer-HTTP: korrekte MIME aus Catalogue-Track statt nur Dateiendung

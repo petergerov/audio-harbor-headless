@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "HarborEngine.h"
+#include "AHDSTDecoder.h"
 
 namespace {
 
@@ -154,6 +155,68 @@ Napi::Value On(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+struct DstSession {
+  AHDSTDecoder* decoder = nullptr;
+};
+
+Napi::Value DstBegin(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() < 2) {
+    Napi::TypeError::New(env, "sampleRate, channels required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const int sr = info[0].As<Napi::Number>().Int32Value();
+  const int ch = info[1].As<Napi::Number>().Int32Value();
+  AHDSTDecoder* dec = AHDSTDecoderCreate(sr, ch);
+  if (!dec) {
+    Napi::Error::New(env, "DST decoder create failed").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto* session = new DstSession{dec};
+  return Napi::External<DstSession>::New(env, session, [](Napi::Env, DstSession* s) {
+    if (s->decoder) AHDSTDecoderDestroy(s->decoder);
+    delete s;
+  });
+}
+
+Napi::Value DstDecodeFrame(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() < 2 || !info[0].IsExternal() || !info[1].IsBuffer()) {
+    Napi::TypeError::New(env, "session, frameBuffer required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto* session = info[0].As<Napi::External<DstSession>>().Data();
+  if (!session || !session->decoder) {
+    Napi::Error::New(env, "invalid DST session").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto frame = info[1].As<Napi::Buffer<uint8_t>>();
+  const size_t outSize = AHDSTDecoderFrameByteCount(session->decoder);
+  auto out = Napi::Buffer<uint8_t>::New(env, outSize);
+  const int st = AHDSTDecoderDecode(
+    session->decoder, frame.Data(), frame.Length(), out.Data(), outSize);
+  if (st == AHDST_ERR_UNSUPPORTED) {
+    Napi::Error::New(env, "DST layout unsupported").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  if (st != AHDST_OK) {
+    Napi::Error::New(env, "DST decode failed").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  return out;
+}
+
+Napi::Value DstEnd(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() < 1 || !info[0].IsExternal()) return env.Undefined();
+  auto* session = info[0].As<Napi::External<DstSession>>().Data();
+  if (session && session->decoder) {
+    AHDSTDecoderDestroy(session->decoder);
+    session->decoder = nullptr;
+  }
+  return env.Undefined();
+}
+
 Napi::Value SetEventListener(const Napi::CallbackInfo& info) {
   auto env = info.Env();
   if (!info[0].IsFunction()) {
@@ -191,6 +254,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("getState", Napi::Function::New(env, GetState));
   exports.Set("on", Napi::Function::New(env, On));
   exports.Set("setEventListener", Napi::Function::New(env, SetEventListener));
+  exports.Set("dstBegin", Napi::Function::New(env, DstBegin));
+  exports.Set("dstDecodeFrame", Napi::Function::New(env, DstDecodeFrame));
+  exports.Set("dstEnd", Napi::Function::New(env, DstEnd));
   return exports;
 }
 

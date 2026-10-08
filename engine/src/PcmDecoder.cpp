@@ -154,25 +154,16 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
     return !out.interleaved.empty();
   }
 
-  // ALAC / AAC / M4A via ffmpeg when available (Linux; Mac usually uses ExtAudioFile)
+  // ALAC / AAC / M4A via ffmpeg when available (Linux; Mac uses ExtAudioFile in MacPlayer)
   if (endsWithCi(path, ".m4a") || endsWithCi(path, ".mp4") || endsWithCi(path, ".alac") ||
       endsWithCi(path, ".aac")) {
-    char cmd[4096];
-    // Probe channels/rate, then decode f32le interleaved
-    std::snprintf(
-      cmd,
-      sizeof(cmd),
-      "ffmpeg -v error -i %s -f f32le -acodec pcm_f32le - 2>/dev/null",
-      // naive quoting: paths with spaces handled poorly; shell-escape via single quotes
-      path.c_str()
-    );
-    // Prefer quoted path
     std::string quoted = "'";
     for (char c : path) {
       if (c == '\'') quoted += "'\\''";
       else quoted += c;
     }
     quoted += "'";
+    char cmd[4096];
     std::snprintf(
       cmd,
       sizeof(cmd),
@@ -183,7 +174,7 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
     FILE* probe = popen(cmd, "r");
     unsigned rate = 0, channels = 0;
     if (probe) {
-      if (std::fscanf(probe, "%u%*[^0-9]%u", &rate, &channels) != 2) {
+      if (std::fscanf(probe, "%ux%u", &rate, &channels) != 2) {
         rate = 0;
         channels = 0;
       }

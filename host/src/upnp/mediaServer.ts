@@ -174,6 +174,31 @@ function browseDidl(objectId: string, opts: DlnaOptions, base: string): string {
   return `<?xml version="1.0"?><DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"></DIDL-Lite>`;
 }
 
+function estimateBitrate(t: {
+  sampleRate: number | null;
+  bitDepth: number | null;
+  channels: number | null;
+  fileSize: number | null;
+  durationSecs: number | null;
+  format: string;
+}): number | null {
+  if (t.fileSize != null && t.durationSecs != null && t.durationSecs > 0) {
+    return Math.round((t.fileSize * 8) / t.durationSecs);
+  }
+  if (t.sampleRate && t.bitDepth && t.channels) {
+    return t.sampleRate * t.bitDepth * t.channels;
+  }
+  return null;
+}
+
+function dlnaPn(mime: string, format: string): string {
+  if (format === 'flac' || mime === 'audio/flac') return 'FLAC';
+  if (format === 'mp3' || mime === 'audio/mpeg') return 'MP3';
+  if (format === 'wav' || mime === 'audio/wav') return 'LPCM';
+  if (mime === 'audio/mp4') return 'AAC_ISO';
+  return '';
+}
+
 function trackDidl(
   tracks: ReturnType<Catalogue['albumTracks']>,
   parentId: string,
@@ -187,12 +212,23 @@ function trackDidl(
         t.durationSecs != null
           ? ` duration="${escapeXml(formatDidlDuration(t.durationSecs))}"`
           : '';
+      const bitrate = estimateBitrate(t);
+      const br = bitrate != null ? ` bitrate="${bitrate}"` : '';
+      const sr = t.sampleRate != null ? ` sampleFrequency="${t.sampleRate}"` : '';
+      const bits = t.bitDepth != null ? ` bitsPerSample="${t.bitDepth}"` : '';
+      const ch = t.channels != null ? ` nrAudioChannels="${t.channels}"` : '';
+      const size = t.fileSize != null ? ` size="${t.fileSize}"` : '';
+      const pn = dlnaPn(mime, t.format);
+      const features = pn
+        ? `DLNA.ORG_PN=${pn};DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000`
+        : 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000';
+      const protocolInfo = `http-get:*:${mime}:${features}`;
       return `<item id="track:${escapeXml(t.id)}" parentID="${escapeXml(parentId)}" restricted="1">
           <dc:title>${escapeXml(t.title)}</dc:title>
           <upnp:artist>${escapeXml(t.artist)}</upnp:artist>
           <upnp:album>${escapeXml(t.album)}</upnp:album>
           <upnp:class>object.item.audioItem.musicTrack</upnp:class>
-          <res protocolInfo="http-get:*:${mime}:*"${dur}>${media}</res>
+          <res protocolInfo="${escapeXml(protocolInfo)}"${dur}${br}${sr}${bits}${ch}${size}>${media}</res>
         </item>`;
     })
     .join('');

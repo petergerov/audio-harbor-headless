@@ -19,6 +19,9 @@ type NativeEngine = {
   setVolume(level: number): void;
   getState(): EngineState;
   setEventListener?: (cb: (event: string, payload: string) => void) => void;
+  dstBegin?(sampleRateHz: number, channels: number): unknown;
+  dstDecodeFrame?(session: unknown, frame: Buffer): Buffer;
+  dstEnd?(session: unknown): void;
 };
 
 let native: NativeEngine | null = null;
@@ -97,6 +100,22 @@ export function engineSetVolume(level: number): void {
 
 export function engineGetState(): EngineState | null {
   return loadNative()?.getState() ?? null;
+}
+
+export function engineDstBegin(sampleRateHz: number, channels: number): unknown {
+  const eng = loadNative();
+  if (!eng?.dstBegin) throw new Error('DST decoder not available');
+  return eng.dstBegin(sampleRateHz, channels);
+}
+
+export function engineDstDecodeFrame(session: unknown, frame: Buffer): Buffer {
+  const eng = loadNative();
+  if (!eng?.dstDecodeFrame) throw new Error('DST decoder not available');
+  return eng.dstDecodeFrame(session, frame);
+}
+
+export function engineDstEnd(session: unknown): void {
+  loadNative()?.dstEnd?.(session);
 }
 
 export function buildOutputStatus(
