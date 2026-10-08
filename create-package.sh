@@ -76,6 +76,54 @@ ARCHIVE="$OUT_DIR/${NAME}.tar.gz"
 
 log() { printf '==> %s\n' "$*"; }
 
+# Official Node binary matching the ABI of harbor_engine.node (CI uses Node 20).
+BUNDLE_NODE_VER="${HARBOR_BUNDLE_NODE:-20.20.2}"
+
+bundle_nodejs() {
+  local ver="$1" plat="$2" dest="$3"
+  local name url tmp arch_dir
+  case "$plat" in
+    darwin-arm64) name="node-v${ver}-darwin-arm64"; url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
+    darwin-x64)   name="node-v${ver}-darwin-x64";   url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
+    linux-x64)    name="node-v${ver}-linux-x64";    url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
+    linux-arm64)  name="node-v${ver}-linux-arm64";  url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
+    win32-x64)    name="node-v${ver}-win-x64";      url="https://nodejs.org/dist/v${ver}/${name}.zip" ;;
+    *)
+      log "No official Node bundle mapping for $plat — skipping runtime/"
+      return 0
+      ;;
+  esac
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/harbor-node.XXXXXX")"
+  log "Bundling Node v${ver} ($name)"
+  if [[ "$plat" == win32-* ]]; then
+    curl -fsSL "$url" -o "$tmp/node.zip"
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -q "$tmp/node.zip" -d "$tmp"
+    else
+      # PowerShell fallback on GitHub windows runners
+      powershell.exe -NoProfile -Command "Expand-Archive -Path '$tmp/node.zip' -DestinationPath '$tmp' -Force"
+    fi
+    mkdir -p "$dest"
+    # Official zip is flat: node.exe at root of extracted folder
+    if [[ -f "$tmp/$name/node.exe" ]]; then
+      cp -f "$tmp/$name/node.exe" "$dest/node.exe"
+      # Keep LICENSE for redistribution compliance
+      [[ -f "$tmp/$name/LICENSE" ]] && cp -f "$tmp/$name/LICENSE" "$dest/NODE-LICENSE"
+    else
+      find "$tmp" -name 'node.exe' -exec cp -f {} "$dest/node.exe" \;
+    fi
+  else
+    curl -fsSL "$url" -o "$tmp/node.tar.gz"
+    tar -xzf "$tmp/node.tar.gz" -C "$tmp"
+    mkdir -p "$dest/bin"
+    cp -f "$tmp/$name/bin/node" "$dest/bin/node"
+    chmod +x "$dest/bin/node"
+    [[ -f "$tmp/$name/LICENSE" ]] && cp -f "$tmp/$name/LICENSE" "$dest/NODE-LICENSE"
+  fi
+  rm -rf "$tmp"
+}
+
 # Copy ROOT → STAGE with excludes.
 # Prefer tar on Windows (GitHub windows-latest has no rsync). Elsewhere: rsync if present, else tar.
 stage_tree() {
@@ -177,10 +225,15 @@ if [[ "$MODE" == "prebuilt" ]]; then
   mkdir -p "$STAGE/engine/build/Release"
   cp -f "$ENGINE" "$STAGE/engine/build/Release/harbor_engine.node"
 
+  # Ship a matching Node runtime so users need no system Node (and ABI always matches).
+  mkdir -p "$STAGE/runtime"
+  bundle_nodejs "$BUNDLE_NODE_VER" "$PLATFORM" "$STAGE/runtime"
+
   cat > "$STAGE/PLATFORM.txt" <<EOF
 platform=$PLATFORM
 node=$NODE_VER
 node_abi=$NODE_ABI
+node_bundle=$BUNDLE_NODE_VER
 built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mode=prebuilt
 EOF
@@ -189,8 +242,9 @@ EOF
 Audio Harbor Headless — prebuilt ($PLATFORM)
 ===========================================
 
-Requirements:
-  - Node.js ${NODE_VER%%.*}.x (ABI $NODE_ABI) — same major as this build
+This package includes Node.js ${BUNDLE_NODE_VER} under runtime/ — no system Node required.
+
+Also needed:
   - macOS: nothing else
   - Linux: libasound2 (ALSA); Raspberry Pi OS / Debian: sudo apt install libasound2
   - Prebuilt packages include JUCE + native (Core Audio / ALSA / WASAPI)
@@ -234,7 +288,7 @@ EOF
 fi
 
 cp -f "$ROOT/install.sh" "$ROOT/start.sh" "$ROOT/create-package.sh" "$STAGE/" 2>/dev/null || true
-# Windows helper
+# Windows helper — prefers bundled runtime\node.exe
 cat > "$STAGE/start.cmd" <<'EOF'
 @echo off
 setlocal
@@ -243,6 +297,8 @@ if not exist "host\dist\index.js" (
   echo Not built. Use a prebuilt package or run install on this machine.
   exit /b 1
 )
+set "NODE_BIN=node"
+if exist "runtime\node.exe" set "NODE_BIN=%~dp0runtime\node.exe"
 if not exist "%USERPROFILE%\.audio-harbor-headless\config.toml" (
   mkdir "%USERPROFILE%\.audio-harbor-headless" 2>nul
   copy /Y config.example.toml "%USERPROFILE%\.audio-harbor-headless\config.toml" >nul
@@ -250,9 +306,9 @@ if not exist "%USERPROFILE%\.audio-harbor-headless\config.toml" (
 )
 set NODE_ENV=production
 if "%~1"=="" (
-  node host\dist\index.js serve
+  "%NODE_BIN%" host\dist\index.js serve
 ) else (
-  node host\dist\index.js %*
+  "%NODE_BIN%" host\dist\index.js %*
 )
 EOF
 

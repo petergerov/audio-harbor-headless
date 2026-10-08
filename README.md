@@ -57,7 +57,9 @@ GitHub Actions builds one archive **per platform** (JUCE + native on Mac/Linux/W
 | `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 |
 | `*-win32-x64.zip` | Windows x64 |
 
-Intel and Apple Silicon Macs both use the native Core Audio path (`backend = "native"`). Pick the archive that matches `uname -m` (`arm64` vs `x86_64`). Node 20 needs a recent enough macOS (typically **11 Big Sur or newer**).
+Intel and Apple Silicon Macs both use the native Core Audio path (`backend = "native"`). Pick the archive that matches `uname -m` (`arm64` vs `x86_64`).
+
+Prebuilt archives **bundle Node.js 20** under `runtime/` — you do not need a system Node install. `./start.sh` uses the bundled binary so it always matches `harbor_engine.node`. macOS typically needs **11 Big Sur or newer**.
 
 ```bash
 # Example Raspberry Pi
@@ -71,11 +73,11 @@ sudo apt install -y libasound2   # JUCE uses ALSA on Linux
 
 Windows: unpack the `.zip` and run `start.cmd` (Node 20+).
 
-Publish a release:
+Publish a release (manual only):
 
-```bash
-git tag v1.0.0 && git push origin v1.0.0   # triggers .github/workflows/release-packages.yml
-```
+1. Push `main` with the commits you want
+2. GitHub → **Actions** → **Release packages** → **Run workflow**
+3. Enter tag (e.g. `v1.0.1`) — optional: draft
 
 Or locally:
 

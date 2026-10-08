@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -28,3 +29,12 @@ void packDop(const DsdStream& in, std::vector<int32_t>& pcmOut, uint32_t& pcmSam
  */
 void dsdToPcm(const DsdStream& in, std::vector<float>& pcmInterleaved,
               uint32_t& outRate, float gainDb);
+
+/**
+ * Same conversion as dsdToPcm, but fills pcmInterleaved in timeline order and
+ * publishes ready frame count so playback can start before the whole track is done.
+ * If cancel becomes true, stops early (partial pcm remains valid up to readyFrames).
+ */
+void dsdToPcmProgressive(
+    const DsdStream& in, std::vector<float>& pcmInterleaved, uint32_t& outRate, float gainDb,
+    std::atomic<size_t>* readyFrames, std::atomic<bool>* cancel);

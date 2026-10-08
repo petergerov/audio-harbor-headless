@@ -116,6 +116,7 @@ struct HalfDecimator {
   std::vector<float> history;
   int write = 0;
   bool odd = false;
+  float last = 0.0f;
 
   explicit HalfDecimator(std::vector<float> t)
     : taps(std::move(t)), history(taps.size() * 2, 0.0f) {}
@@ -130,11 +131,56 @@ struct HalfDecimator {
     float sum = 0.0f;
     const int start = write;
     for (int k = 0; k < length; ++k) sum += taps[size_t(k)] * history[size_t(start + k)];
-    static thread_local float out;
-    out = sum;
-    return &out;
+    last = sum;
+    return &last;
   }
 };
+
+struct ChannelDecim {
+  std::vector<uint16_t> ring;
+  int byteWrite = 0;
+  std::vector<HalfDecimator> stages;
+  size_t byteIndex = 0;
+};
+
+bool feedChannel(ChannelDecim& ch, const FirDesign& design, const uint8_t* bits, size_t totalBytes,
+                 size_t channels, float gain, float& outSample) {
+  while (ch.byteIndex < totalBytes) {
+    const uint8_t b = bits[ch.byteIndex];
+    const int length = design.stage1Bytes;
+    ch.ring[size_t(ch.byteWrite)] = b;
+    ch.ring[size_t(ch.byteWrite + length)] = b;
+    ch.byteWrite = ch.byteWrite + 1 == length ? 0 : ch.byteWrite + 1;
+
+    float value = 0.0f;
+    const int start = ch.byteWrite;
+    for (int j = 0; j < length; ++j) {
+      const uint16_t wb = ch.ring[size_t(start + j)];
+      if (wb > 255) continue;
+      value += design.stage1Table[size_t(j * 257 + int(wb))];
+    }
+
+    bool have = true;
+    for (auto& stage : ch.stages) {
+      float* o = stage.push(value);
+      if (!o) {
+        have = false;
+        break;
+      }
+      value = *o;
+    }
+
+    ch.byteIndex += channels;
+    if (have) {
+      value *= gain;
+      if (value > 1.0f) value = 1.0f;
+      if (value < -1.0f) value = -1.0f;
+      outSample = value;
+      return true;
+    }
+  }
+  return false;
+}
 
 } // namespace
 
@@ -321,9 +367,11 @@ void packDop(const DsdStream& in, std::vector<int32_t>& pcmOut, uint32_t& pcmSam
   }
 }
 
-void dsdToPcm(const DsdStream& in, std::vector<float>& pcmInterleaved,
-              uint32_t& outRate, float gainDb) {
+void dsdToPcmProgressive(const DsdStream& in, std::vector<float>& pcmInterleaved,
+                         uint32_t& outRate, float gainDb, std::atomic<size_t>* readyFrames,
+                         std::atomic<bool>* cancel) {
   const size_t channels = in.channels ? in.channels : 2;
+  if (readyFrames) readyFrames->store(0, std::memory_order_release);
   if (channels == 0 || in.interleavedBits.empty()) {
     outRate = 88200;
     pcmInterleaved.clear();
@@ -342,52 +390,39 @@ void dsdToPcm(const DsdStream& in, std::vector<float>& pcmInterleaved,
   const size_t framesPerChannel = totalBytes / (channels * size_t(bytesPerPcm));
   pcmInterleaved.assign(framesPerChannel * channels, 0.0f);
   const float gain = std::pow(10.0f, gainDb / 20.0f);
+  const uint8_t* bits = in.interleavedBits.data();
 
-  // Process per channel. Bits are channel-interleaved by byte for DSF.
+  std::vector<ChannelDecim> chans(channels);
   for (size_t ch = 0; ch < channels; ++ch) {
-    std::vector<uint16_t> ring(size_t(design.stage1Bytes) * 2, 256);
-    int byteWrite = 0;
-    std::vector<HalfDecimator> stages;
-    stages.reserve(design.halfStageTaps.size());
-    for (const auto& taps : design.halfStageTaps) stages.emplace_back(taps);
+    chans[ch].ring.assign(size_t(design.stage1Bytes) * 2, 256);
+    chans[ch].stages.reserve(design.halfStageTaps.size());
+    for (const auto& taps : design.halfStageTaps) chans[ch].stages.emplace_back(taps);
+    chans[ch].byteIndex = ch;
+  }
 
-    size_t outFrame = 0;
-    size_t byteIndex = ch; // interleaved
-    while (byteIndex < totalBytes && outFrame < framesPerChannel) {
-      const uint8_t b = in.interleavedBits[byteIndex];
-      const int length = design.stage1Bytes;
-      ring[size_t(byteWrite)] = b;
-      ring[size_t(byteWrite + length)] = b;
-      byteWrite = byteWrite + 1 == length ? 0 : byteWrite + 1;
-
-      float value = 0.0f;
-      const int start = byteWrite;
-      for (int j = 0; j < length; ++j) {
-        const uint16_t wb = ring[size_t(start + j)];
-        if (wb > 255) continue;
-        value += design.stage1Table[size_t(j * 257 + int(wb))];
+  // Timeline order so playback can start after the first second is ready.
+  size_t produced = 0;
+  for (; produced < framesPerChannel; ++produced) {
+    if (cancel && cancel->load(std::memory_order_acquire)) break;
+    bool ok = true;
+    for (size_t ch = 0; ch < channels; ++ch) {
+      float sample = 0.0f;
+      if (!feedChannel(chans[ch], design, bits, totalBytes, channels, gain, sample)) {
+        ok = false;
+        break;
       }
-
-      bool have = true;
-      for (auto& stage : stages) {
-        float* o = stage.push(value);
-        if (!o) {
-          have = false;
-          break;
-        }
-        value = *o;
-      }
-
-      if (have) {
-        value *= gain;
-        if (value > 1.0f) value = 1.0f;
-        if (value < -1.0f) value = -1.0f;
-        pcmInterleaved[outFrame * channels + ch] = value;
-        ++outFrame;
-      }
-
-      byteIndex += channels;
+      pcmInterleaved[produced * channels + ch] = sample;
+    }
+    if (!ok) break;
+    if (readyFrames && ((produced + 1) % 4096 == 0)) {
+      readyFrames->store(produced + 1, std::memory_order_release);
     }
   }
+  if (readyFrames) readyFrames->store(produced, std::memory_order_release);
   (void)bytesPerPcm;
+}
+
+void dsdToPcm(const DsdStream& in, std::vector<float>& pcmInterleaved,
+              uint32_t& outRate, float gainDb) {
+  dsdToPcmProgressive(in, pcmInterleaved, outRate, gainDb, nullptr, nullptr);
 }
