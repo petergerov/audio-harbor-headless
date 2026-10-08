@@ -1,6 +1,7 @@
 #if defined(__linux__)
 
 #include "DsdPipeline.h"
+#include "PcmDecoder.h"
 #include "Player.h"
 
 #include <alsa/asoundlib.h>
@@ -9,7 +10,6 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -84,9 +84,9 @@ public:
     frameIndex_ = 0;
 
     refreshEffective_();
-    if (endsWith(path, ".dsf") || endsWith(path, ".DSF")) {
+    if (endsWith(path, ".dsf") || endsWith(path, ".DSF") || endsWith(path, ".dff") || endsWith(path, ".DFF")) {
       DsdStream dsd;
-      if (!loadDsf(path, dsd, error_)) {
+      if (!loadDsdFile(path, dsd, error_)) {
         state_ = HARBOR_STATE_FAILED;
         emit_("state", nullptr);
         return false;
@@ -103,14 +103,17 @@ public:
         duration_ = double(pcm_.size() / channels_) / double(sampleRate_);
       }
     } else {
-      // Minimal WAV reader (PCM 16/24/32 float not full — use float decode via sox later)
-      if (!loadWav_(path)) {
-        // Fallback: mark failed with clear message; host can still index the file
-        error_ = "Linux shared path currently plays WAV/DSF; use WAV or enable conversion";
+      DecodedPcm decoded;
+      if (!decodePcmFile(path, decoded, error_)) {
         state_ = HARBOR_STATE_FAILED;
         emit_("state", nullptr);
         return false;
       }
+      pcm_ = std::move(decoded.interleaved);
+      sampleRate_ = decoded.sampleRate;
+      channels_ = decoded.channels;
+      duration_ = double(pcm_.size() / channels_) / double(sampleRate_);
+      isDop_ = false;
       if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) badge_ = "Exclusive";
       else badge_.clear();
     }
@@ -190,59 +193,6 @@ private:
       return;
     }
     effectiveMode_ = requestedMode_;
-  }
-
-  bool loadWav_(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return false;
-    char riff[12];
-    in.read(riff, 12);
-    if (std::memcmp(riff, "RIFF", 4) != 0) return false;
-    uint16_t audioFormat = 0, ch = 0, bits = 0;
-    uint32_t rate = 0, dataSize = 0;
-    while (in && !in.eof()) {
-      char id[4];
-      uint32_t sz = 0;
-      in.read(id, 4);
-      in.read(reinterpret_cast<char*>(&sz), 4);
-      if (std::memcmp(id, "fmt ", 4) == 0) {
-        in.read(reinterpret_cast<char*>(&audioFormat), 2);
-        in.read(reinterpret_cast<char*>(&ch), 2);
-        in.read(reinterpret_cast<char*>(&rate), 4);
-        in.ignore(6);
-        in.read(reinterpret_cast<char*>(&bits), 2);
-        if (sz > 16) in.ignore(sz - 16);
-      } else if (std::memcmp(id, "data", 4) == 0) {
-        dataSize = sz;
-        break;
-      } else {
-        in.ignore(sz);
-      }
-    }
-    if (!ch || !rate || !dataSize) return false;
-    channels_ = ch;
-    sampleRate_ = rate;
-    std::vector<char> raw(dataSize);
-    in.read(raw.data(), dataSize);
-    const size_t samples = dataSize / (bits / 8);
-    pcm_.resize(samples);
-    if (bits == 16) {
-      auto* src = reinterpret_cast<const int16_t*>(raw.data());
-      for (size_t i = 0; i < samples; ++i) pcm_[i] = src[i] / 32768.0f;
-    } else if (bits == 24) {
-      for (size_t i = 0; i < samples; ++i) {
-        const size_t o = i * 3;
-        int32_t v = int32_t(uint8_t(raw[o]) | (uint8_t(raw[o + 1]) << 8) | (uint8_t(raw[o + 2]) << 16));
-        if (v & 0x800000) v |= ~0xFFFFFF;
-        pcm_[i] = v / 8388608.0f;
-      }
-    } else if (bits == 32 && audioFormat == 3) {
-      auto* src = reinterpret_cast<const float*>(raw.data());
-      for (size_t i = 0; i < samples; ++i) pcm_[i] = src[i];
-    } else return false;
-    duration_ = double(samples / channels_) / double(sampleRate_);
-    isDop_ = false;
-    return true;
   }
 
   bool openAlsa_() {

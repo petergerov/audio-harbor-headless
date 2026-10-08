@@ -1,7 +1,13 @@
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
-import { fetchRendererDescription, pauseRenderer, playRenderer, setAvTransportUri } from './rendererControl.js';
+import {
+  fetchRendererDescription,
+  pauseRenderer,
+  playRenderer,
+  setAvTransportUri,
+  setNextAvTransportUri,
+} from './rendererControl.js';
+import { lanIp } from '../net.js';
 import type { OutputDevice } from '../types.js';
 
 export interface DiscoveredRenderer extends OutputDevice {
@@ -83,31 +89,37 @@ export async function ensureMediaHttpServer(port = 8201): Promise<number> {
   return mediaPort;
 }
 
+function mediaUriFor(filePath: string): string {
+  const token = Math.random().toString(36).slice(2);
+  tokens.set(token, filePath);
+  return `http://${lanIp()}:${mediaPort}/t/${token}`;
+}
+
 export async function playOnRenderer(
   renderer: DiscoveredRenderer,
   filePath: string
 ): Promise<void> {
   if (!renderer.avTransportUrl) throw new Error('Renderer has no AVTransport');
   await ensureMediaHttpServer();
-  const token = Math.random().toString(36).slice(2);
-  tokens.set(token, filePath);
-  const host = lanIp();
-  const uri = `http://${host}:${mediaPort}/t/${token}`;
+  const uri = mediaUriFor(filePath);
   await setAvTransportUri(renderer.avTransportUrl, uri);
   await playRenderer(renderer.avTransportUrl);
+}
+
+export async function prepareNextOnRenderer(
+  renderer: DiscoveredRenderer,
+  filePath: string
+): Promise<void> {
+  if (!renderer.avTransportUrl) return;
+  await ensureMediaHttpServer();
+  try {
+    await setNextAvTransportUri(renderer.avTransportUrl, mediaUriFor(filePath));
+  } catch {
+    // Many renderers lack SetNext — ignore quietly
+  }
 }
 
 export async function pauseOnRenderer(renderer: DiscoveredRenderer): Promise<void> {
   if (!renderer.avTransportUrl) return;
   await pauseRenderer(renderer.avTransportUrl);
-}
-
-function lanIp(): string {
-  const nets = os.networkInterfaces();
-  for (const entries of Object.values(nets)) {
-    for (const e of entries ?? []) {
-      if (e.family === 'IPv4' && !e.internal) return e.address;
-    }
-  }
-  return '127.0.0.1';
 }

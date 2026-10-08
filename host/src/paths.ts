@@ -30,9 +30,11 @@ export function pairingPath(): string {
 }
 
 export function exampleConfigPath(): string {
-  return path.resolve(__dirname, '../../../config.example.toml');
+  // host/dist/paths.js → repo root
+  return path.resolve(__dirname, '../../config.example.toml');
 }
 
 export function webDistPath(): string {
-  return path.resolve(__dirname, '../../../web/dist');
+  // host/dist/paths.js → web/dist
+  return path.resolve(__dirname, '../../web/dist');
 }

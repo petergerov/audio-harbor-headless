@@ -12,8 +12,9 @@ import {
   engineEvents,
 } from '../engine/bridge.js';
 import type { Catalogue } from '../library/catalogue.js';
+import { resolveSacdPlaybackPath, SACD_MARKER } from '../library/sacd.js';
 import type { DiscoveredRenderer } from '../upnp/rendererOutput.js';
-import { pauseOnRenderer, playOnRenderer } from '../upnp/rendererOutput.js';
+import { pauseOnRenderer, playOnRenderer, prepareNextOnRenderer } from '../upnp/rendererOutput.js';
 import type {
   HarborConfig,
   NowPlayingSnapshot,
@@ -171,12 +172,25 @@ export class PlaybackService extends EventEmitter {
     if (renderer) {
       engineStop();
       await playOnRenderer(renderer, track.cataloguePath);
+      await this.prepareNetworkNext(renderer);
       this.emitUpdate();
       return;
     }
-    await engineLoad(track.cataloguePath);
+    const playPath = track.cataloguePath.includes(SACD_MARKER)
+      ? resolveSacdPlaybackPath(track.cataloguePath)
+      : track.cataloguePath;
+    await engineLoad(playPath);
     enginePlay();
     this.emitUpdate();
+  }
+
+  private async prepareNetworkNext(
+    renderer: NonNullable<ReturnType<PlaybackService['selectedRenderer']>>
+  ): Promise<void> {
+    if (this.index == null) return;
+    const next = this.queue[this.index + 1];
+    if (!next) return;
+    await prepareNextOnRenderer(renderer, next.cataloguePath);
   }
 
   private async next(): Promise<void> {

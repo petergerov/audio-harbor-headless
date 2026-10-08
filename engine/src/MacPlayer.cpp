@@ -124,11 +124,11 @@ public:
     channels_ = 2;
     frameIndex_ = 0;
 
-    const bool isDsf = endsWithCi(path, ".dsf");
-    if (isDsf) {
+    const bool isDsd = endsWithCi(path, ".dsf") || endsWithCi(path, ".dff");
+    if (isDsd) {
       DsdStream dsd;
       std::string err;
-      if (!loadDsf(path, dsd, err)) {
+      if (!loadDsdFile(path, dsd, err)) {
         error_ = err;
         state_ = HARBOR_STATE_FAILED;
         emit_("state", nullptr);

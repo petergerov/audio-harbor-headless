@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'harbor.token';
+const artworkCache = new Map<string, string>();
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -7,6 +8,29 @@ export function getToken(): string | null {
 export function setToken(token: string | null): void {
   if (!token) localStorage.removeItem(TOKEN_KEY);
   else localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function haptic(style: 'light' | 'medium' = 'light'): void {
+  try {
+    if (navigator.vibrate) navigator.vibrate(style === 'medium' ? 12 : 8);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Cached blob URL for artwork (Authorization via query token). */
+export async function artworkObjectUrl(hash: string): Promise<string> {
+  const hit = artworkCache.get(hash);
+  if (hit) return hit;
+  const token = getToken() ?? '';
+  const res = await fetch(
+    `/api/v1/artwork/${encodeURIComponent(hash)}?token=${encodeURIComponent(token)}`
+  );
+  if (!res.ok) throw new Error('artwork');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  artworkCache.set(hash, url);
+  return url;
 }
 
 export async function api<T = unknown>(

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import os from 'node:os';
 import qrcode from 'qrcode-terminal';
 import { buildServer, loadPairing, printPairingInfo, rotatePin } from './api/server.js';
 import { loadConfig, saveConfig } from './config.js';
 import { engineVersion } from './engine/bridge.js';
 import { Catalogue } from './library/catalogue.js';
+import { lanBaseUrl } from './net.js';
 import { PlaybackService } from './playback/service.js';
 import { startBonjourRemote } from './remote/bonjour.js';
 import { startDlnaServer } from './upnp/mediaServer.js';
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   const app = await buildServer({ catalogue, playback, getConfig });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
-  const lan = pickLanUrl(cfg.server.port);
+  const lan = lanBaseUrl(cfg.server.port);
   console.log(`Audio Harbor Headless listening on ${address}`);
   console.log(`Engine: ${engineVersion()}`);
   console.log(`Open on iPhone: ${lan}`);
@@ -85,18 +85,6 @@ async function main(): Promise<void> {
     });
     console.log(`Bonjour remote _audioharbor._tcp on port ${cfg.remote.bonjour_port}`);
   }
-}
-
-function pickLanUrl(port: number): string {
-  const nets = os.networkInterfaces();
-  for (const entries of Object.values(nets)) {
-    for (const e of entries ?? []) {
-      if (e.family === 'IPv4' && !e.internal) {
-        return `http://${e.address}:${port}`;
-      }
-    }
-  }
-  return `http://127.0.0.1:${port}`;
 }
 
 main().catch((err) => {

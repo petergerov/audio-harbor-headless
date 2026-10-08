@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(harbor_engine VERSION 0.1.0 LANGUAGES CXX)
+project(harbor_engine VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,6 +52,8 @@ set(ENGINE_SOURCES
   src/HarborEngine.cpp
   src/StubPlayer.cpp
   src/DsdPipeline.cpp
+  src/PcmDecoder.cpp
+  src/AHDSTDecoder.c
   napi/binding.cpp
 )
 

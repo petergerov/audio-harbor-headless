@@ -52,10 +52,14 @@ export async function buildServer(ctx: AppContext) {
 
   app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/api/v1/')) return;
-    if (req.url === '/api/v1/health' || req.url === '/api/v1/pair') return;
-    if (!authOk(req.headers.authorization)) {
-      return reply.code(401).send({ error: 'unauthorized' });
-    }
+    if (req.url === '/api/v1/health' || req.url.startsWith('/api/v1/pair')) return;
+    const headerToken = req.headers.authorization;
+    const queryToken =
+      typeof req.query === 'object' && req.query && 'token' in req.query
+        ? String((req.query as { token?: string }).token ?? '')
+        : '';
+    if (authOk(headerToken) || isAuthorized(queryToken || null)) return;
+    return reply.code(401).send({ error: 'unauthorized' });
   });
 
   app.get('/api/v1/now-playing', async () => ctx.playback.snapshot());

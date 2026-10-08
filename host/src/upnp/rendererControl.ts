@@ -47,6 +47,24 @@ export async function pauseRenderer(controlUrl: string): Promise<void> {
   await soap(controlUrl, 'urn:schemas-upnp-org:service:AVTransport:1#Pause', body);
 }
 
+export async function setNextAvTransportUri(
+  controlUrl: string,
+  uri: string,
+  metadataXml = ''
+): Promise<void> {
+  const body = `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:SetNextAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+      <NextURI>${escapeXml(uri)}</NextURI>
+      <NextURIMetaData>${escapeXml(metadataXml)}</NextURIMetaData>
+    </u:SetNextAVTransportURI>
+  </s:Body>
+</s:Envelope>`;
+  await soap(controlUrl, 'urn:schemas-upnp-org:service:AVTransport:1#SetNextAVTransportURI', body);
+}
+
 export async function setRendererVolume(controlUrl: string, volume0to100: number): Promise<void> {
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">

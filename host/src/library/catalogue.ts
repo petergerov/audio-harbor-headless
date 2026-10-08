@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { parseFile } from 'music-metadata';
 import { artworkDir, cataloguePath } from '../paths.js';
 import type { Album, Artist, AudioFormat, BrowseScope, Track } from '../types.js';
+import { isSacdIso, listSacdTracks } from './sacd.js';
 
 const AUDIO_EXT = new Set([
   '.flac',
@@ -51,6 +52,31 @@ function formatFromExt(ext: string): AudioFormat {
 
 function trackId(cataloguePathValue: string): string {
   return crypto.createHash('sha256').update(cataloguePathValue).digest('hex').slice(0, 32);
+}
+
+function sacdToTrack(
+  sacd: import('./sacd.js').SacdTrackInfo,
+  fileSize: number
+): Track {
+  return {
+    id: trackId(sacd.cataloguePath),
+    cataloguePath: sacd.cataloguePath,
+    title: sacd.title,
+    artist: sacd.artist,
+    album: sacd.album,
+    albumArtist: sacd.albumArtist,
+    trackNumber: sacd.number,
+    discNumber: 1,
+    year: sacd.year,
+    durationSecs: sacd.durationSecs || null,
+    sampleRate: sacd.sampleRateHz,
+    bitDepth: 1,
+    channels: sacd.channels,
+    format: 'sacd',
+    artworkHash: null,
+    labels: sacd.isDst ? ['DST'] : [],
+    fileSize,
+  };
 }
 
 export class Catalogue {
@@ -141,6 +167,37 @@ export class Catalogue {
         const mtime = Math.floor(st.mtimeMs);
         if (mtimeMap.get(file) === mtime) continue;
         try {
+          if (path.extname(file).toLowerCase() === '.iso' && isSacdIso(file)) {
+            for (const sacd of listSacdTracks(file)) {
+              const track = sacdToTrack(sacd, st.size);
+              upsert.run(
+                track.cataloguePath,
+                track.id,
+                track.title,
+                track.artist,
+                track.album,
+                track.albumArtist,
+                track.trackNumber,
+                track.discNumber,
+                track.year,
+                track.durationSecs,
+                track.sampleRate,
+                track.bitDepth,
+                track.channels,
+                track.format,
+                track.artworkHash,
+                track.fileSize,
+                mtime
+              );
+              if (sacd.isDst) {
+                this.db
+                  .prepare('INSERT OR IGNORE INTO labels (catalogue_path, label) VALUES (?, ?)')
+                  .run(track.cataloguePath, 'DST');
+              }
+              indexed += 1;
+            }
+            continue;
+          }
           const track = await readTrack(file, st.size);
           upsert.run(
             track.cataloguePath,
@@ -327,6 +384,105 @@ export class Catalogue {
   artworkFile(hash: string): string | null {
     const p = path.join(artworkDir(), `${hash}.jpg`);
     return fs.existsSync(p) ? p : null;
+  }
+
+  listPlaylists(): Array<{ id: string; name: string; paths: string[] }> {
+    const rows = this.db.prepare('SELECT id, name, paths_json FROM playlists ORDER BY name').all() as Array<{
+      id: string;
+      name: string;
+      paths_json: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      paths: JSON.parse(r.paths_json) as string[],
+    }));
+  }
+
+  allLabels(): string[] {
+    const rows = this.db
+      .prepare('SELECT DISTINCT label FROM labels ORDER BY label')
+      .all() as Array<{ label: string }>;
+    return rows.map((r) => r.label);
+  }
+
+  trackOptions(cataloguePathValue: string): {
+    cataloguePath: string;
+    playlists: Array<{ id: string; name: string; containsTrack: boolean }>;
+    labels: string[];
+    trackLabels: string[];
+  } | null {
+    if (!this.getTrack(cataloguePathValue)) return null;
+    const trackLabels = this.labelsFor(cataloguePathValue);
+    const playlists = this.listPlaylists().map((p) => ({
+      id: p.id,
+      name: p.name,
+      containsTrack: p.paths.includes(cataloguePathValue),
+    }));
+    return {
+      cataloguePath: cataloguePathValue,
+      playlists,
+      labels: this.allLabels(),
+      trackLabels,
+    };
+  }
+
+  applyTrackEdit(cataloguePathValue: string, edit: Record<string, unknown>): void {
+    if (!this.getTrack(cataloguePathValue)) throw new Error('track not found');
+    if (edit.addToPlaylist && typeof edit.addToPlaylist === 'object') {
+      const id = String((edit.addToPlaylist as { id?: string }).id ?? '');
+      this.addPathToPlaylist(id, cataloguePathValue);
+      return;
+    }
+    if (edit.removeFromPlaylist && typeof edit.removeFromPlaylist === 'object') {
+      const id = String((edit.removeFromPlaylist as { id?: string }).id ?? '');
+      this.removePathFromPlaylist(id, cataloguePathValue);
+      return;
+    }
+    if (edit.addToNewPlaylist && typeof edit.addToNewPlaylist === 'object') {
+      const name = String((edit.addToNewPlaylist as { name?: string }).name ?? '').trim();
+      if (!name) throw new Error('name required');
+      const id = crypto.randomUUID();
+      this.db
+        .prepare('INSERT INTO playlists (id, name, paths_json) VALUES (?, ?, ?)')
+        .run(id, name, JSON.stringify([cataloguePathValue]));
+      return;
+    }
+    if (edit.addLabel && typeof edit.addLabel === 'object') {
+      const name = String((edit.addLabel as { name?: string }).name ?? '').trim();
+      if (!name) throw new Error('name required');
+      this.db
+        .prepare('INSERT OR IGNORE INTO labels (catalogue_path, label) VALUES (?, ?)')
+        .run(cataloguePathValue, name);
+      return;
+    }
+    if (edit.removeLabel && typeof edit.removeLabel === 'object') {
+      const name = String((edit.removeLabel as { name?: string }).name ?? '').trim();
+      this.db
+        .prepare('DELETE FROM labels WHERE catalogue_path = ? AND label = ?')
+        .run(cataloguePathValue, name);
+      return;
+    }
+    throw new Error('unknown edit');
+  }
+
+  private addPathToPlaylist(id: string, cataloguePathValue: string): void {
+    const row = this.db.prepare('SELECT paths_json FROM playlists WHERE id = ?').get(id) as
+      | { paths_json: string }
+      | undefined;
+    if (!row) throw new Error('playlist not found');
+    const paths = JSON.parse(row.paths_json) as string[];
+    if (!paths.includes(cataloguePathValue)) paths.push(cataloguePathValue);
+    this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?').run(JSON.stringify(paths), id);
+  }
+
+  private removePathFromPlaylist(id: string, cataloguePathValue: string): void {
+    const row = this.db.prepare('SELECT paths_json FROM playlists WHERE id = ?').get(id) as
+      | { paths_json: string }
+      | undefined;
+    if (!row) throw new Error('playlist not found');
+    const paths = (JSON.parse(row.paths_json) as string[]).filter((p) => p !== cataloguePathValue);
+    this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?').run(JSON.stringify(paths), id);
   }
 
   private labelsFor(cataloguePathValue: string): string[] {
