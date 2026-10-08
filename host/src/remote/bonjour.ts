@@ -286,6 +286,17 @@ async function handleFrame(
     } else if (selection?.artist && typeof selection.artist === 'object') {
       const name = String((selection.artist as { name?: string }).name ?? '');
       if (name) await opts.playback.playTracks(opts.catalogue.artistTracks(name));
+    } else if (selection?.playlist && typeof selection.playlist === 'object') {
+      const playlistId = String((selection.playlist as { id?: string }).id ?? '');
+      if (playlistId) {
+        const pl =
+          opts.catalogue.getPlaylist(playlistId) ||
+          opts.catalogue.listPlaylists().find((p) => toUuid(p.id) === playlistId);
+        if (pl) await opts.playback.playTracks(opts.catalogue.playlistTracks(pl.id));
+      }
+    } else if (selection?.label && typeof selection.label === 'object') {
+      const name = String((selection.label as { name?: string }).name ?? '');
+      if (name) await opts.playback.playTracks(opts.catalogue.tracksForLabel(name));
     } else if (typeof selection?.queueJump === 'number') {
       const q = opts.playback.queueSnapshot();
       const idx = selection.queueJump;
@@ -401,6 +412,7 @@ function wireTrack(t: import('../types.js').Track): Record<string, unknown> {
     bitDepth: t.bitDepth,
     channelCount: t.channels,
     artworkHash: t.artworkHash,
+    labels: t.labels,
   };
 }
 
@@ -446,12 +458,22 @@ function browseItems(
     }));
   }
   if (scope === 'playlistTracks' && parentID) {
-    const pl = catalogue.listPlaylists().find((p) => p.id === parentID);
+    const pl =
+      catalogue.getPlaylist(parentID) ||
+      catalogue.listPlaylists().find((p) => toUuid(p.id) === parentID);
     if (!pl) return [];
-    return pl.paths
-      .map((p) => catalogue.getTrack(p))
-      .filter((t): t is NonNullable<typeof t> => Boolean(t))
-      .map((t) => ({ track: wireTrack(t) }));
+    return catalogue.playlistTracks(pl.id).map((t) => ({ track: wireTrack(t) }));
+  }
+  if (scope === 'labels') {
+    return catalogue.allLabels().map((name) => ({
+      label: {
+        name,
+        trackCount: catalogue.tracksForLabel(name).length,
+      },
+    }));
+  }
+  if (scope === 'labelTracks' && parentID) {
+    return catalogue.tracksForLabel(parentID).map((t) => ({ track: wireTrack(t) }));
   }
   if (scope === 'folders') {
     const raw = catalogue.browseFolder(roots, parentID ?? null);

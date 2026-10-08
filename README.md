@@ -84,6 +84,14 @@ npm run package:prebuilt                 # → dist/packages/*-<platform>.tar.gz
 ./create-package.sh                      # source-only (compile on device via install.sh)
 ```
 
+### Playlists & labels
+
+Same idea as Audio Harbor: playlists and labels are sets of catalogue paths.
+
+- Web remote: **Playlists** / **Labels** tabs; **···** on album, artist, folder, or track → add to playlist or label (albums/artists/folders expand to their tracks).
+- API: `GET/POST /api/v1/playlists`, `POST /api/v1/playlists/:id/items`, `POST /api/v1/labels/items`, `POST /api/v1/play` with `playlistId` or `label`.
+- Bonjour: browse `playlists` / `labels`, `playSelection.playlist` / `.label`, existing `trackOptions` / `editTrack`.
+
 ### Output modes
 
 - **Shared** — system / JUCE shared graph

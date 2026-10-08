@@ -139,6 +139,8 @@ export async function buildServer(ctx: AppContext) {
       albumId?: string;
       artist?: string;
       folder?: string;
+      playlistId?: string;
+      label?: string;
     };
   }>('/api/v1/play', async (req, reply) => {
     const body = req.body ?? {};
@@ -157,13 +159,182 @@ export async function buildServer(ctx: AppContext) {
       return ctx.playback.snapshot();
     }
     if (body.folder) {
-      const entries = ctx.catalogue.browseFolder(ctx.getConfig().library.roots, body.folder);
-      const tracks = entries.map((e) => e.track).filter(Boolean);
-      await ctx.playback.playTracks(tracks as NonNullable<(typeof tracks)[number]>[]);
+      const paths = ctx.catalogue.resolveSelectionPaths(ctx.getConfig().library.roots, {
+        folder: body.folder,
+      });
+      const tracks = paths
+        .map((p) => ctx.catalogue.getTrack(p))
+        .filter((t): t is NonNullable<typeof t> => Boolean(t));
+      await ctx.playback.playTracks(tracks);
+      return ctx.playback.snapshot();
+    }
+    if (body.playlistId) {
+      const tracks = ctx.catalogue.playlistTracks(body.playlistId);
+      if (!tracks.length) return reply.code(404).send({ error: 'playlist empty or missing' });
+      await ctx.playback.playTracks(tracks);
+      return ctx.playback.snapshot();
+    }
+    if (body.label) {
+      const tracks = ctx.catalogue.tracksForLabel(body.label);
+      if (!tracks.length) return reply.code(404).send({ error: 'label empty or missing' });
+      await ctx.playback.playTracks(tracks);
       return ctx.playback.snapshot();
     }
     return reply.code(400).send({ error: 'nothing to play' });
   });
+
+  app.get('/api/v1/playlists', async () => ({
+    playlists: ctx.catalogue.listPlaylists().map((p) => ({
+      id: p.id,
+      name: p.name,
+      trackCount: p.paths.length,
+    })),
+  }));
+
+  app.post<{ Body: { name?: string } }>('/api/v1/playlists', async (req, reply) => {
+    try {
+      const pl = ctx.catalogue.createPlaylist(String(req.body?.name ?? ''));
+      return { id: pl.id, name: pl.name, trackCount: pl.paths.length };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: { name?: string } }>(
+    '/api/v1/playlists/:id',
+    async (req, reply) => {
+      try {
+        ctx.catalogue.renamePlaylist(req.params.id, String(req.body?.name ?? ''));
+        return ctx.catalogue.getPlaylist(req.params.id);
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+      }
+    }
+  );
+
+  app.delete<{ Params: { id: string } }>('/api/v1/playlists/:id', async (req, reply) => {
+    try {
+      ctx.catalogue.deletePlaylist(req.params.id);
+      return { ok: true };
+    } catch (err) {
+      return reply.code(404).send({ error: err instanceof Error ? err.message : 'failed' });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/api/v1/playlists/:id/tracks', async (req, reply) => {
+    const pl = ctx.catalogue.getPlaylist(req.params.id);
+    if (!pl) return reply.code(404).send({ error: 'playlist not found' });
+    return { id: pl.id, name: pl.name, tracks: ctx.catalogue.playlistTracks(pl.id) };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      paths?: string[];
+      cataloguePath?: string;
+      albumId?: string;
+      artist?: string;
+      folder?: string;
+    };
+  }>('/api/v1/playlists/:id/items', async (req, reply) => {
+    try {
+      const paths = ctx.catalogue.resolveSelectionPaths(
+        ctx.getConfig().library.roots,
+        req.body ?? {}
+      );
+      if (!paths.length) return reply.code(400).send({ error: 'nothing to add' });
+      const added = ctx.catalogue.addPathsToPlaylist(req.params.id, paths);
+      const pl = ctx.catalogue.getPlaylist(req.params.id);
+      return { added, trackCount: pl?.paths.length ?? 0 };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+    }
+  });
+
+  app.delete<{ Params: { id: string }; Body: { paths?: string[]; cataloguePath?: string } }>(
+    '/api/v1/playlists/:id/items',
+    async (req, reply) => {
+      try {
+        const paths = [
+          ...(req.body?.paths ?? []),
+          ...(req.body?.cataloguePath ? [req.body.cataloguePath] : []),
+        ];
+        ctx.catalogue.removePathsFromPlaylist(req.params.id, paths);
+        return { ok: true };
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+      }
+    }
+  );
+
+  app.get('/api/v1/labels', async () => ({
+    labels: ctx.catalogue.allLabels().map((name) => ({
+      name,
+      trackCount: ctx.catalogue.tracksForLabel(name).length,
+    })),
+  }));
+
+  app.get<{ Params: { name: string } }>('/api/v1/labels/:name/tracks', async (req) => {
+    const name = decodeURIComponent(req.params.name);
+    return { name, tracks: ctx.catalogue.tracksForLabel(name) };
+  });
+
+  app.post<{
+    Body: {
+      name?: string;
+      paths?: string[];
+      cataloguePath?: string;
+      albumId?: string;
+      artist?: string;
+      folder?: string;
+    };
+  }>('/api/v1/labels/items', async (req, reply) => {
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      const paths = ctx.catalogue.resolveSelectionPaths(
+        ctx.getConfig().library.roots,
+        req.body ?? {}
+      );
+      if (!name || !paths.length) return reply.code(400).send({ error: 'name and selection required' });
+      const added = ctx.catalogue.addLabelToPaths(name, paths);
+      return { added, name };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+    }
+  });
+
+  app.delete<{
+    Body: { name?: string; paths?: string[]; cataloguePath?: string };
+  }>('/api/v1/labels/items', async (req, reply) => {
+    const name = String(req.body?.name ?? '').trim();
+    const paths = [
+      ...(req.body?.paths ?? []),
+      ...(req.body?.cataloguePath ? [req.body.cataloguePath] : []),
+    ];
+    if (!name || !paths.length) return reply.code(400).send({ error: 'name and paths required' });
+    ctx.catalogue.removeLabelFromPaths(name, paths);
+    return { ok: true };
+  });
+
+  app.get<{ Querystring: { path?: string } }>('/api/v1/track-options', async (req, reply) => {
+    const cataloguePath = String(req.query.path ?? '');
+    const options = ctx.catalogue.trackOptions(cataloguePath);
+    if (!options) return reply.code(404).send({ error: 'track not found' });
+    return options;
+  });
+
+  app.post<{ Body: { cataloguePath?: string; edit?: Record<string, unknown> } }>(
+    '/api/v1/track-edit',
+    async (req, reply) => {
+      try {
+        const cataloguePath = String(req.body?.cataloguePath ?? '');
+        ctx.catalogue.applyTrackEdit(cataloguePath, req.body?.edit ?? {});
+        return ctx.catalogue.trackOptions(cataloguePath);
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+      }
+    }
+  );
 
   app.post<{
     Body: {

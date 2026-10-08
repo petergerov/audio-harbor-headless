@@ -238,6 +238,23 @@ button {
   margin-bottom: 12px;
 }
 
+.segmented.scroll {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  grid-template-columns: none;
+}
+
+.segmented.scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.segmented.scroll button {
+  flex: 0 0 auto;
+  padding: 0 12px;
+}
+
 .segmented button {
   min-height: 32px;
   border-radius: 7px;
@@ -329,6 +346,7 @@ button {
 }
 
 .row + .row::before,
+.row-wrap + .row-wrap::before,
 .cell + .cell::before {
   content: "";
   position: absolute;
@@ -341,8 +359,32 @@ button {
   transform-origin: top;
 }
 
-.row.has-icon + .row.has-icon::before {
+.row.has-icon + .row.has-icon::before,
+.row-wrap + .row-wrap::before {
   left: 60px;
+}
+
+.row-wrap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: stretch;
+  position: relative;
+}
+
+.row-wrap .row {
+  min-width: 0;
+}
+
+.row-more {
+  width: 44px;
+  color: var(--secondary);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.row-more:active {
+  opacity: 0.45;
 }
 
 .row-icon {
@@ -369,6 +411,61 @@ button {
 }
 .row-icon.track {
   background: linear-gradient(160deg, #30d158, #64d2ff);
+}
+.row-icon.playlist {
+  background: linear-gradient(160deg, #ffd60a, #ff9f0a);
+}
+.row-icon.label {
+  background: linear-gradient(160deg, #ff375f, #bf5af2);
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.36);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px 12px calc(12px + var(--safe-bottom));
+}
+
+.sheet {
+  width: min(480px, 100%);
+  background: var(--bg-elevated);
+  border-radius: 14px;
+  overflow: hidden;
+  animation: sheet-in 0.28s cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.sheet-title {
+  padding: 14px 16px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--secondary);
+}
+
+.sheet-btn,
+.sheet-cancel {
+  display: block;
+  width: 100%;
+  min-height: 50px;
+  font-size: 18px;
+  font-weight: 500;
+  color: #0a84ff;
+  border-top: 1px solid var(--separator);
+}
+
+.sheet-btn.danger {
+  color: #ff453a;
+}
+
+.sheet-cancel {
+  margin-top: 8px;
+  border-radius: 14px;
+  border-top: 0;
+  font-weight: 600;
+  background: var(--bg-elevated);
 }
 
 .row-text {
