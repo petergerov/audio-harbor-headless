@@ -11,11 +11,13 @@
 #include "PcmDecoder.h"
 #include "Player.h"
 
-#include <audioclient.h>
-#include <functiondiscoverykeys_devpkey.h>
-#include <mmdeviceapi.h>
-#include <mmreg.h>
+// Include order matters on MSVC. Do NOT include functiondiscoverykeys_devpkey.h —
+// its DEFINE_PROPERTYKEY macros clash with the Windows SDK / JUCE include mix in CI.
 #include <windows.h>
+#include <mmdeviceapi.h>
+#include <audioclient.h>
+#include <mmreg.h>
+#include <propidl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -37,6 +39,12 @@ static const GUID kSubtypeFloat = {
 #define KSDATAFORMAT_SUBTYPE_PCM kSubtypePcm
 #define KSDATAFORMAT_SUBTYPE_IEEE_FLOAT kSubtypeFloat
 #endif
+
+// Same values as PKEY_Device_FriendlyName / PKEY_Device_EnumeratorName (devpkey.h)
+static const PROPERTYKEY kPkeyDeviceFriendlyName = {
+    {0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
+static const PROPERTYKEY kPkeyDeviceEnumeratorName = {
+    {0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 24};
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "uuid.lib")
@@ -291,12 +299,12 @@ private:
     if (SUCCEEDED(dev->OpenPropertyStore(STGM_READ, &props)) && props) {
       PROPVARIANT var;
       PropVariantInit(&var);
-      if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &var)) && var.vt == VT_LPWSTR) {
+      if (SUCCEEDED(props->GetValue(kPkeyDeviceFriendlyName, &var)) && var.vt == VT_LPWSTR) {
         d.name = wideToUtf8(var.pwszVal);
       }
       PropVariantClear(&var);
       PropVariantInit(&var);
-      if (SUCCEEDED(props->GetValue(PKEY_Device_EnumeratorName, &var)) && var.vt == VT_LPWSTR) {
+      if (SUCCEEDED(props->GetValue(kPkeyDeviceEnumeratorName, &var)) && var.vt == VT_LPWSTR) {
         const std::string en = wideToUtf8(var.pwszVal);
         d.isExternal = en == "USB" || en == "HDAudio" || en == "PCI";
       }
