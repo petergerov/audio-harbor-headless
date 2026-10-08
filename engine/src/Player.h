@@ -33,5 +33,19 @@ public:
   virtual void setEventCallback(EventFn fn) = 0;
 };
 
-/** Shared / scaffold player — decodes via JUCE when available, else stub clock. */
+/** Factory — picks JUCE or native (Core Audio / ALSA / WASAPI) from requested backend. */
 IPlayer* createHarborPlayer();
+
+#if defined(HARBOR_WITH_JUCE)
+IPlayer* createJucePlayer();
+#endif
+#if defined(__APPLE__)
+IPlayer* createMacPlayer();
+#endif
+#if defined(__linux__)
+IPlayer* createLinuxPlayer();
+#endif
+#if defined(_WIN32)
+IPlayer* createWinPlayer();
+#endif
+IPlayer* createStubPlayer();

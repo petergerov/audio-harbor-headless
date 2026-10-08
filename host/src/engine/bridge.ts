@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
-import type { EngineDevice, EngineState, OutputMode } from '@harbor/engine';
-import type { OutputDevice, OutputStatus } from '../types.js';
+import type { AudioBackendInfo, EngineDevice, EngineState, OutputMode } from '@harbor/engine';
+import type { AudioBackend, OutputDevice, OutputStatus } from '../types.js';
 
 const require = createRequire(import.meta.url);
 
@@ -11,6 +11,8 @@ type NativeEngine = {
   setDevice(uid: string | null): void;
   setOutputMode(mode: OutputMode): void;
   setDsdPcmLevel(db: 0 | 3 | 6): void;
+  setAudioBackend?(backend: AudioBackend): void;
+  getAudioBackend?(): AudioBackendInfo;
   load(path: string): Promise<void>;
   play(): void;
   pause(): void;
@@ -67,13 +69,19 @@ export function listLocalDevices(): OutputDevice[] {
 export function applyOutput(
   deviceUid: string | null | undefined,
   mode: OutputMode,
-  dsdLevel: 0 | 3 | 6
+  dsdLevel: 0 | 3 | 6,
+  backend: AudioBackend = 'auto'
 ): void {
   const eng = loadNative();
   if (!eng) return;
+  if (typeof eng.setAudioBackend === 'function') eng.setAudioBackend(backend);
   eng.setDevice(deviceUid ?? null);
   eng.setOutputMode(mode);
   eng.setDsdPcmLevel(dsdLevel);
+}
+
+export function engineAudioBackend(): AudioBackendInfo | null {
+  return loadNative()?.getAudioBackend?.() ?? null;
 }
 
 export async function engineLoad(path: string): Promise<void> {
@@ -121,11 +129,13 @@ export function engineDstEnd(session: unknown): void {
 export function buildOutputStatus(
   selectedUid: string | null,
   requestedMode: OutputMode,
-  networkDevices: OutputDevice[] = []
+  networkDevices: OutputDevice[] = [],
+  requestedBackend: AudioBackend = 'auto'
 ): OutputStatus {
   const local = listLocalDevices();
   const devices = [...local, ...networkDevices];
   const st = engineGetState();
+  const be = engineAudioBackend();
   return {
     devices,
     selectedUid,
@@ -133,5 +143,11 @@ export function buildOutputStatus(
     effectiveMode: (st?.effectiveMode as OutputMode) ?? requestedMode,
     volume: st?.volume ?? null,
     conversionBadge: st?.conversionBadge ?? null,
+    audioBackend: requestedBackend,
+    effectiveAudioBackend: String(be?.effective ?? requestedBackend),
+    availableAudioBackends: String(be?.available ?? 'auto')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   };
 }

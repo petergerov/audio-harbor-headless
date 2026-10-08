@@ -264,8 +264,6 @@ private:
 
 } // namespace
 
-#if !defined(__APPLE__) && !defined(__linux__) && !defined(HARBOR_WITH_JUCE)
-IPlayer* createHarborPlayer() {
+IPlayer* createStubPlayer() {
   return new StubPlayer();
 }
-#endif

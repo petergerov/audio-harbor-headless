@@ -322,7 +322,7 @@ private:
 
 } // namespace
 
-IPlayer* createHarborPlayer() {
+IPlayer* createLinuxPlayer() {
   return new LinuxPlayer();
 }
 

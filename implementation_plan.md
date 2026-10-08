@@ -10,7 +10,7 @@ Ein **GUI-loser Media-Host** auf Mac und Linux: Ordner mounten, Output wählen, 
 |---|---|
 | **1C** | Steuerung: **Web-Remote zuerst** (Safari auf dem iPhone); später Bonjour-Kompatibilität mit der Audio-Harbor-iOS-App |
 | **2B** | Qualität: **Audiophile Parität** — Exclusive / DoP / DSD, bit-perfect wo möglich |
-| **Stack** | **C++ Audio-Engine** (Core Audio / ALSA, optional JUCE) + **TypeScript/Node Host** + **Vite Web-UI** — kein Go, kein Rust als Produktstack |
+| **Stack** | **C++ Audio-Engine** (JUCE + native Core Audio / ALSA / WASAPI, Runtime-Wahl `output.backend`) + **TypeScript/Node Host** + **Vite Web-UI** |
 
 Harbor-Swift bleibt Referenz für Regeln und Remote-Protokoll, nicht Runtime auf Linux.
 
@@ -150,11 +150,15 @@ CLI: `harbor serve` · `harbor pair` · `harbor rescan`.
 - DoP-Packing
 - DSD→PCM Multi-Stage Kaiser/sinc Decimation (~88.2 kHz), Gain 0 / +3 / +6 dB
 
-### Optional JUCE
+### Audio-Backends (Runtime)
 
-```bash
-HARBOR_WITH_JUCE=1 npm run build:engine
+```toml
+[output]
+backend = "auto"   # auto | juce | native
 ```
+
+- Build enthält **beide** Player: JUCE + native (Core Audio / ALSA / WASAPI).
+- `auto` → native (Exclusive/DoP-freundlich).
 
 JUCE-Lizenz vor Distribution/Verkauf klären.
 

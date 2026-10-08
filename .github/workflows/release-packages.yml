@@ -1,0 +1,130 @@
+name: Release packages
+
+# Builds ready-to-run archives per platform and attaches them to a GitHub Release.
+# Trigger: push a version tag (v0.1.0) or run manually.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-14
+            apt: false
+          - platform: linux-x64
+            runner: ubuntu-24.04
+            apt: true
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            apt: true
+          - platform: win32-x64
+            runner: windows-2022
+            apt: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ALSA (Linux)
+        if: matrix.apt
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential cmake pkg-config libasound2-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        shell: bash
+        env:
+          # Same JUCE stack on every platform (fetched + linked into harbor_engine.node)
+          HARBOR_WITH_JUCE: '1'
+        run: npm run build
+
+      - name: Production prune
+        shell: bash
+        run: npm prune --omit=dev
+
+      - name: Package prebuilt
+        shell: bash
+        env:
+          HARBOR_PLATFORM: ${{ matrix.platform }}
+        run: |
+          chmod +x create-package.sh start.sh install.sh
+          ./create-package.sh --prebuilt
+          # Always offer a zip for Windows downloads
+          if [[ "${{ matrix.platform }}" == win32-* ]]; then
+            NAME=$(basename dist/packages/*.tar.gz .tar.gz)
+            (cd dist/packages && mkdir -p _z && tar -xzf "${NAME}.tar.gz" -C _z && \
+              (cd _z && zip -qr "../${NAME}.zip" "$NAME") && rm -rf _z)
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.platform }}
+          path: |
+            dist/packages/*.tar.gz
+            dist/packages/*.tar.gz.sha256
+            dist/packages/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: package-*
+          merge-multiple: true
+
+      - name: List assets
+        run: find release-assets -type f | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          body: |
+            Prebuilt **ready-to-start** packages (Node ${{ env.NODE_VERSION }}).
+
+            | Asset | Platform |
+            |---|---|
+            | `*-darwin-arm64.tar.gz` | Apple Silicon Mac |
+            | `*-linux-x64.tar.gz` | Linux x86_64 |
+            | `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 Linux |
+            | `*-win32-x64.zip` | Windows x64 |
+
+            Unpack → `./start.sh` (Windows: `start.cmd`). Requires **Node.js ${{ env.NODE_VERSION }}.x**.
+            Linux: `sudo apt install libasound2` if ALSA is missing.
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.sha256
+            release-assets/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

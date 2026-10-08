@@ -1,4 +1,6 @@
 export type OutputMode = 'shared' | 'exclusive' | 'dop';
+/** juce | native | auto — native = Core Audio / ALSA / WASAPI */
+export type AudioBackend = 'auto' | 'juce' | 'native';
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'failed';
 export type RepeatMode = 'off' | 'all' | 'one';
 export type BrowseScope = 'folders' | 'albums' | 'artists' | 'playlists' | 'labels';
@@ -72,6 +74,9 @@ export interface OutputStatus {
   effectiveMode: OutputMode;
   volume: number | null;
   conversionBadge: string | null;
+  audioBackend: AudioBackend;
+  effectiveAudioBackend: string;
+  availableAudioBackends: string[];
 }
 
 export interface NowPlayingSnapshot {
@@ -104,6 +109,8 @@ export interface HarborConfig {
     device_uid?: string | null;
     mode: OutputMode;
     dsd_pcm_level: 0 | 3 | 6;
+    /** auto = native on Mac/Linux, juce on Windows */
+    backend: AudioBackend;
   };
   sharing: {
     enabled: boolean;

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import TOML from '@iarna/toml';
-import type { HarborConfig, OutputMode } from './types.js';
+import type { AudioBackend, HarborConfig, OutputMode } from './types.js';
 import { configPath, exampleConfigPath } from './paths.js';
 
 const DEFAULTS: HarborConfig = {
@@ -14,6 +14,7 @@ const DEFAULTS: HarborConfig = {
     device_uid: null,
     mode: 'shared',
     dsd_pcm_level: 3,
+    backend: 'auto',
   },
   sharing: {
     enabled: false,
@@ -34,6 +35,11 @@ function normalizeMode(mode: unknown): OutputMode {
 function normalizeLevel(level: unknown): 0 | 3 | 6 {
   if (level === 0 || level === 3 || level === 6) return level;
   return 3;
+}
+
+function normalizeBackend(backend: unknown): AudioBackend {
+  if (backend === 'juce' || backend === 'native' || backend === 'auto') return backend;
+  return 'auto';
 }
 
 export function loadConfig(): HarborConfig {
@@ -69,6 +75,7 @@ export function loadConfig(): HarborConfig {
       device_uid: output.device_uid ? String(output.device_uid) : null,
       mode: normalizeMode(output.mode),
       dsd_pcm_level: normalizeLevel(output.dsd_pcm_level),
+      backend: normalizeBackend(output.backend),
     },
     sharing: {
       enabled: Boolean(sharing.enabled ?? DEFAULTS.sharing.enabled),
@@ -90,6 +97,7 @@ export function saveConfig(cfg: HarborConfig): void {
       device_uid: cfg.output.device_uid ?? '',
       mode: cfg.output.mode,
       dsd_pcm_level: cfg.output.dsd_pcm_level,
+      backend: cfg.output.backend,
     },
     sharing: cfg.sharing,
     remote: cfg.remote,

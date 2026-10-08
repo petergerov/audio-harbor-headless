@@ -116,18 +116,22 @@ export async function buildServer(ctx: AppContext) {
 
   app.get('/api/v1/output', async () => ctx.playback.snapshot().output);
 
-  app.put<{ Body: { deviceUid?: string | null; mode?: OutputMode } }>(
-    '/api/v1/output',
-    async (req) => {
-      const body = req.body ?? {};
-      const cfg = ctx.getConfig();
-      ctx.playback.setOutput(
-        body.deviceUid === undefined ? (cfg.output.device_uid ?? null) : body.deviceUid,
-        body.mode ?? cfg.output.mode
-      );
-      return ctx.playback.snapshot().output;
-    }
-  );
+  app.put<{
+    Body: {
+      deviceUid?: string | null;
+      mode?: OutputMode;
+      backend?: 'auto' | 'juce' | 'native';
+    };
+  }>('/api/v1/output', async (req) => {
+    const body = req.body ?? {};
+    const cfg = ctx.getConfig();
+    ctx.playback.setOutput(
+      body.deviceUid === undefined ? (cfg.output.device_uid ?? null) : body.deviceUid,
+      body.mode ?? cfg.output.mode,
+      body.backend ?? cfg.output.backend
+    );
+    return ctx.playback.snapshot().output;
+  });
 
   app.post<{
     Body: {

@@ -11,32 +11,53 @@ std::unique_ptr<IPlayer> g_player;
 HarborEventCallback g_cb = nullptr;
 void* g_user = nullptr;
 std::mutex g_mutex;
+std::string g_deviceUid;
+bool g_hasDevice = false;
+HarborOutputMode g_mode = HARBOR_MODE_SHARED;
+int g_dsdLevel = 3;
 
 void forwardEvent(const char* event, const char* json) {
   if (g_cb) g_cb(event, json, g_user);
+}
+
+void applyStoredOutputLocked() {
+  if (!g_player) return;
+  if (g_hasDevice) g_player->setDevice(&g_deviceUid);
+  else g_player->setDevice(nullptr);
+  g_player->setOutputMode(g_mode);
+  g_player->setDsdPcmLevel(g_dsdLevel);
 }
 } // namespace
 
 const char* harbor_engine_version(void) {
 #if defined(__APPLE__)
-  return "0.1.0-mac-coreaudio";
+  return "0.1.0-macos-juce+coreaudio";
 #elif defined(__linux__)
-  return "0.1.0-linux-alsa";
-#elif defined(HARBOR_WITH_JUCE)
-  return "0.1.0-juce";
+  return "0.1.0-linux-juce+alsa";
+#elif defined(_WIN32)
+  return "0.1.0-windows-juce+wasapi";
 #else
-  return "0.1.0-stub";
+  return "0.1.0";
 #endif
+}
+
+static void recreatePlayerLocked() {
+  if (g_player) {
+    g_player->stop();
+    g_player.reset();
+  }
+  g_player.reset(createHarborPlayer());
+  if (g_player) {
+    g_player->setEventCallback(forwardEvent);
+    applyStoredOutputLocked();
+  }
 }
 
 int harbor_engine_init(HarborEventCallback cb, void* user_data) {
   std::lock_guard lock(g_mutex);
   g_cb = cb;
   g_user = user_data;
-  if (!g_player) {
-    g_player.reset(createHarborPlayer());
-    g_player->setEventCallback(forwardEvent);
-  }
+  if (!g_player) recreatePlayerLocked();
   return 0;
 }
 
@@ -68,18 +89,22 @@ int harbor_engine_list_devices(HarborDevice* out, int max_count) {
 
 int harbor_engine_set_device(const char* uid_or_null) {
   std::lock_guard lock(g_mutex);
-  if (!g_player) return -1;
   if (uid_or_null) {
-    std::string uid(uid_or_null);
-    g_player->setDevice(&uid);
+    g_deviceUid = uid_or_null;
+    g_hasDevice = true;
   } else {
-    g_player->setDevice(nullptr);
+    g_deviceUid.clear();
+    g_hasDevice = false;
   }
+  if (!g_player) return -1;
+  if (g_hasDevice) g_player->setDevice(&g_deviceUid);
+  else g_player->setDevice(nullptr);
   return 0;
 }
 
 int harbor_engine_set_output_mode(HarborOutputMode mode) {
   std::lock_guard lock(g_mutex);
+  g_mode = mode;
   if (!g_player) return -1;
   g_player->setOutputMode(mode);
   return 0;
@@ -87,6 +112,7 @@ int harbor_engine_set_output_mode(HarborOutputMode mode) {
 
 int harbor_engine_set_dsd_pcm_level(int db) {
   std::lock_guard lock(g_mutex);
+  g_dsdLevel = db;
   if (!g_player) return -1;
   g_player->setDsdPcmLevel(db);
   return 0;
@@ -143,4 +169,13 @@ void harbor_engine_get_state(HarborEngineState* out) {
     return;
   }
   *out = g_player->getState();
+}
+
+void harbor_player_factory_set_requested(HarborAudioBackend backend);
+
+int harbor_engine_set_audio_backend(HarborAudioBackend backend) {
+  std::lock_guard lock(g_mutex);
+  harbor_player_factory_set_requested(backend);
+  recreatePlayerLocked();
+  return g_player ? 0 : -1;
 }

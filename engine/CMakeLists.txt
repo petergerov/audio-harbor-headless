@@ -5,7 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(HARBOR_WITH_JUCE "Fetch and link JUCE for audio I/O" OFF)
+# JUCE is always built in (shared shipping stack). Mac/Linux also compile native
+# players so users can choose at runtime: output.backend = juce | native | auto
+option(HARBOR_WITH_JUCE "Build JUCE audio backend" ON)
 
 add_definitions(-DNAPI_VERSION=8)
 
@@ -27,7 +29,6 @@ if(NOT DEFINED CMAKE_JS_INC)
   get_filename_component(NODE_ROOT "${NODE_BIN_DIR}" DIRECTORY)
   set(CMAKE_JS_INC "${NODE_ROOT}/include/node")
   if(NOT EXISTS "${CMAKE_JS_INC}/node.h")
-    # Homebrew node often ships headers under include/node next to Cellar path
     execute_process(
       COMMAND node -p "require('path').dirname(process.execPath)+'/../include/node'"
       OUTPUT_VARIABLE CMAKE_JS_INC
@@ -41,7 +42,6 @@ if(DEFINED NAPI_INCLUDE_DIR)
   include_directories(${NAPI_INCLUDE_DIR})
 endif()
 
-# cmake-js also sets CMAKE_JS_INC when invoked via cmake-js
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/node-addon-api")
   include_directories("${CMAKE_CURRENT_SOURCE_DIR}/node_modules/node-addon-api")
 elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../node_modules/node-addon-api")
@@ -50,6 +50,7 @@ endif()
 
 set(ENGINE_SOURCES
   src/HarborEngine.cpp
+  src/PlayerFactory.cpp
   src/StubPlayer.cpp
   src/DsdPipeline.cpp
   src/PcmDecoder.cpp
@@ -57,8 +58,11 @@ set(ENGINE_SOURCES
   napi/binding.cpp
 )
 
+# Native backends always available (runtime selectable alongside JUCE)
 if(APPLE)
   list(APPEND ENGINE_SOURCES src/MacPlayer.cpp)
+elseif(WIN32)
+  list(APPEND ENGINE_SOURCES src/WinPlayer.cpp)
 elseif(UNIX AND NOT APPLE)
   list(APPEND ENGINE_SOURCES src/LinuxPlayer.cpp)
   find_package(ALSA REQUIRED)
@@ -73,7 +77,6 @@ if(HARBOR_WITH_JUCE)
     GIT_SHALLOW    TRUE
   )
   FetchContent_MakeAvailable(juce)
-
   list(APPEND ENGINE_SOURCES src/JucePlayer.cpp)
   add_compile_definitions(HARBOR_WITH_JUCE=1)
 endif()
@@ -97,10 +100,14 @@ if(APPLE)
     "-framework AudioUnit"
     "-framework CoreFoundation"
     "-framework Cocoa"
+    "-framework Accelerate"
     "-framework IOKit"
   )
+elseif(WIN32)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ole32 uuid avrt)
 elseif(UNIX AND NOT APPLE)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ALSA::ALSA)
+  find_package(Threads REQUIRED)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ALSA::ALSA Threads::Threads dl)
 endif()
 
 if(HARBOR_WITH_JUCE)
@@ -124,7 +131,6 @@ if(MSVC)
   target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
-# cmake-js links node.lib on Windows
 if(CMAKE_JS_LIB)
   target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB})
 endif()

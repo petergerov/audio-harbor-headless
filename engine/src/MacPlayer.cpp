@@ -496,7 +496,7 @@ private:
 
 } // namespace
 
-IPlayer* createHarborPlayer() {
+IPlayer* createMacPlayer() {
   return new MacPlayer();
 }
 

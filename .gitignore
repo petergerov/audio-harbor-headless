@@ -6,6 +6,7 @@ cmake-build*/
 .DS_Store
 *.log
 .env
+config.toml
 host/dist/
 web/dist/
 engine/build/

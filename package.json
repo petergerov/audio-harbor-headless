@@ -15,7 +15,9 @@
     "build": "npm run build:engine && npm run build:web && npm run build:host",
     "dev": "npm run build:engine && npm run dev -w @harbor/host",
     "serve": "npm run build && npm run start -w @harbor/host",
-    "harbor": "npm run start -w @harbor/host --"
+    "harbor": "npm run start -w @harbor/host --",
+    "package": "./create-package.sh",
+    "package:prebuilt": "npm run build && npm prune --omit=dev && ./create-package.sh --prebuilt"
   },
   "engines": {
     "node": ">=20"

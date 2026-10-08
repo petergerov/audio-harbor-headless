@@ -36,7 +36,22 @@ const cmakeJsBin = fs.existsSync(cmakeJs)
     ? cmakeJsRoot
     : null;
 
-const withJuce = process.env.HARBOR_WITH_JUCE === '1' || process.env.HARBOR_WITH_JUCE === 'ON';
+// Default ON: ship JUCE + native (Mac/Linux/Windows). HARBOR_WITH_JUCE=0 → native-only.
+const juceEnv = process.env.HARBOR_WITH_JUCE;
+const withJuce = juceEnv !== '0' && juceEnv !== 'OFF';
+
+// cmake-js --CD… does not override a cached BOOL; wipe cache when it disagrees.
+const cachePath = path.join(buildDir, 'CMakeCache.txt');
+if (fs.existsSync(cachePath)) {
+  const cache = fs.readFileSync(cachePath, 'utf8');
+  const cachedOff = /HARBOR_WITH_JUCE:BOOL=OFF/.test(cache);
+  const cachedOn = /HARBOR_WITH_JUCE:BOOL=ON/.test(cache);
+  if ((withJuce && cachedOff) || (!withJuce && cachedOn)) {
+    console.log('HARBOR_WITH_JUCE changed — clearing engine/build cache');
+    fs.rmSync(buildDir, { recursive: true, force: true });
+    fs.mkdirSync(buildDir, { recursive: true });
+  }
+}
 
 if (cmakeJsBin) {
   const args = [cmakeJsBin, 'compile', '-d', root, '--out', 'build'];

@@ -1,4 +1,12 @@
 export type OutputMode = 'shared' | 'exclusive' | 'dop';
+export type AudioBackend = 'auto' | 'juce' | 'native';
+
+export interface AudioBackendInfo {
+  requested: AudioBackend | string;
+  effective: AudioBackend | string;
+  /** Comma-separated, e.g. "auto,juce,native" */
+  available: string;
+}
 
 export interface EngineDevice {
   uid: string;
@@ -24,6 +32,8 @@ export interface HarborEngine {
   setDevice(uid: string | null): void;
   setOutputMode(mode: OutputMode): void;
   setDsdPcmLevel(db: 0 | 3 | 6): void;
+  setAudioBackend(backend: AudioBackend): void;
+  getAudioBackend(): AudioBackendInfo;
   load(path: string): Promise<void>;
   play(): void;
   pause(): void;

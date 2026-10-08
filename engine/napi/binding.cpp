@@ -107,6 +107,29 @@ Napi::Value SetDsdPcmLevel(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+HarborAudioBackend parseBackend(const std::string& s) {
+  if (s == "juce") return HARBOR_BACKEND_JUCE;
+  if (s == "native") return HARBOR_BACKEND_NATIVE;
+  return HARBOR_BACKEND_AUTO;
+}
+
+Napi::Value SetAudioBackend(const Napi::CallbackInfo& info) {
+  std::string backend = info[0].As<Napi::String>();
+  harbor_engine_set_audio_backend(parseBackend(backend));
+  return info.Env().Undefined();
+}
+
+Napi::Value GetAudioBackend(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  auto o = Napi::Object::New(env);
+  o.Set("requested", harbor_engine_audio_backend_name(harbor_engine_get_requested_audio_backend()));
+  o.Set("effective", harbor_engine_audio_backend_name(harbor_engine_get_audio_backend()));
+  char list[128] {};
+  harbor_engine_list_audio_backends(list, sizeof(list));
+  o.Set("available", list);
+  return o;
+}
+
 Napi::Value Load(const Napi::CallbackInfo& info) {
   auto env = info.Env();
   std::string path = info[0].As<Napi::String>();
@@ -245,6 +268,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("setDevice", Napi::Function::New(env, SetDevice));
   exports.Set("setOutputMode", Napi::Function::New(env, SetOutputMode));
   exports.Set("setDsdPcmLevel", Napi::Function::New(env, SetDsdPcmLevel));
+  exports.Set("setAudioBackend", Napi::Function::New(env, SetAudioBackend));
+  exports.Set("getAudioBackend", Napi::Function::New(env, GetAudioBackend));
   exports.Set("load", Napi::Function::New(env, Load));
   exports.Set("play", Napi::Function::New(env, Play));
   exports.Set("pause", Napi::Function::New(env, Pause));

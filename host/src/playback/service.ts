@@ -16,6 +16,7 @@ import { resolveSacdPlaybackPath, SACD_MARKER } from '../library/sacd.js';
 import type { DiscoveredRenderer } from '../upnp/rendererOutput.js';
 import { pauseOnRenderer, playOnRenderer, prepareNextOnRenderer } from '../upnp/rendererOutput.js';
 import type {
+  AudioBackend,
   HarborConfig,
   NowPlayingSnapshot,
   OutputDevice,
@@ -64,7 +65,12 @@ export class PlaybackService extends EventEmitter {
     const cfg = this.getConfig();
     const eng = engineGetState();
     const net = this.networkDevices as OutputDevice[];
-    const output = buildOutputStatus(cfg.output.device_uid ?? null, cfg.output.mode, net);
+    const output = buildOutputStatus(
+      cfg.output.device_uid ?? null,
+      cfg.output.mode,
+      net,
+      cfg.output.backend
+    );
     const network = this.isNetworkOutput(cfg.output.device_uid);
     return {
       state: network ? (this.current ? 'playing' : 'idle') : (eng?.state ?? 'idle'),
@@ -151,18 +157,24 @@ export class PlaybackService extends EventEmitter {
     this.emitUpdate();
   }
 
-  setOutput(deviceUid: string | null, mode: OutputMode): void {
+  setOutput(deviceUid: string | null, mode: OutputMode, backend?: AudioBackend): void {
     const cfg = this.getConfig();
     cfg.output.device_uid = deviceUid;
     cfg.output.mode = mode;
+    if (backend) cfg.output.backend = backend;
     this.saveConfig(cfg);
-    applyOutput(deviceUid, mode, cfg.output.dsd_pcm_level);
+    applyOutput(deviceUid, mode, cfg.output.dsd_pcm_level, cfg.output.backend);
     this.emitUpdate();
   }
 
   applyConfigOutput(): void {
     const cfg = this.getConfig();
-    applyOutput(cfg.output.device_uid ?? null, cfg.output.mode, cfg.output.dsd_pcm_level);
+    applyOutput(
+      cfg.output.device_uid ?? null,
+      cfg.output.mode,
+      cfg.output.dsd_pcm_level,
+      cfg.output.backend
+    );
   }
 
   private async loadAndPlay(track: Track): Promise<void> {

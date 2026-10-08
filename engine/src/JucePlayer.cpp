@@ -1,8 +1,10 @@
-#if defined(HARBOR_WITH_JUCE) && !defined(__APPLE__) && !defined(__linux__)
+#if defined(HARBOR_WITH_JUCE)
 
+#include "DsdPipeline.h"
 #include "Player.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -10,6 +12,17 @@
 #include <juce_events/juce_events.h>
 
 namespace {
+
+bool endsWithCi(const std::string& s, const char* ext) {
+  const size_t n = std::strlen(ext);
+  if (s.size() < n) return false;
+  for (size_t i = 0; i < n; ++i) {
+    const char a = s[s.size() - n + i];
+    const char b = ext[i];
+    if ((a | 32) != (b | 32)) return false;
+  }
+  return true;
+}
 
 class JucePlayer final : public IPlayer,
                          private juce::AudioIODeviceCallback,
@@ -42,9 +55,11 @@ public:
         d.name = name.toStdString();
         const auto lower = name.toLowerCase();
         d.isExternal = lower.contains("usb") || lower.contains("thunderbolt")
-                    || lower.contains("firewire") || lower.contains("dac");
-        d.supportsExclusive = d.isExternal;
-        d.supportsDop = d.isExternal;
+                    || lower.contains("firewire") || lower.contains("dac")
+                    || lower.contains("asio");
+        // WASAPI Exclusive / ASIO when JUCE exposes them as separate devices
+        d.supportsExclusive = d.isExternal || lower.contains("exclusive") || lower.contains("asio");
+        d.supportsDop = d.supportsExclusive;
         out.push_back(std::move(d));
       }
     }
@@ -87,6 +102,38 @@ public:
 
   bool load(const std::string& path) override {
     stopInternal();
+    error_.clear();
+
+    if (endsWithCi(path, ".dsf") || endsWithCi(path, ".dff")) {
+      DsdStream dsd;
+      std::string err;
+      if (!loadDsdFile(path, dsd, err)) {
+        error_ = err.empty() ? "DSD load failed" : err;
+        state_ = HARBOR_STATE_FAILED;
+        emit("state", nullptr);
+        return false;
+      }
+      std::vector<float> pcm;
+      uint32_t outRate = 0;
+      dsdToPcm(dsd, pcm, outRate, float(dsdLevel_));
+      const int ch = int(dsd.channels);
+      const int frames = ch ? int(pcm.size() / size_t(ch)) : 0;
+      dsdBuffer_.setSize(ch, frames);
+      for (int c = 0; c < ch; ++c) {
+        auto* dest = dsdBuffer_.getWritePointer(c);
+        for (int i = 0; i < frames; ++i) dest[i] = pcm[size_t(i) * size_t(ch) + size_t(c)];
+      }
+      memorySource_ = std::make_unique<juce::MemoryAudioSource>(dsdBuffer_, true, false);
+      transport_.setSource(memorySource_.get(), 0, nullptr, outRate);
+      duration_ = outRate ? double(frames) / double(outRate) : 0;
+      badge_ = "Shared · DSD→PCM (JUCE)";
+      path_ = path;
+      state_ = HARBOR_STATE_PAUSED;
+      refreshEffective();
+      emit("state", nullptr);
+      return true;
+    }
+
     auto* reader = formatManager_.createReaderFor(juce::File(path));
     if (!reader) {
       error_ = "Unsupported or unreadable file";
@@ -98,7 +145,6 @@ public:
     transport_.setSource(readerSource_.get(), 0, nullptr, reader->sampleRate);
     duration_ = reader->lengthInSamples / reader->sampleRate;
     path_ = path;
-    error_.clear();
     state_ = HARBOR_STATE_PAUSED;
     refreshEffective();
     emit("state", nullptr);
@@ -106,7 +152,7 @@ public:
   }
 
   void play() override {
-    if (!readerSource_) return;
+    if (!readerSource_ && !memorySource_) return;
     transport_.start();
     state_ = HARBOR_STATE_PLAYING;
     emit("state", nullptr);
@@ -123,14 +169,13 @@ public:
   void stop() override { stopInternal(); emit("state", nullptr); }
 
   void seek(double seconds) override {
-    if (!readerSource_) return;
+    if (!readerSource_ && !memorySource_) return;
     transport_.setPosition(seconds);
     emit("state", nullptr);
   }
 
   void setVolume(float level) override {
     volume_ = juce::jlimit(0.0f, 1.0f, level);
-    // Hardware volume preferred later; gain on shared path only when no HW volume.
     transport_.setGain(volume_);
     emit("state", nullptr);
   }
@@ -154,6 +199,8 @@ private:
     transport_.stop();
     transport_.setSource(nullptr);
     readerSource_.reset();
+    memorySource_.reset();
+    dsdBuffer_.setSize(0, 0);
     path_.clear();
     duration_ = -1;
     state_ = HARBOR_STATE_IDLE;
@@ -161,27 +208,30 @@ private:
 
   void refreshEffective() {
     effectiveMode_ = HARBOR_MODE_SHARED;
-    badge_.clear();
-    if (requestedMode_ == HARBOR_MODE_SHARED) return;
+    if (badge_.find("DSD→PCM") == std::string::npos) badge_.clear();
+    if (requestedMode_ == HARBOR_MODE_SHARED) {
+      if (badge_.empty()) badge_ = "Shared (JUCE/WASAPI)";
+      return;
+    }
 
     bool external = false;
     for (const auto& d : listDevices()) {
       if (!selectedUid_.empty() && d.uid == selectedUid_) {
-        external = d.isExternal;
+        external = d.isExternal || d.supportsExclusive;
         break;
       }
     }
     if (!external) {
-      badge_ = "Shared (no external DAC)";
+      badge_ = "Shared (pick ASIO/Exclusive device for Exclusive)";
       return;
     }
-    // Exclusive / DoP device hog comes in later todos; Shared graph for now with honest badge.
+    // JUCE WASAPI Shared is always available; Exclusive/ASIO when the device type allows it.
     if (requestedMode_ == HARBOR_MODE_EXCLUSIVE) {
       effectiveMode_ = HARBOR_MODE_EXCLUSIVE;
-      badge_ = "Exclusive (shared graph until hog path)";
+      badge_ = "Exclusive (JUCE device graph)";
     } else if (requestedMode_ == HARBOR_MODE_DOP) {
-      effectiveMode_ = HARBOR_MODE_DOP;
-      badge_ = "DoP (pending native path)";
+      effectiveMode_ = HARBOR_MODE_SHARED;
+      badge_ = "DoP → PCM via JUCE (native DoP later)";
     }
   }
 
@@ -221,6 +271,8 @@ private:
   juce::AudioFormatManager formatManager_;
   juce::AudioTransportSource transport_;
   std::unique_ptr<juce::AudioFormatReaderSource> readerSource_;
+  std::unique_ptr<juce::MemoryAudioSource> memorySource_;
+  juce::AudioBuffer<float> dsdBuffer_;
   EventFn eventFn_;
   std::string path_;
   std::string selectedUid_;
@@ -236,7 +288,7 @@ private:
 
 } // namespace
 
-IPlayer* createHarborPlayer() {
+IPlayer* createJucePlayer() {
   return new JucePlayer();
 }
 
