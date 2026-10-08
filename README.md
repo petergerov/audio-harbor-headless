@@ -59,7 +59,7 @@ GitHub Actions builds one archive **per platform** (JUCE + native on Mac/Linux/W
 
 Intel and Apple Silicon Macs both use the native Core Audio path (`backend = "native"`). Pick the archive that matches `uname -m` (`arm64` vs `x86_64`).
 
-Prebuilt archives **bundle Node.js 20** under `runtime/` — you do not need a system Node install. `./start.sh` uses the bundled binary so it always matches `harbor_engine.node`. macOS typically needs **11 Big Sur or newer**.
+Prebuilt archives **bundle Node.js 22** under `runtime/` — you do not need a system Node install. `./start.sh` uses the bundled binary so it always matches `harbor_engine.node` (requires Node ≥22.5 for `node:sqlite`). macOS typically needs **11 Big Sur or newer**.
 
 ```bash
 # Example Raspberry Pi
@@ -67,11 +67,11 @@ curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/dow
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
 sudo apt install -y libasound2   # JUCE uses ALSA on Linux
-# Node 20.x required
+# Node 22+ is bundled in prebuilt packages
 ./start.sh
 ```
 
-Windows: unpack the `.zip` and run `start.cmd` (Node 20+).
+Windows: unpack the `.zip` and run `start.cmd` (bundled Node 22, or system Node 22+).
 
 Publish a release (manual only):
 

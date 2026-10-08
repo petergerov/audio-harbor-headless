@@ -1,7 +1,7 @@
 {
   "name": "audio-harbor-headless",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Headless audiophile media host — JUCE engine + TypeScript host",
   "workspaces": [
     "host",
@@ -20,6 +20,6 @@
     "package:prebuilt": "npm run build && npm prune --omit=dev && ./create-package.sh --prebuilt"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   }
 }

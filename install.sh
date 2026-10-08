@@ -17,7 +17,7 @@ need_cmd() {
 
 install_apt_deps() {
   if ! command -v apt-get >/dev/null 2>&1; then
-    log "apt-get not found — install Node 20+, cmake, g++, make, libasound2-dev + X11/freetype yourself"
+    log "apt-get not found — install Node 22+, cmake, g++, make, libasound2-dev + X11/freetype yourself"
     return 0
   fi
   log "Installing system packages (sudo)"
@@ -48,21 +48,21 @@ ensure_node() {
   if command -v node >/dev/null 2>&1; then
     local major
     major="$(node -p 'process.versions.node.split(".")[0]')"
-    if [[ "$major" -ge 20 ]]; then
+    if [[ "$major" -ge 22 ]]; then
       log "Node $(node -v) OK"
       return 0
     fi
-    log "Node $(node -v) is too old (need >= 20)"
+    log "Node $(node -v) is too old (need >= 22 for node:sqlite)"
   else
     log "Node.js not found"
   fi
 
   if command -v apt-get >/dev/null 2>&1; then
-    log "Installing Node.js 20 via NodeSource"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    log "Installing Node.js 22 via NodeSource"
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
   else
-    echo "Please install Node.js >= 20 and re-run ./install.sh" >&2
+    echo "Please install Node.js >= 22 and re-run ./install.sh" >&2
     exit 1
   fi
 }

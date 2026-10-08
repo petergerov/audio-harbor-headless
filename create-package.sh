@@ -76,8 +76,9 @@ ARCHIVE="$OUT_DIR/${NAME}.tar.gz"
 
 log() { printf '==> %s\n' "$*"; }
 
-# Official Node binary matching the ABI of harbor_engine.node (CI uses Node 20).
-BUNDLE_NODE_VER="${HARBOR_BUNDLE_NODE:-20.20.2}"
+# Official Node binary matching the ABI of harbor_engine.node.
+# Must be >= 22.5 (host uses node:sqlite / DatabaseSync).
+BUNDLE_NODE_VER="${HARBOR_BUNDLE_NODE:-22.23.3}"
 
 bundle_nodejs() {
   local ver="$1" plat="$2" dest="$3"
