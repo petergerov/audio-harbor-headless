@@ -1,0 +1,18 @@
+export const icons = {
+  browse: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"/></svg>`,
+  now: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3zm1 4.5V12l3.2 1.9-.9 1.5L11 13V7.5h2z"/></svg>`,
+  library: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 3h2v18H4V3zm4 0h2v18H8V3zm3.5 1.5 9.5 2.1v13.3l-9.5-2.1V4.5zm2 3.1v9.2l5.5 1.2V8.8l-5.5-1.2z"/></svg>`,
+  output: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zm13.5 3a3.5 3.5 0 0 0-2-3.15v6.3A3.5 3.5 0 0 0 17.5 12zM15 5.07v2.06A5.99 5.99 0 0 1 19 12a5.99 5.99 0 0 1-4 5.87v2.06A8 8 0 0 0 21 12a8 8 0 0 0-6-6.93z"/></svg>`,
+  search: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 1 0 5.3 14.1l4.3 4.3 1.4-1.4-4.3-4.3A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12A6 6 0 0 1 10 4z"/></svg>`,
+  chevron: `<svg width="12" height="20" viewBox="0 0 12 20" fill="currentColor" aria-hidden="true"><path d="M2.1 1.4 10.2 10 2.1 18.6 3.5 20l9.5-10L3.5 0 2.1 1.4z"/></svg>`,
+  play: `<svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5L8 5.5z"/></svg>`,
+  pause: `<svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h3.5v14H7V5zm6.5 0H17v14h-3.5V5z"/></svg>`,
+  playSm: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5L8 5.5z"/></svg>`,
+  pauseSm: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h3.5v14H7V5zm6.5 0H17v14h-3.5V5z"/></svg>`,
+  next: `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6.5v11l8.5-5.5L6 6.5zM17 6h2v12h-2V6z"/></svg>`,
+  prev: `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 6.5v11L9.5 12 18 6.5zM5 6h2v12H5V6z"/></svg>`,
+  volMin: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 10v4h3l4 3V7L8 10H5z"/></svg>`,
+  volMax: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 10v4h3l4 3V7L7 10H4zm11.5 2a3.5 3.5 0 0 0-2-3.15v6.3A3.5 3.5 0 0 0 15.5 12zM13 5.07v2.06A5.99 5.99 0 0 1 17 12a5.99 5.99 0 0 1-4 5.87v2.06A8 8 0 0 0 19 12a8 8 0 0 0-6-6.93z"/></svg>`,
+  music: `<svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4v10.55A3.5 3.5 0 1 0 12 18V8h6V4h-8z"/></svg>`,
+  musicSm: `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4v10.55A3.5 3.5 0 1 0 12 18V8h6V4h-8z"/></svg>`,
+};
