@@ -397,6 +397,15 @@ export class Catalogue {
       isDirectory: boolean;
       track: Track | null;
     }> = [];
+
+    // Count SACD ISOs so multi-disc folders can prefix track labels.
+    let sacdIsoCount = 0;
+    for (const ent of entries) {
+      if (ent.name.startsWith('.') || !ent.isFile()) continue;
+      const full = path.join(folderPath, ent.name);
+      if (path.extname(ent.name).toLowerCase() === '.iso' && isSacdIso(full)) sacdIsoCount += 1;
+    }
+
     for (const ent of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (ent.name.startsWith('.')) continue;
       const full = path.join(folderPath, ent.name);
@@ -406,13 +415,21 @@ export class Catalogue {
         path.extname(ent.name).toLowerCase() === '.iso' &&
         isSacdIso(full)
       ) {
-        // Present ISO like a folder so tracks are browsable.
-        out.push({
-          name: ent.name.replace(/\.iso$/i, ''),
-          path: full,
-          isDirectory: true,
-          track: null,
-        });
+        // Inline disc tracks — no extra click through a virtual ISO folder.
+        const size = fs.statSync(full).size;
+        const discName = ent.name.replace(/\.iso$/i, '');
+        for (const sacd of listSacdTracks(full)) {
+          const track = this.getTrack(sacd.cataloguePath) ?? sacdToTrack(sacd, size);
+          const trackLabel = sacd.number
+            ? `${String(sacd.number).padStart(2, '0')} ${sacd.title}`
+            : sacd.title;
+          out.push({
+            name: sacdIsoCount > 1 ? `${discName} · ${trackLabel}` : trackLabel,
+            path: sacd.cataloguePath,
+            isDirectory: false,
+            track,
+          });
+        }
       } else if (AUDIO_EXT.has(path.extname(ent.name).toLowerCase())) {
         out.push({
           name: ent.name,

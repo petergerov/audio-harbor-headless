@@ -797,16 +797,18 @@ function paintMediaList(list: Element, inCollection = false): void {
     } else if (item.cataloguePath || item.track || item.title) {
       const nested = item.track as Record<string, unknown> | null | undefined;
       const track = nested && typeof nested === 'object' ? nested : item;
-      const path = String(track.cataloguePath ?? '');
+      const path = String(track.cataloguePath ?? item.path ?? '');
       if (!path) continue;
       const labels = Array.isArray(track.labels)
         ? (track.labels as string[]).slice(0, 2).join(' · ')
         : '';
       const hash = track.artworkHash ? String(track.artworkHash) : null;
       const isNow = isNowPlayingPath(path);
+      // Folder browse may send a formatted name ("01 Title" / multi-disc prefix).
+      const title = String(item.name || track.title || 'Track');
       btn.innerHTML = rowHtml(
         'track',
-        String(track.title ?? item.name ?? 'Track'),
+        title,
         labels ? `${track.artist ?? ''} · ${labels}` : String(track.artist ?? ''),
         false,
         hash,
