@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { parseFile } from 'music-metadata';
 import { artworkDir, cataloguePath } from '../paths.js';
 import type { Album, Artist, AudioFormat, BrowseScope, Track } from '../types.js';
-import { isSacdIso, listSacdTracks } from './sacd.js';
+import { isSacdIso, listSacdTracks, parseSacdPath } from './sacd.js';
 
 const AUDIO_EXT = new Set([
   '.flac',
@@ -233,7 +233,20 @@ export class Catalogue {
     const row = this.db
       .prepare('SELECT * FROM tracks WHERE catalogue_path = ?')
       .get(cataloguePathValue) as Record<string, unknown> | undefined;
-    return row ? rowToTrack(row, this.labelsFor(cataloguePathValue)) : null;
+    if (row) return rowToTrack(row, this.labelsFor(cataloguePathValue));
+
+    // Folder browse can surface SACD ISO tracks before/without a library rescan.
+    const parsed = parseSacdPath(cataloguePathValue);
+    if (!parsed || !fs.existsSync(parsed.filePath)) return null;
+    try {
+      const st = fs.statSync(parsed.filePath);
+      const sacd = listSacdTracks(parsed.filePath).find(
+        (t) => t.cataloguePath === cataloguePathValue || t.number === parsed.track
+      );
+      return sacd ? sacdToTrack(sacd, st.size) : null;
+    } catch {
+      return null;
+    }
   }
 
   listTracks(limit = 200, offset = 0): Track[] {

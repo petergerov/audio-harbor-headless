@@ -87,7 +87,7 @@ function nonempty(...values: string[]): string {
   return values.find((v) => v.length > 0) ?? '';
 }
 
-function parseSacdPath(cataloguePath: string): { filePath: string; track: number } | null {
+export function parseSacdPath(cataloguePath: string): { filePath: string; track: number } | null {
   const idx = cataloguePath.indexOf(SACD_MARKER);
   if (idx < 0) return null;
   const filePath = cataloguePath.slice(0, idx);
@@ -424,7 +424,8 @@ function dffPreamble(sampleRate: number, channels: number): Buffer {
   propParts.push(lsco);
 
   const prop = Buffer.concat(propParts);
-  const head = Buffer.alloc(36);
+  // FRM8(4) + size(8) + "DSD "(4) + FVER(4) + size(8) + ver(4) = 32 — no padding
+  const head = Buffer.alloc(32);
   head.write('FRM8', 0, 4, 'ascii');
   writeU64BE(head, 4, 0n);
   head.write('DSD ', 12, 4, 'ascii');
@@ -492,7 +493,8 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
     throw new Error('Could not read DSD from this SACD track');
   }
 
-  const kind = discTrack.isDst ? 'dst2' : 'dsd2';
+  // Kind bump invalidates caches written with the padded (broken) FRM8 preamble.
+  const kind = discTrack.isDst ? 'dst3' : 'dsd3';
   const out = cachePath(parsed.filePath, parsed.track, kind);
   if (fs.existsSync(out) && fs.statSync(out).size > 128 && isCurrentCache(out)) {
     return out;
