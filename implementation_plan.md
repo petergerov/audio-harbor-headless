@@ -77,6 +77,7 @@ audio-harbor-headless/
   package.json                 # npm workspaces
   config.example.toml
   README.md
+  docs/                        # Product homepage (Audio Harbor visual system)
   implementation_plan.md
   host/                        # TypeScript daemon
     src/

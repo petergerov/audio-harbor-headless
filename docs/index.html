@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audio Harbor Headless — Audiophile host for Mac, Linux &amp; Windows</title>
+  <meta name="description" content="GUI-less audiophile media host. Native Exclusive / DoP on Mac, Linux, and Windows. Control from iPhone via web remote or Bonjour. DLNA music server. Open source." />
+  <meta name="keywords" content="audiophile, headless, bit-perfect, DSD, FLAC, Exclusive, DoP, WASAPI, ALSA, Core Audio, Raspberry Pi, DLNA, Bonjour" />
+  <link rel="icon" type="image/png" sizes="32x32" href="images/web/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="images/web/favicon-64.png" />
+  <link rel="apple-touch-icon" href="images/web/icon-180.png" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Audio Harbor Headless — Local. Bit-perfect. No GUI." />
+  <meta property="og:description" content="Run the host on Mac, Linux, or Windows. Steer from your phone. Exclusive, DoP, and honest conversion badges." />
+  <meta property="og:image" content="https://petergerov.github.io/audio-harbor-headless/images/web/icon-180.png" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Audio Harbor Headless" />
+  <meta name="twitter:description" content="Audiophile media host without a desktop UI. Mac · Linux · Windows · iPhone remote." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Audio Harbor Headless",
+    "applicationCategory": "MusicApplication",
+    "operatingSystem": "macOS, Linux, Windows",
+    "description": "GUI-less audiophile media host with Exclusive, DoP, web remote, Bonjour, and DLNA.",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "EUR"
+    },
+    "featureList": [
+      "Headless host for Mac, Linux, and Windows",
+      "Runtime choice: JUCE or native Core Audio / ALSA / WASAPI",
+      "Shared, Exclusive, and DoP output modes",
+      "FLAC, ALAC, WAV, AIFF, AAC, MP3, DSF, DFF, SACD ISO",
+      "Mobile web remote and Bonjour pairing",
+      "Optional DLNA / UPnP music server",
+      "Prebuilt packages including Raspberry Pi ARM64"
+    ]
+  }
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #fcfaf6;
+      --bg2:       #f5f0e7;
+      --bg3:       #faf8f4;
+      --text:      #1c1916;
+      --secondary: #6a6358;
+      --border:    #e4ddd3;
+      --accent:    #8a5a1a;
+      --accent2:   #5c3a14;
+      --amber:     #c4841e;
+      --muted:     #8a8276;
+      --radius:    12px;
+      --radius-lg: 20px;
+      --gold:      linear-gradient(180deg, #dcaa4e 0%, #b8812b 100%);
+      --gold-line: #c99a45;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 40px;
+      height: 68px;
+      background: rgba(252,250,246,0.86);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-bottom: 1px solid rgba(0,0,0,0.08);
+    }
+    .nav-logo, .footer-logo {
+      display: flex; align-items: center; gap: 14px;
+      color: var(--text); text-decoration: none;
+    }
+    .nav-logo img, .footer-logo img { display: block; width: 40px; height: 40px; }
+    .brand-word {
+      font-size: 1.02rem; font-weight: 500;
+      letter-spacing: 0.3em; text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .nav-links { display: flex; gap: 32px; }
+    .nav-link {
+      position: relative;
+      color: var(--secondary); text-decoration: none;
+      font-size: 0.84rem; font-weight: 500; letter-spacing: 0.01em;
+      padding: 6px 0;
+      transition: color .15s;
+    }
+    .nav-link::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+      height: 2px; border-radius: 1px; background: var(--gold);
+      transform: scaleX(0); transition: transform .2s;
+    }
+    .nav-link:hover { color: var(--text); }
+    .nav-link:hover::after { transform: scaleX(1); }
+    .nav-cta {
+      font-size: 0.84rem; font-weight: 600;
+      color: #fff; text-decoration: none;
+      background: var(--gold);
+      padding: 10px 22px; border-radius: 980px;
+      box-shadow: 0 6px 18px rgba(184,129,43,0.28);
+      transition: filter .15s;
+    }
+    .nav-cta:hover { filter: brightness(1.06); }
+
+    .container { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 132px 24px 72px;
+    }
+    .hero-waves {
+      position: absolute; top: 40px; right: -160px;
+      width: 1100px; height: 620px;
+      pointer-events: none;
+      opacity: 0.55;
+    }
+    .hero-inner {
+      position: relative;
+      max-width: 1180px; margin: 0 auto;
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      gap: 56px; align-items: center;
+    }
+    .hero-eyebrow {
+      display: inline-block;
+      font-size: 0.74rem; font-weight: 500;
+      letter-spacing: 0.32em; text-transform: uppercase;
+      color: var(--secondary);
+      margin-bottom: 22px;
+    }
+    .hero h1 {
+      font-size: clamp(2.6rem, 5.2vw, 4.4rem);
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.04;
+      color: var(--text);
+      margin: 0 0 22px;
+    }
+    .hero h1 em { font-style: normal; background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero p {
+      font-size: 1.12rem;
+      color: var(--secondary);
+      max-width: 520px;
+      margin: 0 0 30px;
+      line-height: 1.6;
+    }
+    .hero-actions { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--gold); color: #fff;
+      font-size: 0.92rem; font-weight: 600;
+      padding: 14px 28px;
+      border-radius: 980px;
+      text-decoration: none;
+      box-shadow: 0 10px 26px rgba(184,129,43,0.30);
+      transition: filter .15s, transform .15s;
+    }
+    .btn-primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--text);
+      font-size: 0.92rem; font-weight: 500;
+      padding: 13px 26px;
+      border: 1px solid #cfc6b8; border-radius: 980px;
+      text-decoration: none;
+      transition: border-color .15s, background .15s;
+    }
+    .btn-secondary:hover { border-color: var(--gold-line); background: rgba(255,255,255,0.6); }
+    .btn-secondary::after { content: " →"; }
+
+    /* Screenshot in a laptop frame */
+    .device { position: relative; }
+    .device-screen {
+      background: #0b0b0c;
+      border-radius: 18px 18px 8px 8px;
+      padding: 14px 14px 18px;
+      box-shadow: 0 0 0 1px #2c2a27 inset, 0 40px 90px rgba(90,60,20,0.20), 0 8px 24px rgba(0,0,0,0.10);
+    }
+    .device-screen img { width: 100%; height: auto; display: block; border-radius: 6px; }
+    .device-base {
+      position: relative;
+      height: 14px; margin: 0 -7%;
+      background: linear-gradient(180deg, #e2dfda 0%, #b7b2ab 100%);
+      border-radius: 0 0 18px 18px;
+      box-shadow: 0 14px 24px rgba(0,0,0,0.12);
+    }
+    .device-base::before {
+      content: ""; position: absolute; top: 0; left: 50%;
+      width: 16%; height: 5px; transform: translateX(-50%);
+      background: #a7a29b; border-radius: 0 0 6px 6px;
+    }
+    .hero .hero-trust {
+      font-size: 0.8rem; color: var(--muted);
+      margin: 26px 0 0;
+      letter-spacing: 0.02em; line-height: 1.6;
+    }
+    @media (max-width: 900px) {
+      .hero { padding-top: 112px; text-align: center; }
+      .hero-inner { grid-template-columns: 1fr; gap: 44px; }
+      .hero p { margin-left: auto; margin-right: auto; }
+      .hero-actions { justify-content: center; }
+      .hero-waves { right: -420px; }
+    }
+
+    .section-eyebrow {
+      font-size: 0.72rem; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 3vw, 2.4rem);
+      font-weight: 700; letter-spacing: -0.025em;
+      color: var(--text); margin-bottom: 14px;
+    }
+    .section-sub {
+      font-size: 1rem; color: var(--secondary);
+      max-width: 540px; line-height: 1.6;
+    }
+    .sound-note {
+      font-size: 0.78rem; color: var(--muted);
+      margin-top: 28px; max-width: 560px; line-height: 1.55;
+    }
+    .sound-section { padding: 80px 0; }
+
+    hr.divider {
+      border: none; border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    .steps-section { background: var(--bg2); padding: 80px 0; }
+    .steps-inner { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+    .steps-header { margin-bottom: 52px; }
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .step {
+      background: var(--bg);
+      padding: 36px 32px;
+    }
+    .step-num {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em;
+      color: var(--secondary); margin-bottom: 16px;
+    }
+    .step-icon, .feature-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 46px; height: 46px; margin-bottom: 16px;
+      border: 1px solid rgba(201,154,69,0.45); border-radius: 13px;
+      background: #fbf3e4; color: #b8812b;
+      font-size: 1.25rem; line-height: 1;
+    }
+    .step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .step p { font-size: 0.88rem; color: var(--secondary); line-height: 1.6; }
+
+    .shots-section { padding: 80px 0; }
+    .shots-header { max-width: 980px; margin: 0 auto 40px; padding: 0 24px; }
+    .shots-scroll {
+      display: flex; gap: 16px;
+      overflow-x: auto;
+      padding: 0 24px 20px;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      max-width: 1200px;
+      margin: 0 auto;
+      align-items: flex-start;
+    }
+    .shots-scroll::-webkit-scrollbar { display: none; }
+    /* Centred while it fits; when it overflows the auto margins collapse, so the first card stays reachable. */
+    .shots-scroll > .shot:first-child { margin-left: auto; }
+    .shots-scroll > .shot:last-child { margin-right: auto; }
+    .shot {
+      flex: 0 0 280px;
+      scroll-snap-align: start;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--bg2);
+    }
+    .shot.wide { flex: 0 0 420px; }
+    .shot.tall { flex: 0 0 220px; }
+    .shot img { width: 100%; height: auto; display: block; background: #0a0908; }
+    .shot-label {
+      padding: 10px 14px;
+      font-size: 0.78rem; font-weight: 500; color: var(--secondary);
+      border-top: 1px solid var(--border);
+    }
+
+    .features-section { background: var(--bg2); padding: 80px 0; }
+    .features-header { margin-bottom: 52px; }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .feature {
+      background: var(--bg);
+      padding: 32px 28px;
+    }
+    .feature h3 {
+      font-size: 0.95rem; font-weight: 600;
+      margin-bottom: 8px; color: var(--text);
+    }
+    .feature p { font-size: 0.85rem; color: var(--secondary); line-height: 1.65; }
+    .feature ul {
+      margin-top: 12px;
+      padding-left: 18px;
+      font-size: 0.82rem; color: var(--secondary);
+      line-height: 1.7;
+    }
+
+    .presets-section { padding: 80px 0; }
+    .preset-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      margin-top: 40px;
+    }
+    .preset {
+      background: var(--bg);
+      padding: 24px 28px;
+    }
+    .preset h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 6px; }
+    .preset p { font-size: 0.85rem; color: var(--secondary); line-height: 1.6; }
+
+    .hosts-section { background: var(--bg2); padding: 80px 0; }
+    .hosts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      margin-top: 40px;
+    }
+    .host-card {
+      background: var(--bg);
+      padding: 32px 28px;
+    }
+    .host-card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; }
+    .host-card p { font-size: 0.85rem; color: var(--secondary); line-height: 1.65; }
+    .host-card .lead {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--amber); margin-bottom: 10px;
+    }
+
+    .quote-section {
+      padding: 80px 24px;
+      text-align: center;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .quote {
+      font-size: clamp(1.2rem, 2.5vw, 1.8rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--secondary);
+      max-width: 640px;
+      margin: 0 auto;
+      line-height: 1.4;
+    }
+    .quote em { font-style: normal; color: var(--text); }
+
+    .cta-section {
+      background: radial-gradient(120% 140% at 50% 0%, #2e2a25 0%, #16130f 60%, #0e0c0a 100%);
+      color: #fff;
+      padding: 88px 24px;
+      text-align: center;
+    }
+    .cta-mark { display: block; width: 76px; height: 76px; margin: 0 auto 26px; filter: drop-shadow(0 12px 28px rgba(220,170,78,0.28)); }
+    .cta-section h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+      font-weight: 700; letter-spacing: -0.03em;
+      margin-bottom: 14px;
+    }
+    .cta-section p { font-size: 1rem; opacity: 0.6; margin-bottom: 36px; max-width: 520px; margin-left: auto; margin-right: auto; }
+    .btn-cta {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--gold); color: #fff;
+      font-size: 0.9rem; font-weight: 600;
+      padding: 14px 28px; border-radius: 980px;
+      box-shadow: 0 10px 26px rgba(184,129,43,0.35);
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .btn-cta:hover { opacity: 0.88; }
+
+    footer {
+      padding: 40px 24px;
+      border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; align-items: center;
+      gap: 16px; text-align: center;
+    }
+    .footer-links { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+    .footer-links a {
+      font-size: 0.78rem; color: var(--secondary);
+      text-decoration: none; transition: color .15s;
+    }
+    .footer-links a:hover { color: var(--text); }
+    footer p { font-size: 0.75rem; color: var(--secondary); }
+
+    @media (max-width: 700px) {
+      nav { padding: 0 20px; }
+      .nav-links { display: none; }
+      .brand-word { font-size: 0.8rem; letter-spacing: 0.2em; }
+      .nav-cta { padding: 8px 14px; font-size: 0.78rem; }
+      .steps-grid, .features-grid, .hosts-grid, .preset-list { grid-template-columns: 1fr; }
+      .shot.wide { flex: 0 0 280px; }
+    }
+
+    /* Lightbox */
+    .shot-open, .hero-open {
+      display: block; width: 100%;
+      padding: 0; border: 0; background: none;
+      cursor: zoom-in;
+      font: inherit; color: inherit;
+    }
+    .shot-open:focus-visible, .hero-open:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+    .lightbox {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+      padding: 40px 72px;
+      background: rgba(10, 9, 8, 0.94);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .lightbox[hidden] { display: none; }
+    .lightbox-figure {
+      margin: 0; max-width: 100%; max-height: 100%;
+      display: flex; flex-direction: column; gap: 14px; align-items: center;
+    }
+    .lightbox-figure img {
+      max-width: 100%;
+      max-height: calc(100vh - 140px);
+      width: auto; height: auto;
+      display: block;
+      border-radius: var(--radius);
+      box-shadow: 0 30px 90px rgba(0,0,0,0.6);
+    }
+    .lightbox-figure figcaption {
+      color: #d9d2c6; font-size: 0.85rem; text-align: center;
+      max-width: 60ch;
+    }
+    .lightbox button {
+      position: absolute;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.16);
+      color: #f2ece2;
+      border-radius: 50%;
+      width: 44px; height: 44px;
+      font-size: 1.4rem; line-height: 1;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lightbox button:hover { background: rgba(255,255,255,0.16); }
+    .lightbox button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+    .lightbox-close { top: 20px; right: 20px; }
+    .lightbox-prev { left: 16px; top: 50%; transform: translateY(-50%); }
+    .lightbox-next { right: 16px; top: 50%; transform: translateY(-50%); }
+    body.lightbox-open { overflow: hidden; }
+    @media (max-width: 720px) {
+      .lightbox { padding: 64px 12px 24px; }
+      .lightbox-prev { left: 8px; }
+      .lightbox-next { right: 8px; }
+    }
+  
+    /* Headless: terminal / remote mock in the hero device frame */
+    .term {
+      background: #12100e;
+      color: #e8e0d4;
+      font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      border-radius: 6px;
+      padding: 22px 22px 26px;
+      min-height: 280px;
+      text-align: left;
+    }
+    .term .prompt { color: #c99a45; }
+    .term .muted { color: #8a8276; }
+    .term .ok { color: #b8c99a; }
+    .term .line { margin: 0 0 6px; white-space: pre-wrap; word-break: break-word; }
+    .term .blank { height: 10px; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .pill {
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--accent2);
+      background: #fbf3e4; border: 1px solid rgba(201,154,69,0.4);
+      padding: 6px 12px; border-radius: 980px;
+    }
+    .code-block {
+      margin-top: 28px;
+      background: #16130f; color: #e8e0d4;
+      font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.82rem; line-height: 1.65;
+      padding: 22px 24px; border-radius: var(--radius);
+      overflow-x: auto;
+      border: 1px solid #2c2a27;
+    }
+    .code-block .c { color: #8a8276; }
+    .code-block .k { color: #dcaa4e; }
+
+  </style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="#" aria-label="Audio Harbor Headless">
+    <picture>
+      <source type="image/webp" srcset="images/web/mark-40.webp, images/web/mark-80.webp 2x, images/web/mark-120.webp 3x" />
+      <img src="images/web/mark-40.png" srcset="images/web/mark-80.png 2x, images/web/mark-120.png 3x"
+           alt="" width="40" height="40" />
+    </picture>
+    <span class="brand-word">Audio Harbor</span>
+  </a>
+  <div class="nav-links">
+    <a href="#listening" class="nav-link">Listening</a>
+    <a href="#backends" class="nav-link">Backends</a>
+    <a href="#how-it-works" class="nav-link">How it works</a>
+    <a href="#what-it-does" class="nav-link">What it does</a>
+    <a href="#platforms" class="nav-link">Platforms</a>
+    <a href="https://github.com/petergerov/audio-harbor-headless#readme" class="nav-link">Docs</a>
+  </div>
+  <a href="#get" class="nav-cta">Get Headless</a>
+</nav>
+
+<section class="hero">
+  <svg class="hero-waves" viewBox="0 0 1200 620" aria-hidden="true" focusable="false">
+    <g fill="none" stroke="#c99a45" stroke-width="1" stroke-opacity="0.45">
+      <polyline points="0,150.0 20,151.9 40,154.2 60,156.8 80,159.7 100,162.9 120,166.4 140,170.1 160,173.9 180,177.8 200,181.7 220,185.5 240,189.1 260,192.5 280,195.4 300,197.9 320,199.9 340,201.1 360,201.7 380,201.4 400,200.4 420,198.4 440,195.6 460,192.0 480,187.6 500,182.4 520,176.6 540,170.2 560,163.3 580,156.2 600,148.9 620,141.5 640,134.3 660,127.3 680,120.7 700,114.7 720,109.3 740,104.6 760,100.7 780,97.7 800,95.6 820,94.3 840,93.9 860,94.4 880,95.7 900,97.6 920,100.2 940,103.4 960,107.0 980,110.9 1000,115.0 1020,119.3 1040,123.6 1060,127.9 1080,132.0 1100,135.9 1120,139.5 1140,142.8 1160,145.8 1180,148.4 1200,150.7" />
+      <polyline points="0,167.3 20,169.6 40,172.3 60,175.3 80,178.6 100,182.1 120,185.9 140,189.7 160,193.6 180,197.6 200,201.3 220,204.9 240,208.2 260,211.0 280,213.4 300,215.1 320,216.2 340,216.4 360,215.8 380,214.4 400,212.0 420,208.7 440,204.6 460,199.6 480,193.8 500,187.4 520,180.3 540,172.8 560,165.1 580,157.1 600,149.2 620,141.4 640,134.0 660,127.0 680,120.6 700,114.9 720,110.1 740,106.1 760,103.1 780,101.1 800,100.0 820,100.0 840,100.8 860,102.6 880,105.1 900,108.3 920,112.1 940,116.4 960,121.0 980,125.8 1000,130.8 1020,135.8 1040,140.7 1060,145.4 1080,149.9 1100,154.0 1120,157.8 1140,161.1 1160,164.1 1180,166.6 1200,168.6" />
+      <polyline points="0,185.0 20,187.7 40,190.8 60,194.1 80,197.6 100,201.4 120,205.2 140,209.1 160,213.0 180,216.7 200,220.2 220,223.3 240,226.0 260,228.1 280,229.6 300,230.4 320,230.3 340,229.4 360,227.5 380,224.7 400,220.9 420,216.2 440,210.7 460,204.3 480,197.3 500,189.6 520,181.5 540,173.2 560,164.6 580,156.2 600,147.9 620,140.0 640,132.7 660,126.0 680,120.1 700,115.1 720,111.2 740,108.3 760,106.4 780,105.7 800,106.0 820,107.3 840,109.6 860,112.7 880,116.6 900,121.1 920,126.1 940,131.5 960,137.1 980,142.8 1000,148.5 1020,154.1 1040,159.4 1060,164.5 1080,169.1 1100,173.3 1120,177.1 1140,180.3 1160,183.1 1180,185.3 1200,187.0" />
+      <polyline points="0,202.9 20,206.0 40,209.3 60,212.8 80,216.5 100,220.3 120,224.2 140,227.9 160,231.5 180,234.9 200,237.8 220,240.3 240,242.2 260,243.4 280,243.9 300,243.4 320,242.1 340,239.8 360,236.5 380,232.2 400,227.0 420,220.9 440,214.0 460,206.4 480,198.2 500,189.5 520,180.6 540,171.5 560,162.6 580,153.9 600,145.6 620,137.9 640,131.0 660,125.0 680,120.0 700,116.1 720,113.3 740,111.8 760,111.4 780,112.1 800,114.0 820,116.9 840,120.7 860,125.3 880,130.6 900,136.4 920,142.5 940,148.9 960,155.4 980,161.9 1000,168.2 1020,174.2 1040,179.8 1060,185.0 1080,189.6 1100,193.7 1120,197.3 1140,200.2 1160,202.6 1180,204.4 1200,205.7" />
+      <polyline points="0,221.0 20,224.2 40,227.7 60,231.4 80,235.1 100,238.8 120,242.4 140,245.8 160,249.0 180,251.7 200,254.0 220,255.6 240,256.5 260,256.6 280,255.8 300,254.0 320,251.3 340,247.6 360,242.8 380,237.1 400,230.4 420,223.0 440,214.8 460,206.0 480,196.9 500,187.4 520,177.9 540,168.5 560,159.4 580,150.9 600,143.0 620,135.9 640,129.8 660,124.8 680,121.1 700,118.5 720,117.3 740,117.3 760,118.6 780,121.0 800,124.6 820,129.1 840,134.5 860,140.6 880,147.2 900,154.3 920,161.5 940,168.8 960,176.0 980,183.0 1000,189.7 1020,195.9 1040,201.6 1060,206.7 1080,211.2 1100,215.0 1120,218.1 1140,220.6 1160,222.5 1180,223.8 1200,224.5" />
+      <polyline points="0,238.9 20,242.3 40,245.8 60,249.4 80,253.0 100,256.4 120,259.6 140,262.6 160,265.1 180,267.0 200,268.3 220,268.9 240,268.6 260,267.5 280,265.3 300,262.1 320,257.9 340,252.7 360,246.5 380,239.3 400,231.4 420,222.7 440,213.4 460,203.8 480,193.9 500,184.0 520,174.2 540,164.8 560,156.0 580,147.9 600,140.8 620,134.7 640,129.8 660,126.2 680,124.0 700,123.1 720,123.7 740,125.5 760,128.6 780,132.9 800,138.2 820,144.5 840,151.4 860,158.9 880,166.8 900,174.9 920,183.1 940,191.1 960,198.8 980,206.2 1000,213.0 1020,219.2 1040,224.7 1060,229.5 1080,233.6 1100,236.9 1120,239.4 1140,241.3 1160,242.5 1180,243.1 1200,243.1" />
+      <polyline points="0,256.6 20,259.9 40,263.4 60,266.7 80,270.0 100,273.0 120,275.6 140,277.9 160,279.5 180,280.5 200,280.7 220,280.1 240,278.5 260,275.9 280,272.3 300,267.7 320,262.0 340,255.3 360,247.7 380,239.3 400,230.1 420,220.4 440,210.4 460,200.1 480,189.8 500,179.8 520,170.1 540,161.2 560,153.0 580,145.8 600,139.8 620,135.1 640,131.8 660,129.9 680,129.6 700,130.6 720,133.1 740,136.9 760,142.0 780,148.2 800,155.3 820,163.1 840,171.5 860,180.3 880,189.3 900,198.3 920,207.2 940,215.6 960,223.6 980,231.0 1000,237.7 1020,243.6 1040,248.8 1060,253.0 1080,256.4 1100,259.0 1120,260.8 1140,261.9 1160,262.3 1180,262.1 1200,261.4" />
+      <polyline points="0,273.7 20,277.0 40,280.1 60,283.1 80,285.9 100,288.2 120,290.2 140,291.5 160,292.2 180,292.0 200,291.0 220,289.0 240,286.1 260,282.0 280,277.0 300,270.9 320,263.7 340,255.7 360,246.9 380,237.3 400,227.2 420,216.8 440,206.2 460,195.7 480,185.4 500,175.6 520,166.5 540,158.4 560,151.3 580,145.4 600,141.0 620,138.0 640,136.6 660,136.7 680,138.4 700,141.5 720,146.1 740,152.0 760,159.1 780,167.1 800,175.9 820,185.2 840,195.0 860,204.9 880,214.7 900,224.3 920,233.5 940,242.2 960,250.2 980,257.3 1000,263.6 1020,269.0 1040,273.4 1060,276.9 1080,279.4 1100,281.1 1120,282.0 1140,282.1 1160,281.6 1180,280.6 1200,279.0" />
+      <polyline points="0,290.2 20,293.2 40,295.9 60,298.4 80,300.5 100,302.1 120,303.1 140,303.4 160,302.9 180,301.5 200,299.1 220,295.8 240,291.4 260,285.9 280,279.4 300,271.9 320,263.5 340,254.3 360,244.4 380,234.0 400,223.2 420,212.4 440,201.7 460,191.3 480,181.4 500,172.3 520,164.2 540,157.3 560,151.7 580,147.5 600,144.9 620,144.0 640,144.7 660,147.1 680,151.0 700,156.4 720,163.2 740,171.1 760,180.0 780,189.8 800,200.1 820,210.8 840,221.6 860,232.3 880,242.7 900,252.6 920,261.9 940,270.4 960,278.0 980,284.6 1000,290.2 1020,294.7 1040,298.2 1060,300.7 1080,302.2 1100,302.8 1120,302.6 1140,301.7 1160,300.2 1180,298.2 1200,295.8" />
+      <polyline points="0,305.9 20,308.4 40,310.5 60,312.3 80,313.6 100,314.3 120,314.2 140,313.4 160,311.6 180,308.9 200,305.2 220,300.4 240,294.6 260,287.7 280,279.9 300,271.1 320,261.6 340,251.4 360,240.8 380,229.9 400,218.9 420,208.0 440,197.5 460,187.7 480,178.7 500,170.7 520,164.0 540,158.7 560,154.9 580,152.8 600,152.4 620,153.8 640,156.9 660,161.6 680,167.8 700,175.5 720,184.4 740,194.3 760,205.0 780,216.3 800,227.9 820,239.6 840,251.1 860,262.3 880,272.9 900,282.8 920,291.8 940,299.8 960,306.7 980,312.5 1000,317.0 1020,320.5 1040,322.8 1060,324.1 1080,324.3 1100,323.8 1120,322.4 1140,320.4 1160,317.8 1180,314.9 1200,311.6" />
+      <polyline points="0,320.6 20,322.4 40,323.9 60,324.9 80,325.2 100,324.8 120,323.6 140,321.5 160,318.5 180,314.4 200,309.3 220,303.1 240,296.0 260,287.8 280,278.8 300,269.1 320,258.7 340,247.9 360,236.8 380,225.7 400,214.8 420,204.4 440,194.6 460,185.7 480,178.0 500,171.6 520,166.6 540,163.4 560,161.8 580,162.0 600,164.1 620,167.9 640,173.5 660,180.6 680,189.2 700,199.0 720,209.9 740,221.6 760,233.8 780,246.4 800,258.9 820,271.3 840,283.3 860,294.5 880,305.0 900,314.4 920,322.7 940,329.9 960,335.7 980,340.3 1000,343.6 1020,345.7 1040,346.6 1060,346.5 1080,345.4 1100,343.5 1120,340.9 1140,337.8 1160,334.2 1180,330.3 1200,326.2" />
+      <polyline points="0,334.1 20,335.3 40,335.9 60,335.9 80,335.2 100,333.7 120,331.3 140,327.9 160,323.5 180,318.1 200,311.7 220,304.3 240,295.9 260,286.7 280,276.8 300,266.3 320,255.3 340,244.2 360,233.1 380,222.3 400,211.9 420,202.3 440,193.7 460,186.2 480,180.2 500,175.7 520,172.9 540,172.0 560,172.9 580,175.7 600,180.3 620,186.7 640,194.8 660,204.3 680,215.1 700,226.9 720,239.6 740,252.8 760,266.2 780,279.7 800,292.8 820,305.5 840,317.4 860,328.3 880,338.2 900,346.8 920,354.0 940,359.9 960,364.4 980,367.5 1000,369.3 1020,369.8 1040,369.2 1060,367.6 1080,365.1 1100,361.8 1120,357.9 1140,353.6 1160,349.0 1180,344.3 1200,339.4" />
+      <polyline points="0,346.5 20,346.8 40,346.5 60,345.5 80,343.7 100,341.0 120,337.3 140,332.7 160,327.0 180,320.4 200,312.8 220,304.2 240,294.9 260,284.8 280,274.2 300,263.3 320,252.2 340,241.2 360,230.5 380,220.3 400,210.9 420,202.6 440,195.5 460,189.9 480,186.0 500,183.8 520,183.5 540,185.1 560,188.7 580,194.1 600,201.4 620,210.4 640,220.9 660,232.6 680,245.4 700,259.1 720,273.2 740,287.5 760,301.8 780,315.7 800,329.0 820,341.4 840,352.8 860,363.0 880,371.8 900,379.2 920,385.0 940,389.4 960,392.2 980,393.6 1000,393.6 1020,392.5 1040,390.2 1060,386.9 1080,382.9 1100,378.3 1120,373.2 1140,367.8 1160,362.3 1180,356.7 1200,351.3" />
+      <polyline points="0,357.7 20,357.1 40,355.8 60,353.7 80,350.7 100,346.8 120,341.9 140,336.1 160,329.3 180,321.5 200,312.9 220,303.4 240,293.4 260,282.8 280,271.9 300,260.9 320,250.0 340,239.5 360,229.6 380,220.6 400,212.6 420,206.0 440,200.9 460,197.5 480,196.0 500,196.4 520,198.7 540,203.1 560,209.4 580,217.6 600,227.5 620,238.9 640,251.7 660,265.4 680,280.0 700,295.0 720,310.2 740,325.2 760,339.8 780,353.7 800,366.7 820,378.5 840,388.9 860,397.9 880,405.2 900,411.0 920,415.0 940,417.5 960,418.4 980,417.9 1000,416.0 1020,413.0 1040,409.0 1060,404.2 1080,398.7 1100,392.7 1120,386.5 1140,380.1 1160,373.8 1180,367.6 1200,361.7" />
+      <polyline points="0,367.6 20,366.1 40,363.7 60,360.5 80,356.4 100,351.4 120,345.4 140,338.4 160,330.6 180,321.9 200,312.5 220,302.5 240,292.0 260,281.2 280,270.4 300,259.8 320,249.6 340,240.0 360,231.3 380,223.8 400,217.7 420,213.2 440,210.4 460,209.6 480,210.7 500,213.8 520,219.0 540,226.2 560,235.3 580,246.1 600,258.5 620,272.2 640,286.9 660,302.3 680,318.2 700,334.1 720,349.9 740,365.2 760,379.6 780,393.0 800,405.1 820,415.7 840,424.7 860,432.0 880,437.5 900,441.3 920,443.3 940,443.7 960,442.5 980,439.9 1000,436.1 1020,431.2 1040,425.4 1060,419.0 1080,412.1 1100,405.0 1120,397.7 1140,390.5 1160,383.6 1180,376.9 1200,370.7" />
+      <polyline points="0,376.5 20,373.9 40,370.6 60,366.3 80,361.1 100,355.0 120,348.0 140,340.1 160,331.5 180,322.1 200,312.2 220,301.9 240,291.3 260,280.8 280,270.4 300,260.6 320,251.4 340,243.2 360,236.3 380,230.7 400,226.8 420,224.7 440,224.6 460,226.4 480,230.4 500,236.5 520,244.5 540,254.5 560,266.2 580,279.5 600,294.1 620,309.7 640,326.0 660,342.6 680,359.3 700,375.8 720,391.6 740,406.5 760,420.2 780,432.6 800,443.3 820,452.3 840,459.4 860,464.7 880,468.0 900,469.5 920,469.2 940,467.2 960,463.8 980,459.1 1000,453.2 1020,446.5 1040,439.1 1060,431.2 1080,423.1 1100,414.9 1120,406.8 1140,399.0 1160,391.6 1180,384.7 1200,378.3" />
+      <polyline points="0,384.4 20,380.8 40,376.4 60,371.2 80,365.0 100,358.0 120,350.2 140,341.6 160,332.4 180,322.6 200,312.5 220,302.3 240,292.0 260,282.1 280,272.6 300,264.0 320,256.3 340,249.9 360,245.0 380,241.7 400,240.3 420,240.9 440,243.6 460,248.4 480,255.3 500,264.3 520,275.1 540,287.7 560,301.9 580,317.3 600,333.7 620,350.8 640,368.2 660,385.6 680,402.6 700,419.0 720,434.3 740,448.3 760,460.8 780,471.5 800,480.4 820,487.3 840,492.1 860,494.9 880,495.8 900,494.7 920,492.0 940,487.6 960,481.9 980,475.1 1000,467.3 1020,458.8 1040,449.9 1060,440.7 1080,431.5 1100,422.5 1120,413.9 1140,405.6 1160,398.0 1180,391.1 1200,384.9" />
+      <polyline points="0,391.4 20,386.9 40,381.6 60,375.5 80,368.5 100,360.8 120,352.3 140,343.3 160,333.8 180,324.0 200,314.1 220,304.2 240,294.7 260,285.8 280,277.6 300,270.5 320,264.8 340,260.5 360,258.0 380,257.3 400,258.7 420,262.2 440,267.8 460,275.5 480,285.3 500,297.1 520,310.5 540,325.5 560,341.8 580,359.0 600,376.8 620,394.9 640,412.9 660,430.4 680,447.1 700,462.7 720,476.9 740,489.5 760,500.1 780,508.8 800,515.3 820,519.7 840,521.9 860,522.1 880,520.2 900,516.5 920,511.2 940,504.4 960,496.4 980,487.5 1000,477.9 1020,467.9 1040,457.7 1060,447.5 1080,437.5 1100,427.9 1120,418.9 1140,410.6 1160,403.0 1180,396.3 1200,390.4" />
+    </g>
+  </svg>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <span class="hero-eyebrow">Mac · Linux · Windows · Headless</span>
+      <h1>No desktop UI.<br>Still hear the <em>file</em>.</h1>
+      <p>A quiet audiophile <strong>host</strong> for folders you already own. Exclusive and DoP on native stacks — Core Audio, ALSA, WASAPI — or portable JUCE. Steer from Safari on your iPhone.</p>
+      <div class="hero-actions">
+        <a href="https://github.com/petergerov/audio-harbor-headless" class="btn-primary">
+          View on GitHub
+        </a>
+        <a href="#get" class="btn-secondary">Install package</a>
+      </div>
+      <p class="hero-trust">No streaming · No account &nbsp;·&nbsp; Web remote + Bonjour &nbsp;·&nbsp; Shared by default · Exclusive when the DAC is ready</p>
+    </div>
+    <div class="device">
+      <div class="device-screen">
+        <div class="term" aria-label="Example host startup">
+          <p class="line"><span class="prompt">$</span> ./start.sh</p>
+          <p class="line muted">Audio Harbor Headless 0.1.0</p>
+          <p class="line">engine   <span class="ok">macos-juce+coreaudio</span></p>
+          <p class="line">backend  <span class="ok">native</span> <span class="muted">(auto)</span></p>
+          <p class="line">output   Shared · USB DAC ready for Exclusive</p>
+          <div class="blank"></div>
+          <p class="line">LAN      <span class="ok">http://192.168.1.42:8787</span></p>
+          <p class="line">Bonjour  <span class="ok">_audioharbor._tcp</span></p>
+          <p class="line muted">Open the URL on your iPhone — or scan the QR.</p>
+          <div class="pill-row">
+            <span class="pill">FLAC</span>
+            <span class="pill">DSD</span>
+            <span class="pill">DoP</span>
+            <span class="pill">DLNA</span>
+          </div>
+        </div>
+      </div>
+      <div class="device-base"></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<section class="sound-section" id="listening">
+  <div class="steps-inner">
+    <div class="steps-header">
+      <div class="section-eyebrow">The path to the DAC</div>
+      <h2 class="section-title">Three ways out. Start with Shared.</h2>
+      <p class="section-sub">Same language as Audio Harbor on the Mac. If you are unsure, leave Shared on — that is the daily driver on every machine.</p>
+    </div>
+    <div class="steps-grid">
+      <div class="step">
+        <div class="step-num">Shared</div>
+        <span class="step-icon">◇</span>
+        <h3>Everyday listening — recommended</h3>
+        <p>Plays like any other process. Calls, browser, speakers, Bluetooth still work. Honest default when there is no dedicated DAC.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">Exclusive</div>
+        <span class="step-icon">◎</span>
+        <h3>Bit-perfect into a USB DAC</h3>
+        <p>Native stacks take the device: Core Audio hog, ALSA <code>hw:</code>, WASAPI Exclusive. Sample rate follows the file. DSD converts to PCM on this path.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">DoP</div>
+        <span class="step-icon">☾</span>
+        <h3>Exclusive, plus real DSD</h3>
+        <p>DSF, DFF, and SACD ISO reach a DSD DAC as DoP. Pick it only if the DAC plays DSD. The conversion badge always says which path you are on.</p>
+      </div>
+    </div>
+    <p class="sound-note">Strongest Exclusive / DoP with <code>output.backend = "native"</code>. JUCE stays available when you want the portable graph. More in the <a href="https://github.com/petergerov/audio-harbor-headless#readme" style="color: var(--accent);">README</a>.</p>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<section class="hosts-section" id="backends">
+  <div class="container">
+    <div class="features-header">
+      <div class="section-eyebrow">Runtime choice</div>
+      <h2 class="section-title">JUCE and native. You decide.</h2>
+      <p class="section-sub">Release builds ship both stacks. Switch in config or via the API — no rebuild.</p>
+    </div>
+    <div class="hosts-grid">
+      <div class="host-card">
+        <div class="lead">auto</div>
+        <h3>Native first</h3>
+        <p>Picks the Exclusive/DoP-friendly stack: Core Audio on Mac, ALSA on Linux, WASAPI on Windows.</p>
+      </div>
+      <div class="host-card">
+        <div class="lead">native</div>
+        <h3>Platform I/O</h3>
+        <p>Direct hog / <code>hw:</code> / WASAPI Exclusive. Best when the DAC is the point of the machine.</p>
+      </div>
+      <div class="host-card">
+        <div class="lead">juce</div>
+        <h3>Portable graph</h3>
+        <p>Same JUCE path on every OS. Useful for consistent behaviour; DSD becomes PCM with an honest badge.</p>
+      </div>
+    </div>
+    <div class="code-block">
+<span class="c"># ~/.audio-harbor-headless/config.toml</span>
+[<span class="k">output</span>]
+mode = <span class="k">"exclusive"</span>
+backend = <span class="k">"native"</span>   <span class="c"># auto | juce | native</span>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<section class="steps-section" id="how-it-works">
+  <div class="steps-inner">
+    <div class="steps-header">
+      <div class="section-eyebrow">Simple by design</div>
+      <h2 class="section-title">Music from the couch in under a minute</h2>
+      <p class="section-sub">Unpack a package, point at folders, open the LAN URL on your phone.</p>
+    </div>
+    <div class="steps-grid">
+      <div class="step">
+        <div class="step-num">01</div>
+        <span class="step-icon">⬇</span>
+        <h3>Install the host</h3>
+        <p>Prebuilt archives for Apple Silicon, Linux x64/ARM64 (Pi), and Windows — or build from source with Node 20 and CMake.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <span class="step-icon">▤</span>
+        <h3>Add library roots</h3>
+        <p>Set folders in <code>config.toml</code>, run <code>harbor rescan</code>. Local SQLite FTS index — titles, albums, search. Nothing leaves the machine.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <span class="step-icon">▶</span>
+        <h3>Steer from the phone</h3>
+        <p>Safari on the printed URL, or pair over Bonjour (<code>_audioharbor._tcp</code>). Queue, browse, Exclusive when the DAC is ready.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<section class="features-section" id="what-it-does">
+  <div class="container">
+    <div class="features-header">
+      <div class="section-eyebrow">One job</div>
+      <h2 class="section-title">Play local high-res audio correctly</h2>
+      <p class="section-sub">Features earn their place. If it does not help you hear the file, it stays out of the host.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature">
+        <span class="feature-icon">▤</span>
+        <h3>Your folders</h3>
+        <p>Mounts and disks you already keep. Incremental catalogue, search, rebuild when you ask — not a cloud sync product.</p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">◎</span>
+        <h3>Bit-perfect paths</h3>
+        <p>Native Exclusive on Mac, Linux, and Windows. We will not silently resample on that path, and the badge says so.</p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">1</span>
+        <h3>DSD without the drama</h3>
+        <p>DoP for DSD DACs. Otherwise a clean PCM conversion with a level setting — labelled, never faked into laptop speakers.</p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">⌁</span>
+        <h3>Web remote + Bonjour</h3>
+        <p>Mobile web first. Bonjour frames for the Harbor iOS remote. Pair once with a PIN — local network only.</p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">≡</span>
+        <h3>DLNA when you want it</h3>
+        <p>Optional UPnP media server so a phone or streamer can browse the same library. Off until you enable it.</p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">○</span>
+        <h3>No account</h3>
+        <p>No streaming services. No telemetry of what you play. Open source on GitHub.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<section class="presets-section" id="formats">
+  <div class="container">
+    <div class="section-eyebrow">Formats</div>
+    <h2 class="section-title">What it will play</h2>
+    <p class="section-sub">The files on your disks — not a converter suite in the main path.</p>
+    <div class="preset-list">
+      <div class="preset">
+        <h3>PCM, as written</h3>
+        <p>FLAC · ALAC · WAV · AIFF · AAC/M4A · MP3. Gapless where the format allows.</p>
+      </div>
+      <div class="preset">
+        <h3>DSD, with a label</h3>
+        <p>DSF, DFF, SACD ISO (including DST). Output DoP sends real DSD; Shared and Exclusive convert to PCM.</p>
+      </div>
+      <div class="preset">
+        <h3>Not in the main path</h3>
+        <p>No upsampling theatre, no Qobuz/Tidal. Those dilute the local-first promise.</p>
+      </div>
+      <div class="preset">
+        <h3>What the badge is for</h3>
+        <p>Shared, Exclusive, DoP, or an honest DSD→PCM label — so you are never guessing what left the host.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<section class="hosts-section" id="platforms">
+  <div class="container">
+    <div class="section-eyebrow">One host</div>
+    <h2 class="section-title">Wherever the library lives.</h2>
+    <p class="section-sub">Same product language as Audio Harbor — without the SwiftUI shell. The phone is the remote; the machine is the DAC host.</p>
+    <div class="hosts-grid">
+      <div class="host-card">
+        <div class="lead">Apple Silicon &amp; Intel</div>
+        <h3>macOS</h3>
+        <p>Native Core Audio Exclusive / DoP, or JUCE. Ideal beside a USB DAC while the desktop stays free.</p>
+      </div>
+      <div class="host-card">
+        <div class="lead">x64 &amp; ARM64</div>
+        <h3>Linux · Raspberry Pi</h3>
+        <p>ALSA <code>hw:</code> for Exclusive/DoP. Prebuilt <code>linux-arm64</code> packages for Pi OS. Needs <code>libasound2</code>.</p>
+      </div>
+      <div class="host-card">
+        <div class="lead">x64</div>
+        <h3>Windows</h3>
+        <p>Native WASAPI Shared / Exclusive / DoP, plus JUCE. Unpack the zip and run <code>start.cmd</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="quote-section">
+  <p class="quote">Your folders. Your files. <em>No cloud required.</em></p>
+</div>
+
+<section class="cta-section" id="get">
+  <picture>
+      <source type="image/webp" srcset="images/web/mark-80.webp, images/web/mark-120.webp 1.5x" />
+      <img class="cta-mark" src="images/web/mark-80.png" srcset="images/web/mark-120.png 1.5x"
+           alt="" width="76" height="76" loading="lazy" />
+    </picture>
+  <h2>Put the library in harbor.</h2>
+  <p>Prebuilt packages on GitHub Releases — or clone and build. Config at <code>~/.audio-harbor-headless/config.toml</code>.</p>
+  <div class="hero-actions" style="justify-content: center;">
+    <a href="https://github.com/petergerov/audio-harbor-headless/releases" class="btn-cta">Download release</a>
+    <a href="https://github.com/petergerov/audio-harbor-headless" class="btn-secondary" style="color:#fff;border-color:rgba(255,255,255,0.35);">Source on GitHub</a>
+  </div>
+</section>
+
+<footer>
+  <a class="footer-logo" href="#" aria-label="Audio Harbor Headless">
+    <picture>
+      <source type="image/webp" srcset="images/web/mark-40.webp, images/web/mark-80.webp 2x, images/web/mark-120.webp 3x" />
+      <img src="images/web/mark-40.png" srcset="images/web/mark-80.png 2x, images/web/mark-120.png 3x"
+           alt="" width="40" height="40" loading="lazy" />
+    </picture>
+    <span class="brand-word">Audio Harbor</span>
+  </a>
+  <div class="footer-links">
+    <a href="https://github.com/petergerov/audio-harbor-headless">GitHub</a>
+    <a href="https://github.com/petergerov/audio-harbor-headless/releases">Releases</a>
+    <a href="https://github.com/petergerov/audio-harbor-headless#readme">README</a>
+    <a href="https://petergerov.github.io/audio-harbor/">Audio Harbor</a>
+    <a href="https://github.com/petergerov/audio-harbor-headless/issues">Support</a>
+  </div>
+  <p>© 2026 Gerov. Headless audiophile host — same brand soul as Audio Harbor. Not affiliated with any DAC, label, or streaming service.</p>
+</footer>
+
+</body>
+</html>

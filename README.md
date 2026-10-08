@@ -2,6 +2,8 @@
 
 GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Also acts as a DLNA music server.
 
+**Product page:** [docs/index.html](docs/index.html) — same brand design as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs).
+
 ## Stack
 
 | Layer | Tech |
