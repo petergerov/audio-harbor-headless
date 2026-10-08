@@ -1,7 +1,7 @@
 [server]
 host = "0.0.0.0"
 port = 8787
-name = "Audio Harbor"
+name = "Audio Harbor Headless"
 
 [library]
 roots = []
@@ -10,6 +10,11 @@ roots = []
 # device_uid = ""
 mode = "shared"          # shared | exclusive | dop
 dsd_pcm_level = 3        # 0 | 3 | 6
+# Audio stack: auto | juce | native
+#   auto   → native (Core Audio / ALSA / WASAPI Exclusive)
+#   juce   → portable JUCE path on every OS
+#   native → Mac Core Audio | Linux ALSA hw: | Windows WASAPI Exclusive/DoP
+backend = "auto"
 
 [sharing]
 enabled = false
