@@ -85,8 +85,15 @@ jobs:
           # Always offer a zip for Windows downloads
           if [[ "${{ matrix.platform }}" == win32-* ]]; then
             NAME=$(basename dist/packages/*.tar.gz .tar.gz)
-            (cd dist/packages && mkdir -p _z && tar -xzf "${NAME}.tar.gz" -C _z && \
-              (cd _z && zip -qr "../${NAME}.zip" "$NAME") && rm -rf _z)
+            (cd dist/packages && mkdir -p _z && tar -xzf "${NAME}.tar.gz" -C _z)
+            if command -v zip >/dev/null 2>&1; then
+              (cd dist/packages/_z && zip -qr "../${NAME}.zip" "$NAME")
+            else
+              # GitHub windows-latest may lack zip; PowerShell works everywhere
+              powershell.exe -NoProfile -Command \
+                "Compress-Archive -Path 'dist/packages/_z/${NAME}' -DestinationPath 'dist/packages/${NAME}.zip' -Force"
+            fi
+            rm -rf dist/packages/_z
           fi
 
       - name: Upload artifact

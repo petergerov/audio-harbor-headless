@@ -76,6 +76,35 @@ ARCHIVE="$OUT_DIR/${NAME}.tar.gz"
 
 log() { printf '==> %s\n' "$*"; }
 
+# Copy ROOT → STAGE with excludes. Prefers rsync; falls back to tar (Windows CI).
+# Patterns are rsync-style (trailing / ok); also accepted by GNU/BSD tar.
+stage_tree() {
+  local excludes=("$@")
+  local pat
+  mkdir -p "$STAGE"
+  if command -v rsync >/dev/null 2>&1; then
+    local rsync_args=(-a)
+    for pat in "${excludes[@]}"; do
+      rsync_args+=(--exclude "$pat")
+    done
+    rsync "${rsync_args[@]}" "$ROOT/" "$STAGE/"
+    return
+  fi
+  # Portable tar fallback when rsync is missing (e.g. GitHub Actions windows-latest)
+  local tar_excludes=(--exclude='.git' --exclude='./.git')
+  for pat in "${excludes[@]}"; do
+    pat="${pat%/}"
+    tar_excludes+=(--exclude="$pat" --exclude="./$pat")
+  done
+  (
+    cd "$ROOT"
+    tar -cf - "${tar_excludes[@]}" .
+  ) | (
+    cd "$STAGE"
+    tar -xf -
+  )
+}
+
 log "Mode=$MODE platform=$PLATFORM node=$NODE_VER (ABI $NODE_ABI)"
 rm -rf "$OUT_DIR/stage"
 mkdir -p "$STAGE"
@@ -112,30 +141,29 @@ if [[ "$MODE" == "prebuilt" ]]; then
   fi
 
   # App runtime tree
-  rsync -a \
-    --exclude '.git/' \
-    --exclude 'dist/packages/' \
-    --exclude '.idea/' \
-    --exclude '.DS_Store' \
-    --exclude '*.sqlite' \
-    --exclude '.cache/' \
-    --exclude 'config.toml' \
-    --exclude 'engine/src/' \
-    --exclude 'engine/napi/' \
-    --exclude 'engine/third_party/' \
-    --exclude 'engine/scripts/' \
-    --exclude 'host/src/' \
-    --exclude 'web/src/' \
-    --exclude 'web/index.html' \
-    --exclude '**/*.map' \
-    --exclude '**/cmake-js/' \
-    --exclude '**/node-addon-api/' \
-    --exclude '**/typescript/' \
-    --exclude '**/tsx/' \
-    --exclude '**/@types/' \
-    --exclude '**/.bin/tsc' \
-    --exclude '**/.bin/tsx' \
-    "$ROOT/" "$STAGE/"
+  stage_tree \
+    '.git/' \
+    'dist/packages/' \
+    '.idea/' \
+    '.DS_Store' \
+    '*.sqlite' \
+    '.cache/' \
+    'config.toml' \
+    'engine/src/' \
+    'engine/napi/' \
+    'engine/third_party/' \
+    'engine/scripts/' \
+    'host/src/' \
+    'web/src/' \
+    'web/index.html' \
+    '*.map' \
+    '**/cmake-js/' \
+    '**/node-addon-api/' \
+    '**/typescript/' \
+    '**/tsx/' \
+    '**/@types/' \
+    '**/.bin/tsc' \
+    '**/.bin/tsx'
 
   # Ensure engine binary is where index.js expects it
   mkdir -p "$STAGE/engine/build/Release"
@@ -171,22 +199,21 @@ EOF
 
 else
   # Source package — compile on target
-  rsync -a \
-    --exclude '.git/' \
-    --exclude 'node_modules/' \
-    --exclude '**/node_modules/' \
-    --exclude 'dist/' \
-    --exclude 'engine/build/' \
-    --exclude 'host/dist/' \
-    --exclude 'web/dist/' \
-    --exclude '.idea/' \
-    --exclude '.DS_Store' \
-    --exclude '*.sqlite' \
-    --exclude '.cache/' \
-    --exclude 'DerivedData/' \
-    --exclude 'dist/packages/' \
-    --exclude 'config.toml' \
-    "$ROOT/" "$STAGE/"
+  stage_tree \
+    '.git/' \
+    'node_modules/' \
+    '**/node_modules/' \
+    'dist/' \
+    'engine/build/' \
+    'host/dist/' \
+    'web/dist/' \
+    '.idea/' \
+    '.DS_Store' \
+    '*.sqlite' \
+    '.cache/' \
+    'DerivedData/' \
+    'dist/packages/' \
+    'config.toml'
 
   cat > "$STAGE/README-INSTALL.txt" <<'EOF'
 Audio Harbor Headless — source package
