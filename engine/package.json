@@ -1,0 +1,17 @@
+{
+  "name": "@harbor/engine",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "clean": "rm -rf build"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.3.1"
+  },
+  "devDependencies": {
+    "cmake-js": "^7.3.0"
+  }
+}

@@ -1,0 +1,229 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { Catalogue } from '../library/catalogue.js';
+
+export interface DlnaOptions {
+  port: number;
+  friendlyName: string;
+  catalogue: Catalogue;
+  roots: string[];
+}
+
+/**
+ * Minimal DLNA MediaServer: device description + ContentDirectory browse
+ * of albums/artists/directories, and HTTP Range file serving.
+ */
+export async function startDlnaServer(opts: DlnaOptions): Promise<http.Server> {
+  const udn = `uuid:harbor-${opts.port}`;
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://127.0.0.1:${opts.port}`);
+
+    if (url.pathname === '/description.xml') {
+      res.writeHead(200, { 'Content-Type': 'text/xml; charset=utf-8' });
+      res.end(deviceDescription(opts.friendlyName, udn, opts.port));
+      return;
+    }
+
+    if (url.pathname === '/cds/control' && req.method === 'POST') {
+      const body = await readBody(req);
+      const result = handleCds(body, opts);
+      res.writeHead(200, { 'Content-Type': 'text/xml; charset=utf-8' });
+      res.end(soapEnvelope(result));
+      return;
+    }
+
+    if (url.pathname.startsWith('/media/')) {
+      const filePath = decodeURIComponent(url.pathname.slice('/media/'.length));
+      if (!isUnderRoots(filePath, opts.roots) || !fs.existsSync(filePath)) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      return streamFile(req, res, filePath);
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise<void>((resolve) => server.listen(opts.port, '0.0.0.0', resolve));
+  // SSDP alive notifier (simple)
+  void advertiseSsdp(opts.port, udn);
+  return server;
+}
+
+function isUnderRoots(filePath: string, roots: string[]): boolean {
+  const resolved = path.resolve(filePath);
+  return roots.some((r) => resolved.startsWith(path.resolve(r) + path.sep) || resolved === path.resolve(r));
+}
+
+function deviceDescription(name: string, udn: string, port: number): string {
+  return `<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <specVersion><major>1</major><minor>0</minor></specVersion>
+  <device>
+    <deviceType>urn:schemas-upnp-org:device:MediaServer:1</deviceType>
+    <friendlyName>${escapeXml(name)}</friendlyName>
+    <manufacturer>Audio Harbor</manufacturer>
+    <modelName>Audio Harbor Headless</modelName>
+    <UDN>${udn}</UDN>
+    <serviceList>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:ContentDirectory:1</serviceType>
+        <serviceId>urn:upnp-org:serviceId:ContentDirectory</serviceId>
+        <controlURL>/cds/control</controlURL>
+        <eventSubURL>/cds/event</eventSubURL>
+        <SCPDURL>/cds/scpd.xml</SCPDURL>
+      </service>
+    </serviceList>
+  </device>
+</root>`;
+}
+
+function handleCds(body: string, opts: DlnaOptions): string {
+  if (body.includes('Browse')) {
+    const objectId = /<ObjectID>([^<]*)<\/ObjectID>/.exec(body)?.[1] ?? '0';
+    const didl = browseDidl(objectId, opts);
+    return `<u:BrowseResponse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+      <Result>${escapeXml(didl)}</Result>
+      <NumberReturned>1</NumberReturned>
+      <TotalMatches>1</TotalMatches>
+      <UpdateID>1</UpdateID>
+    </u:BrowseResponse>`;
+  }
+  if (body.includes('GetSortCapabilities')) {
+    return `<u:GetSortCapabilitiesResponse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+      <SortCaps></SortCaps>
+    </u:GetSortCapabilitiesResponse>`;
+  }
+  return `<u:BrowseResponse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+    <Result>&lt;DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"&gt;&lt;/DIDL-Lite&gt;</Result>
+    <NumberReturned>0</NumberReturned>
+    <TotalMatches>0</TotalMatches>
+    <UpdateID>1</UpdateID>
+  </u:BrowseResponse>`;
+}
+
+function browseDidl(objectId: string, opts: DlnaOptions): string {
+  if (objectId === '0') {
+    return `<?xml version="1.0"?>
+<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+  <container id="albums" parentID="0" restricted="1"><dc:title>Albums</dc:title><upnp:class>object.container</upnp:class></container>
+  <container id="artists" parentID="0" restricted="1"><dc:title>Artists</dc:title><upnp:class>object.container</upnp:class></container>
+  <container id="directories" parentID="0" restricted="1"><dc:title>Directories</dc:title><upnp:class>object.container</upnp:class></container>
+</DIDL-Lite>`;
+  }
+  if (objectId === 'albums') {
+    const albums = opts.catalogue.albums().slice(0, 200);
+    const items = albums
+      .map(
+        (a) =>
+          `<container id="album:${a.id}" parentID="albums" restricted="1"><dc:title>${escapeXml(a.title)}</dc:title><upnp:artist>${escapeXml(a.artist)}</upnp:artist><upnp:class>object.container.album.musicAlbum</upnp:class></container>`
+      )
+      .join('');
+    return `<?xml version="1.0"?><DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">${items}</DIDL-Lite>`;
+  }
+  if (objectId.startsWith('album:')) {
+    const id = objectId.slice('album:'.length);
+    const tracks = opts.catalogue.albumTracks(id);
+    const items = tracks
+      .map((t) => {
+        const media = `http://127.0.0.1:${opts.port}/media/${encodeURIComponent(t.cataloguePath)}`;
+        return `<item id="track:${escapeXml(t.id)}" parentID="${escapeXml(objectId)}" restricted="1">
+          <dc:title>${escapeXml(t.title)}</dc:title>
+          <upnp:artist>${escapeXml(t.artist)}</upnp:artist>
+          <upnp:album>${escapeXml(t.album)}</upnp:album>
+          <upnp:class>object.item.audioItem.musicTrack</upnp:class>
+          <res protocolInfo="http-get:*:audio/flac:*">${media}</res>
+        </item>`;
+      })
+      .join('');
+    return `<?xml version="1.0"?><DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">${items}</DIDL-Lite>`;
+  }
+  return `<?xml version="1.0"?><DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"></DIDL-Lite>`;
+}
+
+function soapEnvelope(inner: string): string {
+  return `<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>${inner}</s:Body>
+</s:Envelope>`;
+}
+
+function escapeXml(s: string): string {
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function streamFile(req: http.IncomingMessage, res: http.ServerResponse, filePath: string): void {
+  const st = fs.statSync(filePath);
+  const range = req.headers.range;
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('transferMode.dlna.org', 'Streaming');
+  if (range) {
+    const m = /bytes=(\d+)-(\d*)/.exec(range);
+    if (m) {
+      const start = Number(m[1]);
+      const end = m[2] ? Number(m[2]) : st.size - 1;
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${st.size}`,
+        'Content-Length': end - start + 1,
+        'Content-Type': 'application/octet-stream',
+      });
+      fs.createReadStream(filePath, { start, end }).pipe(res);
+      return;
+    }
+  }
+  res.writeHead(200, {
+    'Content-Length': st.size,
+    'Content-Type': 'application/octet-stream',
+  });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+async function advertiseSsdp(port: number, udn: string): Promise<void> {
+  try {
+    const dgram = await import('node:dgram');
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    socket.bind(1900, () => {
+      try {
+        socket.addMembership('239.255.255.250');
+      } catch {
+        // ignore multicast join failures
+      }
+    });
+    const msg = Buffer.from(
+      [
+        'NOTIFY * HTTP/1.1',
+        'HOST: 239.255.255.250:1900',
+        'CACHE-CONTROL: max-age=1800',
+        'LOCATION: http://127.0.0.1:' + port + '/description.xml',
+        'NT: upnp:rootdevice',
+        'NTS: ssdp:alive',
+        `USN: ${udn}::upnp:rootdevice`,
+        'SERVER: AudioHarbor/0.1 UPnP/1.0',
+        '',
+        '',
+      ].join('\r\n')
+    );
+    setInterval(() => {
+      socket.send(msg, 1900, '239.255.255.250');
+    }, 30000).unref();
+  } catch {
+    // SSDP optional
+  }
+}

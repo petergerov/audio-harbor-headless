@@ -1,0 +1,23 @@
+{
+  "name": "audio-harbor-headless",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Headless audiophile media host — JUCE engine + TypeScript host",
+  "workspaces": [
+    "host",
+    "web",
+    "engine"
+  ],
+  "scripts": {
+    "build:engine": "npm run build -w @harbor/engine",
+    "build:host": "npm run build -w @harbor/host",
+    "build:web": "npm run build -w @harbor/web",
+    "build": "npm run build:engine && npm run build:web && npm run build:host",
+    "dev": "npm run build:engine && npm run dev -w @harbor/host",
+    "serve": "npm run build && npm run start -w @harbor/host",
+    "harbor": "npm run start -w @harbor/host --"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

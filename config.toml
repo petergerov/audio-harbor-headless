@@ -1,0 +1,21 @@
+[server]
+host = "0.0.0.0"
+port = 8787
+name = "Audio Harbor"
+
+[library]
+roots = []
+
+[output]
+# device_uid = ""
+mode = "shared"          # shared | exclusive | dop
+dsd_pcm_level = 3        # 0 | 3 | 6
+
+[sharing]
+enabled = false
+port = 8200
+friendly_name = "Audio Harbor"
+
+[remote]
+bonjour_enabled = true
+bonjour_port = 8788

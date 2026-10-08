@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+cmake-build*/
+*.node
+.DS_Store
+*.log
+.env
+host/dist/
+web/dist/
+engine/build/
+engine/prebuilds/
+data/
+*.sqlite
+.cache/
+JUCE/
