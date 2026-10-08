@@ -28,6 +28,8 @@ let localPos = 0;
 let posTimer: number | undefined;
 let lastTrackId: string | null = null;
 let playlistCache: Array<{ id: string; name: string }> = [];
+let labelCache: string[] = [];
+let detailTitle: string | null = null;
 
 function startPosClock(): void {
   window.clearInterval(posTimer);
@@ -162,13 +164,19 @@ async function loadBrowse(): Promise<void> {
   const pathQ = folderPath ? `&path=${encodeURIComponent(folderPath)}` : '';
   const res = await api<{ items: unknown[] }>(`/api/v1/browse?scope=${browseScope}${pathQ}`);
   items = res.items;
-  if (browseScope === 'playlists' || browseScope === 'labels') {
-    try {
-      const pl = await api<{ playlists: Array<{ id: string; name: string }> }>('/api/v1/playlists');
-      playlistCache = pl.playlists;
-    } catch {
-      /* ignore */
-    }
+  await refreshCaches();
+}
+
+async function refreshCaches(): Promise<void> {
+  try {
+    const [pl, lb] = await Promise.all([
+      api<{ playlists: Array<{ id: string; name: string }> }>('/api/v1/playlists'),
+      api<{ labels: Array<{ name: string }> }>('/api/v1/labels'),
+    ]);
+    playlistCache = pl.playlists;
+    labelCache = lb.labels.map((l) => l.name);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -232,11 +240,12 @@ function updateChrome(): void {
 
 function renderBrowse(main: Element): void {
   const inDetail = Boolean(folderPath);
+  const collectionMode = browseScope === 'playlists' || browseScope === 'labels';
   let title = 'Library';
   if (browseScope === 'folders' && folderPath) {
     title = folderPath.split(/[/\\]/).filter(Boolean).pop() ?? 'Folders';
   } else if (browseScope === 'playlists' && folderPath) {
-    title = 'Playlist';
+    title = detailTitle ?? 'Playlist';
   } else if (browseScope === 'labels' && folderPath) {
     title = folderPath;
   } else if (browseScope === 'playlists') title = 'Playlists';
@@ -251,6 +260,9 @@ function renderBrowse(main: Element): void {
           ? 'Labels'
           : 'Back';
 
+  const hideSearch = collectionMode && !inDetail;
+  const showCollectionBar = collectionMode && inDetail;
+
   main.innerHTML = `
     <div class="nav-row">
       ${
@@ -260,13 +272,24 @@ function renderBrowse(main: Element): void {
       }
       ${
         browseScope === 'playlists' && !inDetail
-          ? `<button type="button" class="nav-link" id="newPlaylist">New</button>`
-          : browseScope === 'playlists' && inDetail
-            ? `<button type="button" class="nav-link" id="playlistMenu">Edit</button>`
-            : `<span></span>`
+          ? `<button type="button" class="nav-link accent" id="newPlaylist">＋ New</button>`
+          : `<span></span>`
       }
     </div>
     <h1 class="large-title">${esc(title)}</h1>
+    ${
+      showCollectionBar
+        ? `<div class="collection-bar">
+            <button type="button" class="pill-btn primary" id="playCollection">Play All</button>
+            ${
+              browseScope === 'playlists'
+                ? `<button type="button" class="pill-btn" id="manageCollection">Manage</button>`
+                : ''
+            }
+            <span class="collection-meta">${items.length} song${items.length === 1 ? '' : 's'}</span>
+          </div>`
+        : ''
+    }
     <div class="segmented scroll">
       <button type="button" data-scope="albums" class="${browseScope === 'albums' ? 'active' : ''}">Albums</button>
       <button type="button" data-scope="artists" class="${browseScope === 'artists' ? 'active' : ''}">Artists</button>
@@ -274,11 +297,15 @@ function renderBrowse(main: Element): void {
       <button type="button" data-scope="playlists" class="${browseScope === 'playlists' ? 'active' : ''}">Playlists</button>
       <button type="button" data-scope="labels" class="${browseScope === 'labels' ? 'active' : ''}">Labels</button>
     </div>
-    <div class="search-wrap">
+    ${
+      hideSearch
+        ? ''
+        : `<div class="search-wrap">
       ${icons.search}
       <input id="search" type="search" enterkeyhint="search" placeholder="Songs, albums, artists"
         value="${esc(searchQuery)}" />
-    </div>
+    </div>`
+    }
     <div class="group" id="list"></div>
   `;
 
@@ -287,6 +314,7 @@ function renderBrowse(main: Element): void {
       browseScope = (btn as HTMLElement).dataset.scope as BrowseScope;
       folderPath = null;
       folderStack = [];
+      detailTitle = null;
       searchQuery = '';
       await loadBrowse();
       renderApp();
@@ -295,29 +323,49 @@ function renderBrowse(main: Element): void {
 
   main.querySelector('#backBtn')?.addEventListener('click', async () => {
     folderPath = folderStack.pop() ?? null;
+    detailTitle = null;
     await loadBrowse();
     renderApp();
   });
 
   main.querySelector('#newPlaylist')?.addEventListener('click', () => {
-    void createPlaylistFlow();
+    openNameSheet({
+      title: 'New Playlist',
+      placeholder: 'Name',
+      confirmLabel: 'Create',
+      onConfirm: async (name) => {
+        await api('/api/v1/playlists', { method: 'POST', body: { name } });
+        toast(`Created “${name}”`);
+        haptic();
+        await loadBrowse();
+        renderApp();
+      },
+    });
   });
 
-  main.querySelector('#playlistMenu')?.addEventListener('click', () => {
-    if (!folderPath) return;
-    void openPlaylistEditSheet(folderPath);
+  main.querySelector('#playCollection')?.addEventListener('click', () => {
+    if (browseScope === 'playlists' && folderPath) void playNow({ playlistId: folderPath });
+    if (browseScope === 'labels' && folderPath) void playNow({ label: folderPath });
   });
 
-  const search = main.querySelector<HTMLInputElement>('#search')!;
-  let debounce: number | undefined;
-  search.addEventListener('input', () => {
-    window.clearTimeout(debounce);
-    debounce = window.setTimeout(async () => {
-      searchQuery = search.value;
-      await loadBrowse();
-      paintList(main.querySelector('#list')!);
-    }, 220);
+  main.querySelector('#manageCollection')?.addEventListener('click', () => {
+    if (browseScope === 'playlists' && folderPath) {
+      void openPlaylistManage(folderPath, detailTitle ?? 'Playlist');
+    }
   });
+
+  const search = main.querySelector<HTMLInputElement>('#search');
+  if (search) {
+    let debounce: number | undefined;
+    search.addEventListener('input', () => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(async () => {
+        searchQuery = search.value;
+        await loadBrowse();
+        paintList(main.querySelector('#list')!);
+      }, 220);
+    });
+  }
 
   paintList(main.querySelector('#list')!);
 }
@@ -327,9 +375,9 @@ function paintList(list: Element): void {
   if (!items.length) {
     const emptyMsg =
       browseScope === 'playlists'
-        ? `<div class="empty"><strong>No Playlists</strong>Tap New to create one, then add albums or songs.</div>`
+        ? `<div class="empty"><strong>No Playlists Yet</strong>Create one, then use <em>Add</em> on any album or song.</div>`
         : browseScope === 'labels'
-          ? `<div class="empty"><strong>No Labels</strong>Tag songs from the ··· menu on any album or track.</div>`
+          ? `<div class="empty"><strong>No Labels Yet</strong>Open <em>Add</em> on a song or album and pick a label.</div>`
           : `<div class="empty"><strong>No Music</strong>Add a folder on the Folders tab, then come back here.</div>`;
     list.innerHTML = emptyMsg;
     return;
@@ -347,40 +395,51 @@ function paintList(list: Element): void {
     const more = document.createElement('button');
     more.type = 'button';
     more.className = 'row-more';
-    more.setAttribute('aria-label', 'More');
-    more.textContent = '···';
+    more.setAttribute('aria-label', 'Add to playlist or label');
+    more.innerHTML = `<span class="more-glyph">＋</span>`;
 
     let selection: Selection | null = null;
     let primary: (() => Promise<void>) | null = null;
+    let moreHandler: (() => void) | null = null;
 
     if (item.kind === 'playlist' && item.id) {
-      btn.innerHTML = rowHtml('playlist', String(item.name), `${item.trackCount ?? 0} songs`, true);
+      const count = Number(item.trackCount ?? 0);
+      btn.innerHTML = rowHtml(
+        'playlist',
+        String(item.name),
+        count === 0 ? 'Empty' : `${count} song${count === 1 ? '' : 's'}`,
+        true
+      );
       primary = async () => {
+        detailTitle = String(item.name);
         if (folderPath) folderStack.push(folderPath);
         folderPath = String(item.id);
         searchQuery = '';
         await loadBrowse();
         renderApp();
       };
-      selection = { albumId: undefined, title: String(item.name) };
-      more.addEventListener('click', (e) => {
-        e.stopPropagation();
-        void openPlaylistEditSheet(String(item.id), String(item.name));
-      });
+      moreHandler = () => void openPlaylistManage(String(item.id), String(item.name));
+      more.setAttribute('aria-label', 'Manage playlist');
+      more.innerHTML = `<span class="more-glyph">···</span>`;
     } else if (item.kind === 'label' && item.name) {
-      btn.innerHTML = rowHtml('label', String(item.name), `${item.trackCount ?? 0} songs`, true);
+      const count = Number(item.trackCount ?? 0);
+      btn.innerHTML = rowHtml(
+        'label',
+        String(item.name),
+        count === 0 ? 'Empty' : `${count} song${count === 1 ? '' : 's'}`,
+        true
+      );
       primary = async () => {
+        detailTitle = String(item.name);
         if (folderPath) folderStack.push(folderPath);
         folderPath = String(item.name);
         searchQuery = '';
         await loadBrowse();
         renderApp();
       };
-      selection = { title: String(item.name) };
-      more.addEventListener('click', (e) => {
-        e.stopPropagation();
-        void playNow({ label: String(item.name) });
-      });
+      moreHandler = () => void playNow({ label: String(item.name) });
+      more.setAttribute('aria-label', 'Play label');
+      more.innerHTML = `<span class="more-glyph play">${icons.playSm}</span>`;
     } else if (
       (browseScope === 'albums' || searchQuery) &&
       item.title &&
@@ -388,9 +447,10 @@ function paintList(list: Element): void {
       item.id &&
       !item.cataloguePath
     ) {
-      btn.innerHTML = rowHtml('album', String(item.title), String(item.artist), true);
+      btn.innerHTML = rowHtml('album', String(item.title), String(item.artist), false);
       selection = { albumId: String(item.id), title: String(item.title) };
       primary = async () => playNow({ albumId: String(item.id) });
+      moreHandler = () => void openOrganizeSheet(selection!);
     } else if (
       browseScope === 'artists' &&
       item.name &&
@@ -402,31 +462,38 @@ function paintList(list: Element): void {
         'artist',
         String(item.name),
         `${item.trackCount ?? 0} songs`,
-        true
+        false
       );
       selection = { artist: String(item.name), title: String(item.name) };
       primary = async () => playNow({ artist: String(item.name) });
+      moreHandler = () => void openOrganizeSheet(selection!);
     } else if (item.isDirectory) {
       btn.innerHTML = rowHtml('folder', String(item.name), 'Folder', true);
       selection = { folder: String(item.path), title: String(item.name) };
       primary = async () => {
+        detailTitle = null;
         if (folderPath) folderStack.push(folderPath);
         folderPath = String(item.path);
         searchQuery = '';
         await loadBrowse();
         renderApp();
       };
+      moreHandler = () => void openOrganizeSheet(selection!);
     } else if (item.cataloguePath || item.track) {
       const track = (item.track as Record<string, unknown>) ?? item;
       const path = String(track.cataloguePath ?? item.path ?? '');
+      const labels = Array.isArray(track.labels)
+        ? (track.labels as string[]).slice(0, 2).join(' · ')
+        : '';
       btn.innerHTML = rowHtml(
         'track',
         String(track.title ?? item.name),
-        String(track.artist ?? ''),
+        labels ? `${track.artist ?? ''} · ${labels}` : String(track.artist ?? ''),
         false
       );
       selection = { cataloguePath: path, title: String(track.title ?? item.name) };
       primary = async () => playNow({ cataloguePath: path });
+      moreHandler = () => void openOrganizeSheet(selection!);
     } else {
       continue;
     }
@@ -434,14 +501,13 @@ function paintList(list: Element): void {
     btn.addEventListener('click', () => {
       if (primary) void primary();
     });
-    if (selection && item.kind !== 'playlist' && item.kind !== 'label') {
+    if (moreHandler) {
       more.addEventListener('click', (e) => {
         e.stopPropagation();
-        void openAddSheet(selection!);
+        haptic('light');
+        moreHandler!();
       });
-    } else if (item.kind === 'label') {
-      /* play via more already */
-    } else if (!more.onclick) {
+    } else {
       more.style.visibility = 'hidden';
     }
 
@@ -470,6 +536,7 @@ function rowHtml(
 
 async function playNow(body: Record<string, unknown>): Promise<void> {
   haptic('medium');
+  closeSheet();
   await api('/api/v1/play', { method: 'POST', body });
   tab = 'now';
   nowPlaying = await api('/api/v1/now-playing');
@@ -477,194 +544,422 @@ async function playNow(body: Record<string, unknown>): Promise<void> {
   renderApp();
 }
 
-async function createPlaylistFlow(): Promise<void> {
-  const name = window.prompt('Playlist name');
-  if (!name?.trim()) return;
-  await api('/api/v1/playlists', { method: 'POST', body: { name: name.trim() } });
-  haptic();
-  await loadBrowse();
-  renderApp();
+function selectionBody(sel: Selection): Record<string, unknown> {
+  return {
+    cataloguePath: sel.cataloguePath,
+    albumId: sel.albumId,
+    artist: sel.artist,
+    folder: sel.folder,
+  };
 }
 
-async function openPlaylistEditSheet(id: string, name?: string): Promise<void> {
-  const plName = name ?? 'Playlist';
-  showSheet(plName, [
-    {
-      label: 'Play',
-      run: async () => playNow({ playlistId: id }),
-    },
-    {
-      label: 'Rename…',
-      run: async () => {
-        const next = window.prompt('Rename playlist', plName);
-        if (!next?.trim()) return;
-        await api(`/api/v1/playlists/${encodeURIComponent(id)}`, {
-          method: 'PATCH',
-          body: { name: next.trim() },
-        });
-        await loadBrowse();
-        renderApp();
-      },
-    },
-    {
-      label: 'Delete',
-      danger: true,
-      run: async () => {
-        if (!window.confirm(`Delete “${plName}”?`)) return;
-        await api(`/api/v1/playlists/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        folderPath = null;
-        await loadBrowse();
-        renderApp();
-      },
-    },
-  ]);
-}
-
-async function openAddSheet(sel: Selection): Promise<void> {
-  if (!playlistCache.length) {
-    try {
-      const pl = await api<{ playlists: Array<{ id: string; name: string }> }>('/api/v1/playlists');
-      playlistCache = pl.playlists;
-    } catch {
-      playlistCache = [];
-    }
-  }
-  const actions: Array<{ label: string; danger?: boolean; run: () => Promise<void> }> = [
-    {
-      label: 'Play',
-      run: async () =>
-        playNow({
-          cataloguePath: sel.cataloguePath,
-          albumId: sel.albumId,
-          artist: sel.artist,
-          folder: sel.folder,
-        }),
-    },
-    {
-      label: 'New Playlist…',
-      run: async () => {
-        const name = window.prompt('Playlist name', sel.title);
-        if (!name?.trim()) return;
-        const created = await api<{ id: string }>('/api/v1/playlists', {
-          method: 'POST',
-          body: { name: name.trim() },
-        });
-        await api(`/api/v1/playlists/${encodeURIComponent(created.id)}/items`, {
-          method: 'POST',
-          body: {
-            cataloguePath: sel.cataloguePath,
-            albumId: sel.albumId,
-            artist: sel.artist,
-            folder: sel.folder,
-          },
-        });
-        haptic();
-        playlistCache = [];
-      },
-    },
-  ];
-  for (const p of playlistCache) {
-    actions.push({
-      label: `Add to “${p.name}”`,
-      run: async () => {
-        await api(`/api/v1/playlists/${encodeURIComponent(p.id)}/items`, {
-          method: 'POST',
-          body: {
-            cataloguePath: sel.cataloguePath,
-            albumId: sel.albumId,
-            artist: sel.artist,
-            folder: sel.folder,
-          },
-        });
-        haptic();
-      },
-    });
-  }
-  actions.push({
-    label: 'Add Label…',
-    run: async () => {
-      const name = window.prompt('Label name');
-      if (!name?.trim()) return;
-      await api('/api/v1/labels/items', {
-        method: 'POST',
-        body: {
-          name: name.trim(),
-          cataloguePath: sel.cataloguePath,
-          albumId: sel.albumId,
-          artist: sel.artist,
-          folder: sel.folder,
-        },
-      });
-      haptic();
-    },
-  });
+async function openOrganizeSheet(sel: Selection): Promise<void> {
+  await refreshCaches();
+  const destructive: Array<{ label: string; danger?: boolean; run: () => Promise<void> }> = [];
   if (browseScope === 'playlists' && folderPath && sel.cataloguePath) {
-    actions.push({
-      label: 'Remove from Playlist',
+    destructive.push({
+      label: 'Remove from This Playlist',
       danger: true,
       run: async () => {
         await api(`/api/v1/playlists/${encodeURIComponent(folderPath!)}/items`, {
           method: 'DELETE',
           body: { cataloguePath: sel.cataloguePath },
         });
+        toast('Removed from playlist');
         await loadBrowse();
         renderApp();
       },
     });
   }
   if (browseScope === 'labels' && folderPath && sel.cataloguePath) {
-    actions.push({
-      label: 'Remove Label',
+    destructive.push({
+      label: `Remove Label “${folderPath}”`,
       danger: true,
       run: async () => {
         await api('/api/v1/labels/items', {
           method: 'DELETE',
           body: { name: folderPath, cataloguePath: sel.cataloguePath },
         });
+        toast('Label removed');
         await loadBrowse();
         renderApp();
       },
     });
   }
-  showSheet(sel.title, actions);
+
+  showActionSheet({
+    title: sel.title,
+    subtitle: 'Play or organize',
+    groups: [
+      [
+        {
+          label: 'Play',
+          run: async () => playNow(selectionBody(sel)),
+        },
+      ],
+      [
+        {
+          label: 'Add to Playlist…',
+          run: async () => openPlaylistPicker(sel),
+        },
+        {
+          label: 'Add Label…',
+          run: async () => openLabelPicker(sel),
+        },
+      ],
+      destructive,
+    ].filter((g) => g.length > 0),
+  });
 }
 
-function showSheet(
-  title: string,
-  actions: Array<{ label: string; danger?: boolean; run: () => Promise<void> }>
-): void {
+async function openPlaylistPicker(sel: Selection): Promise<void> {
+  await refreshCaches();
+  const rows = playlistCache
+    .map(
+      (p) => `
+      <button type="button" class="picker-row" data-id="${esc(p.id)}">
+        <span class="row-icon playlist">${esc((p.name[0] ?? 'P').toUpperCase())}</span>
+        <span class="picker-text">
+          <strong>${esc(p.name)}</strong>
+        </span>
+        <span class="picker-add">Add</span>
+      </button>`
+    )
+    .join('');
+
+  showPanelSheet({
+    title: 'Add to Playlist',
+    subtitle: sel.title,
+    bodyHtml: `
+      <button type="button" class="picker-row create" id="pickerNewPl">
+        <span class="row-icon playlist">＋</span>
+        <span class="picker-text"><strong>New Playlist</strong><span>Create and add</span></span>
+      </button>
+      <div class="picker-list">${rows || `<p class="picker-empty">No playlists yet — create one above.</p>`}</div>
+    `,
+    bind: (root, close) => {
+      root.querySelector('#pickerNewPl')?.addEventListener('click', () => {
+        close();
+        openNameSheet({
+          title: 'New Playlist',
+          placeholder: 'Name',
+          initial: sel.title,
+          confirmLabel: 'Create & Add',
+          onConfirm: async (name) => {
+            const created = await api<{ id: string }>('/api/v1/playlists', {
+              method: 'POST',
+              body: { name },
+            });
+            await api(`/api/v1/playlists/${encodeURIComponent(created.id)}/items`, {
+              method: 'POST',
+              body: selectionBody(sel),
+            });
+            toast(`Added to “${name}”`);
+            haptic();
+            await refreshCaches();
+          },
+        });
+      });
+      root.querySelectorAll<HTMLElement>('[data-id]').forEach((el) => {
+        el.addEventListener('click', async () => {
+          const id = el.dataset.id!;
+          const name = playlistCache.find((p) => p.id === id)?.name ?? 'playlist';
+          try {
+            await api(`/api/v1/playlists/${encodeURIComponent(id)}/items`, {
+              method: 'POST',
+              body: selectionBody(sel),
+            });
+            close();
+            toast(`Added to “${name}”`);
+            haptic();
+          } catch (err) {
+            toast(err instanceof Error ? err.message : 'Failed', true);
+          }
+        });
+      });
+    },
+  });
+}
+
+async function openLabelPicker(sel: Selection): Promise<void> {
+  await refreshCaches();
+  const chips = labelCache
+    .map(
+      (name) =>
+        `<button type="button" class="chip" data-label="${esc(name)}">${esc(name)}</button>`
+    )
+    .join('');
+
+  showPanelSheet({
+    title: 'Add Label',
+    subtitle: sel.title,
+    bodyHtml: `
+      <form class="sheet-form" id="labelForm">
+        <label class="field-label" for="labelInput">Label</label>
+        <input id="labelInput" class="sheet-input" type="text" enterkeyhint="done"
+          placeholder="e.g. Favorites" autocomplete="off" />
+        <button type="submit" class="sheet-primary">Add Label</button>
+      </form>
+      ${
+        chips
+          ? `<p class="field-label soft">Or choose existing</p><div class="chip-row">${chips}</div>`
+          : `<p class="picker-empty">No labels yet — type a name above.</p>`
+      }
+    `,
+    bind: (root, close) => {
+      const input = root.querySelector<HTMLInputElement>('#labelInput')!;
+      const submit = async (name: string) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        try {
+          await api('/api/v1/labels/items', {
+            method: 'POST',
+            body: { name: trimmed, ...selectionBody(sel) },
+          });
+          close();
+          toast(`Labeled “${trimmed}”`);
+          haptic();
+          await refreshCaches();
+          if (browseScope === 'labels') {
+            await loadBrowse();
+            renderApp();
+          }
+        } catch (err) {
+          toast(err instanceof Error ? err.message : 'Failed', true);
+        }
+      };
+      root.querySelector('#labelForm')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        void submit(input.value);
+      });
+      root.querySelectorAll<HTMLElement>('[data-label]').forEach((el) => {
+        el.addEventListener('click', () => void submit(el.dataset.label ?? ''));
+      });
+      queueMicrotask(() => input.focus());
+    },
+  });
+}
+
+function openPlaylistManage(id: string, name: string): void {
+  showActionSheet({
+    title: name,
+    subtitle: 'Playlist',
+    groups: [
+      [
+        {
+          label: 'Play',
+          run: async () => playNow({ playlistId: id }),
+        },
+        {
+          label: 'Open',
+          run: async () => {
+            detailTitle = name;
+            folderPath = id;
+            folderStack = [];
+            searchQuery = '';
+            browseScope = 'playlists';
+            await loadBrowse();
+            renderApp();
+          },
+        },
+      ],
+      [
+        {
+          label: 'Rename…',
+          run: async () => {
+            openNameSheet({
+              title: 'Rename Playlist',
+              placeholder: 'Name',
+              initial: name,
+              confirmLabel: 'Save',
+              onConfirm: async (next) => {
+                await api(`/api/v1/playlists/${encodeURIComponent(id)}`, {
+                  method: 'PATCH',
+                  body: { name: next },
+                });
+                if (folderPath === id) detailTitle = next;
+                toast('Playlist renamed');
+                await loadBrowse();
+                renderApp();
+              },
+            });
+          },
+        },
+      ],
+      [
+        {
+          label: 'Delete Playlist',
+          danger: true,
+          run: async () => {
+            showActionSheet({
+              title: `Delete “${name}”?`,
+              subtitle: 'Songs stay in your library.',
+              groups: [
+                [
+                  {
+                    label: 'Delete Playlist',
+                    danger: true,
+                    run: async () => {
+                      await api(`/api/v1/playlists/${encodeURIComponent(id)}`, {
+                        method: 'DELETE',
+                      });
+                      if (folderPath === id) {
+                        folderPath = null;
+                        detailTitle = null;
+                      }
+                      toast('Playlist deleted');
+                      await loadBrowse();
+                      renderApp();
+                    },
+                  },
+                ],
+              ],
+            });
+          },
+        },
+      ],
+    ],
+  });
+}
+
+function openNameSheet(opts: {
+  title: string;
+  placeholder: string;
+  initial?: string;
+  confirmLabel: string;
+  onConfirm: (name: string) => Promise<void>;
+}): void {
+  showPanelSheet({
+    title: opts.title,
+    bodyHtml: `
+      <form class="sheet-form" id="nameForm">
+        <input id="nameInput" class="sheet-input" type="text" enterkeyhint="done"
+          placeholder="${esc(opts.placeholder)}" value="${esc(opts.initial ?? '')}" autocomplete="off" />
+        <button type="submit" class="sheet-primary">${esc(opts.confirmLabel)}</button>
+      </form>
+    `,
+    bind: (root, close) => {
+      const input = root.querySelector<HTMLInputElement>('#nameInput')!;
+      root.querySelector('#nameForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = input.value.trim();
+        if (!name) {
+          input.focus();
+          return;
+        }
+        try {
+          await opts.onConfirm(name);
+          close();
+        } catch (err) {
+          toast(err instanceof Error ? err.message : 'Failed', true);
+        }
+      });
+      queueMicrotask(() => {
+        input.focus();
+        input.select();
+      });
+    },
+  });
+}
+
+function closeSheet(): void {
   document.getElementById('actionSheet')?.remove();
+}
+
+function showActionSheet(opts: {
+  title: string;
+  subtitle?: string;
+  groups: Array<Array<{ label: string; danger?: boolean; run: () => Promise<void> }>>;
+}): void {
+  closeSheet();
+  const wrap = document.createElement('div');
+  wrap.id = 'actionSheet';
+  wrap.className = 'sheet-backdrop';
+  const groupsHtml = opts.groups
+    .map((group, gi) => {
+      const buttons = group
+        .map(
+          (a, ai) =>
+            `<button type="button" class="sheet-btn ${a.danger ? 'danger' : ''}" data-g="${gi}" data-a="${ai}">${esc(a.label)}</button>`
+        )
+        .join('');
+      return `<div class="sheet-group">${buttons}</div>`;
+    })
+    .join('');
+  wrap.innerHTML = `
+    <div class="sheet-stack" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}">
+      <div class="sheet">
+        <p class="sheet-title">${esc(opts.title)}</p>
+        ${opts.subtitle ? `<p class="sheet-sub">${esc(opts.subtitle)}</p>` : ''}
+        ${groupsHtml}
+      </div>
+      <button type="button" class="sheet-cancel">Cancel</button>
+    </div>
+  `;
+  wrap.querySelectorAll<HTMLButtonElement>('[data-g]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const g = Number(btn.dataset.g);
+      const a = Number(btn.dataset.a);
+      const action = opts.groups[g]?.[a];
+      if (!action) return;
+      closeSheet();
+      try {
+        await action.run();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err), true);
+      }
+    });
+  });
+  wrap.querySelector('.sheet-cancel')?.addEventListener('click', () => closeSheet());
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) closeSheet();
+  });
+  document.body.appendChild(wrap);
+}
+
+function showPanelSheet(opts: {
+  title: string;
+  subtitle?: string;
+  bodyHtml: string;
+  bind: (root: HTMLElement, close: () => void) => void;
+}): void {
+  closeSheet();
   const wrap = document.createElement('div');
   wrap.id = 'actionSheet';
   wrap.className = 'sheet-backdrop';
   wrap.innerHTML = `
-    <div class="sheet" role="dialog" aria-label="${esc(title)}">
-      <p class="sheet-title">${esc(title)}</p>
-      <div class="sheet-actions"></div>
+    <div class="sheet-stack" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}">
+      <div class="sheet sheet-panel">
+        <div class="sheet-panel-head">
+          <p class="sheet-title">${esc(opts.title)}</p>
+          ${opts.subtitle ? `<p class="sheet-sub">${esc(opts.subtitle)}</p>` : ''}
+        </div>
+        <div class="sheet-panel-body">${opts.bodyHtml}</div>
+      </div>
       <button type="button" class="sheet-cancel">Cancel</button>
     </div>
   `;
-  const box = wrap.querySelector('.sheet-actions')!;
-  for (const a of actions) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = a.danger ? 'sheet-btn danger' : 'sheet-btn';
-    b.textContent = a.label;
-    b.addEventListener('click', async () => {
-      wrap.remove();
-      try {
-        await a.run();
-      } catch (err) {
-        window.alert(err instanceof Error ? err.message : String(err));
-      }
-    });
-    box.appendChild(b);
-  }
-  wrap.querySelector('.sheet-cancel')?.addEventListener('click', () => wrap.remove());
+  const close = () => closeSheet();
+  wrap.querySelector('.sheet-cancel')?.addEventListener('click', close);
   wrap.addEventListener('click', (e) => {
-    if (e.target === wrap) wrap.remove();
+    if (e.target === wrap) close();
   });
   document.body.appendChild(wrap);
+  opts.bind(wrap.querySelector('.sheet-panel') as HTMLElement, close);
+}
+
+function toast(message: string, error = false): void {
+  document.getElementById('toast')?.remove();
+  const el = document.createElement('div');
+  el.id = 'toast';
+  el.className = error ? 'toast error' : 'toast';
+  el.textContent = message;
+  document.body.appendChild(el);
+  window.setTimeout(() => el.classList.add('show'), 10);
+  window.setTimeout(() => {
+    el.classList.remove('show');
+    window.setTimeout(() => el.remove(), 280);
+  }, 2200);
 }
 
 function renderNow(main: Element): void {
