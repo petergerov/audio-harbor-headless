@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #define AHDST_MAX_CHANNELS 6
 #define AHDST_MAX_ELEMENTS 12
 
@@ -56,7 +60,18 @@ static const int8_t kProbPred[3][3] = {
 };
 
 static int floor_log2(unsigned value) {
-    return value ? 31 - __builtin_clz(value) : -1;
+    if (!value) return -1;
+#if defined(_MSC_VER)
+    unsigned long index = 0;
+    _BitScanReverse(&index, value);
+    return (int)index;
+#elif defined(__GNUC__) || defined(__clang__)
+    return 31 - __builtin_clz(value);
+#else
+    int n = 0;
+    while (value >>= 1) ++n;
+    return n;
+#endif
 }
 
 static void bits_init(BitReader *bits, const uint8_t *data, size_t size) {
