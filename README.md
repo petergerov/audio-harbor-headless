@@ -58,7 +58,7 @@ GitHub Actions builds one archive **per platform** (JUCE + native on Mac/Linux/W
 
 ```bash
 # Example Raspberry Pi
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-0.1.0-linux-arm64.tar.gz
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.0-linux-arm64.tar.gz
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
 sudo apt install -y libasound2   # JUCE uses ALSA on Linux
@@ -71,7 +71,7 @@ Windows: unpack the `.zip` and run `start.cmd` (Node 20+).
 Publish a release:
 
 ```bash
-git tag v0.1.1 && git push origin v0.1.1   # triggers .github/workflows/release-packages.yml
+git tag v1.0.0 && git push origin v1.0.0   # triggers .github/workflows/release-packages.yml
 ```
 
 Or locally:

@@ -34,7 +34,7 @@ HELP
   esac
 done
 
-VERSION="$(node -p "require('./package.json').version" 2>/dev/null || echo '0.1.0')"
+VERSION="$(node -p "require('./package.json').version" 2>/dev/null || echo '1.0.0')"
 STAMP="$(date -u +%Y%m%d)"
 
 detect_platform() {

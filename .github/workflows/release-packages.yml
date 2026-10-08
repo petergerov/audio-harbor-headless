@@ -1,7 +1,7 @@
 name: Release packages
 
 # Builds ready-to-run archives per platform and attaches them to a GitHub Release.
-# Trigger: push a version tag (v0.1.0) or run manually.
+# Trigger: push a version tag (v1.0.0) or run manually.
 on:
   push:
     tags:
