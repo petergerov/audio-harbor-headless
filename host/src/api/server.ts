@@ -52,12 +52,14 @@ export async function buildServer(ctx: AppContext) {
 
   app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/api/v1/')) return;
-    if (req.url === '/api/v1/health' || req.url.startsWith('/api/v1/pair')) return;
+    const pathOnly = req.url.split('?')[0] ?? req.url;
+    if (pathOnly === '/api/v1/health' || pathOnly.startsWith('/api/v1/pair')) return;
     const headerToken = req.headers.authorization;
-    const queryToken =
-      typeof req.query === 'object' && req.query && 'token' in req.query
-        ? String((req.query as { token?: string }).token ?? '')
-        : '';
+    // Query parsers turn unescaped + into space; restore for base64 tokens.
+    let queryToken = '';
+    if (typeof req.query === 'object' && req.query && 'token' in req.query) {
+      queryToken = String((req.query as { token?: string }).token ?? '').replace(/ /g, '+');
+    }
     if (authOk(headerToken) || isAuthorized(queryToken || null)) return;
     return reply.code(401).send({ error: 'unauthorized' });
   });
@@ -295,25 +297,90 @@ export async function buildServer(ctx: AppContext) {
         ctx.getConfig().library.roots,
         req.body ?? {}
       );
-      if (!name || !paths.length) return reply.code(400).send({ error: 'name and selection required' });
+      if (!name) return reply.code(400).send({ error: 'label name required' });
+      if (!paths.length) {
+        return reply.code(400).send({ error: 'nothing to label — pick a song, album, or artist' });
+      }
       const added = ctx.catalogue.addLabelToPaths(name, paths);
+      if (!added) {
+        return reply.code(400).send({ error: 'could not apply label to any tracks' });
+      }
       return { added, name };
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
     }
   });
 
+  const removeLabelItems = async (
+    body: {
+      name?: string;
+      paths?: string[];
+      cataloguePath?: string;
+      albumId?: string;
+      artist?: string;
+      folder?: string;
+    },
+    reply: { code: (n: number) => { send: (b: unknown) => unknown } }
+  ) => {
+    try {
+      const name = String(body?.name ?? '').trim();
+      const paths = ctx.catalogue.resolveSelectionPaths(ctx.getConfig().library.roots, body ?? {});
+      if (!name || !paths.length) {
+        return reply.code(400).send({ error: 'name and selection required' });
+      }
+      ctx.catalogue.removeLabelFromPaths(name, paths);
+      return { ok: true };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+    }
+  };
+
+  // POST preferred — some stacks drop DELETE bodies.
+  app.post<{
+    Body: {
+      name?: string;
+      paths?: string[];
+      cataloguePath?: string;
+      albumId?: string;
+      artist?: string;
+      folder?: string;
+    };
+  }>('/api/v1/labels/remove-items', async (req, reply) => removeLabelItems(req.body ?? {}, reply));
+
   app.delete<{
-    Body: { name?: string; paths?: string[]; cataloguePath?: string };
-  }>('/api/v1/labels/items', async (req, reply) => {
-    const name = String(req.body?.name ?? '').trim();
-    const paths = [
-      ...(req.body?.paths ?? []),
-      ...(req.body?.cataloguePath ? [req.body.cataloguePath] : []),
-    ];
-    if (!name || !paths.length) return reply.code(400).send({ error: 'name and paths required' });
-    ctx.catalogue.removeLabelFromPaths(name, paths);
-    return { ok: true };
+    Body: {
+      name?: string;
+      paths?: string[];
+      cataloguePath?: string;
+      albumId?: string;
+      artist?: string;
+      folder?: string;
+    };
+  }>('/api/v1/labels/items', async (req, reply) => removeLabelItems(req.body ?? {}, reply));
+
+  app.patch<{ Params: { name: string }; Body: { name?: string } }>(
+    '/api/v1/labels/:name',
+    async (req, reply) => {
+      try {
+        const from = decodeURIComponent(req.params.name);
+        const to = String(req.body?.name ?? '').trim();
+        if (!to) return reply.code(400).send({ error: 'name required' });
+        const n = ctx.catalogue.renameLabel(from, to);
+        if (!n && !ctx.catalogue.allLabels().includes(to)) {
+          return reply.code(404).send({ error: 'label not found' });
+        }
+        return { name: to };
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+      }
+    }
+  );
+
+  app.delete<{ Params: { name: string } }>('/api/v1/labels/:name', async (req, reply) => {
+    const name = decodeURIComponent(req.params.name);
+    const removed = ctx.catalogue.deleteLabel(name);
+    if (!removed) return reply.code(404).send({ error: 'label not found' });
+    return { ok: true, removed };
   });
 
   app.get<{ Querystring: { path?: string } }>('/api/v1/track-options', async (req, reply) => {
@@ -382,7 +449,10 @@ export async function buildServer(ctx: AppContext) {
   app.get<{ Params: { hash: string } }>('/api/v1/artwork/:hash', async (req, reply) => {
     const file = ctx.catalogue.artworkFile(req.params.hash);
     if (!file) return reply.code(404).send({ error: 'not found' });
-    return reply.type('image/jpeg').send(fs.readFileSync(file));
+    const buf = fs.readFileSync(file);
+    const isPng = buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50;
+    reply.header('Cache-Control', 'private, max-age=604800, immutable');
+    return reply.type(isPng ? 'image/png' : 'image/jpeg').send(buf);
   });
 
   app.get('/api/v1/devices', async () => ({ devices: listLocalDevices() }));

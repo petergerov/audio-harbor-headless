@@ -18,14 +18,21 @@ export function haptic(style: 'light' | 'medium' = 'light'): void {
   }
 }
 
-/** Cached blob URL for artwork (Authorization via query token). */
+/** Direct URL for <img src> (query token; + is percent-encoded). */
+export function artworkUrl(hash: string | null | undefined): string | null {
+  if (!hash) return null;
+  const token = getToken() ?? '';
+  return `/api/v1/artwork/${encodeURIComponent(hash)}?token=${encodeURIComponent(token)}`;
+}
+
+/** Cached blob URL — prefers Authorization header so + in tokens cannot break. */
 export async function artworkObjectUrl(hash: string): Promise<string> {
   const hit = artworkCache.get(hash);
   if (hit) return hit;
-  const token = getToken() ?? '';
-  const res = await fetch(
-    `/api/v1/artwork/${encodeURIComponent(hash)}?token=${encodeURIComponent(token)}`
-  );
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`/api/v1/artwork/${encodeURIComponent(hash)}`, { headers });
   if (!res.ok) throw new Error('artwork');
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
@@ -48,7 +55,14 @@ export async function api<T = unknown>(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    let message = text || res.statusText;
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      if (parsed?.error) message = parsed.error;
+    } catch {
+      /* keep raw text */
+    }
+    throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

@@ -15,4 +15,5 @@ export const icons = {
   volMax: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 10v4h3l4 3V7L7 10H4zm11.5 2a3.5 3.5 0 0 0-2-3.15v6.3A3.5 3.5 0 0 0 15.5 12zM13 5.07v2.06A5.99 5.99 0 0 1 17 12a5.99 5.99 0 0 1-4 5.87v2.06A8 8 0 0 0 19 12a8 8 0 0 0-6-6.93z"/></svg>`,
   music: `<svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4v10.55A3.5 3.5 0 1 0 12 18V8h6V4h-8z"/></svg>`,
   musicSm: `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4v10.55A3.5 3.5 0 1 0 12 18V8h6V4h-8z"/></svg>`,
+  speaker: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zm13.5 3a3.5 3.5 0 0 0-2-3.15v6.3A3.5 3.5 0 0 0 17.5 12zM15 5.07v2.06A5.99 5.99 0 0 1 19 12a5.99 5.99 0 0 1-4 5.87v2.06A8 8 0 0 0 21 12a8 8 0 0 0-6-6.93z"/></svg>`,
 };

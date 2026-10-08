@@ -1,9 +1,19 @@
 import './styles.css';
-import { api, artworkObjectUrl, getToken, setToken, connectWs, haptic } from './api';
+import { api, artworkObjectUrl, artworkUrl, getToken, setToken, connectWs, haptic } from './api';
 import { icons } from './icons';
+import {
+  closeOverlay,
+  isDesktopUi,
+  openActionMenu,
+  openConfirmDialog,
+  openNameDialog,
+  openPanel,
+  showToast,
+} from './ui/overlay';
 
-type Tab = 'browse' | 'now' | 'mounts' | 'output';
-type BrowseScope = 'albums' | 'artists' | 'folders' | 'playlists' | 'labels';
+type Tab = 'library' | 'collections' | 'now' | 'settings';
+type LibraryScope = 'albums' | 'artists' | 'folders';
+type CollectionKind = 'playlist' | 'label' | null;
 
 type Selection = {
   cataloguePath?: string;
@@ -15,10 +25,16 @@ type Selection = {
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
-let tab: Tab = 'browse';
-let browseScope: BrowseScope = 'albums';
+let tab: Tab = 'library';
+let libraryScope: LibraryScope = 'albums';
 let folderPath: string | null = null;
 let folderStack: string[] = [];
+/** Drill-into album (id) or artist (name), same idea as folderPath. */
+let albumDrill: { id: string; title: string; artist: string } | null = null;
+let artistDrill: string | null = null;
+let collectionKind: CollectionKind = null;
+let collectionId: string | null = null;
+let collectionTitle: string | null = null;
 let nowPlaying: Record<string, unknown> | null = null;
 let items: unknown[] = [];
 let searchQuery = '';
@@ -27,9 +43,9 @@ let scrubbing = false;
 let localPos = 0;
 let posTimer: number | undefined;
 let lastTrackId: string | null = null;
-let playlistCache: Array<{ id: string; name: string }> = [];
-let labelCache: string[] = [];
-let detailTitle: string | null = null;
+let playlistCache: Array<{ id: string; name: string; trackCount?: number }> = [];
+let labelCache: Array<{ name: string; trackCount?: number }> = [];
+let settingsPane: 'sources' | 'output' = 'sources';
 
 function startPosClock(): void {
   window.clearInterval(posTimer);
@@ -43,11 +59,13 @@ function startPosClock(): void {
 }
 
 function paintScrub(): void {
-  const seek = document.querySelector<HTMLInputElement>('#seek');
-  const times = document.querySelectorAll('.time-row span');
-  if (!seek || scrubbing) return;
-  seek.value = String(localPos);
-  if (times[0]) times[0].textContent = fmtTime(localPos);
+  if (scrubbing) return;
+  document.querySelectorAll<HTMLInputElement>('input[data-seek]').forEach((seek) => {
+    seek.value = String(localPos);
+  });
+  document.querySelectorAll('[data-time-pos]').forEach((el) => {
+    el.textContent = fmtTime(localPos);
+  });
 }
 
 async function boot(): Promise<void> {
@@ -58,19 +76,20 @@ async function boot(): Promise<void> {
   connectWs((msg) => {
     if (msg.type === 'nowPlaying') {
       const prevId = lastTrackId;
+      const hadTrack = Boolean(nowPlaying?.track);
       nowPlaying = msg.payload as Record<string, unknown>;
       playing = nowPlaying?.state === 'playing';
       const track = nowPlaying?.track as Record<string, unknown> | null;
       lastTrackId = track?.id ? String(track.id) : null;
+      const hasTrack = Boolean(track);
       if (!scrubbing) localPos = Number(nowPlaying?.positionSecs ?? 0);
-      if (tab === 'now') {
-        // Full re-render only when track identity changes; else live-update chrome
-        if (prevId !== lastTrackId) renderApp();
-        else {
-          updateNowChrome();
-          paintScrub();
-        }
-      } else updateChrome();
+      // Layout must rebuild when player chrome appears/disappears or track changes.
+      if (hadTrack !== hasTrack || prevId !== lastTrackId) {
+        renderApp();
+        return;
+      }
+      updateNowChrome();
+      paintScrub();
     }
   });
   try {
@@ -85,26 +104,33 @@ async function boot(): Promise<void> {
     return;
   }
   startPosClock();
-  await loadBrowse();
+  await refreshCaches();
+  await loadLibrary();
   renderApp();
 }
 
 function updateNowChrome(): void {
   const track = (nowPlaying?.track as Record<string, unknown> | null) ?? null;
-  const title = document.querySelector('.now-title');
-  const artist = document.querySelector('.now-artist');
-  const playBtn = document.querySelector('.play-btn');
-  if (title) title.textContent = String(track?.title ?? 'Not Playing');
-  if (artist) {
-    artist.textContent = String(track?.artist ?? 'Choose something from Library');
-  }
-  if (playBtn) playBtn.innerHTML = playing ? icons.pause : icons.play;
-  const seek = document.querySelector<HTMLInputElement>('#seek');
+  document.querySelectorAll('.now-title').forEach((el) => {
+    el.textContent = String(track?.title ?? 'Not Playing');
+  });
+  document.querySelectorAll('.now-artist').forEach((el) => {
+    el.textContent = String(track?.artist ?? 'Choose something from Library');
+  });
+  document.querySelectorAll('.play-btn, [data-cmd="toggle"]').forEach((btn) => {
+    btn.innerHTML = playing ? icons.pause : icons.play;
+  });
   const dur = Number(nowPlaying?.durationSecs ?? 0) || 0;
-  if (seek && dur > 0) seek.max = String(dur);
-  const end = document.querySelectorAll('.time-row span')[1];
-  if (end) end.textContent = dur ? fmtTime(dur) : '--:--';
-  paintMini();
+  document.querySelectorAll<HTMLInputElement>('input[data-seek]').forEach((seek) => {
+    if (dur > 0) seek.max = String(dur);
+  });
+  document.querySelectorAll('[data-time-end]').forEach((el) => {
+    el.textContent = dur ? fmtTime(dur) : '--:--';
+  });
+  // Refresh mini play icon without rebuilding the whole bar.
+  const miniToggle = document.querySelector('#miniToggle');
+  if (miniToggle) miniToggle.innerHTML = playing ? icons.pauseSm : icons.playSm;
+  markNowPlayingRows();
 }
 
 function renderPairing(): void {
@@ -113,7 +139,7 @@ function renderPairing(): void {
       <div class="pair-card">
         <div class="pair-mark">AH</div>
         <h1>Audio Harbor</h1>
-        <p>Enter the 6-digit PIN from the host to pair this iPhone.</p>
+        <p>Enter the 6-digit PIN from the host to pair this device.</p>
         <input id="pin" class="pin-input" inputmode="numeric" maxlength="6"
           placeholder="••••••" autocomplete="one-time-code" enterkeyhint="done" />
         <button id="pairBtn" class="btn-fill">Continue</button>
@@ -125,7 +151,6 @@ function renderPairing(): void {
   const err = app.querySelector<HTMLParagraphElement>('#pairErr')!;
   const btn = app.querySelector<HTMLButtonElement>('#pairBtn')!;
   pin.focus();
-
   const submit = async () => {
     err.hidden = true;
     btn.disabled = true;
@@ -143,17 +168,42 @@ function renderPairing(): void {
       err.hidden = false;
       err.textContent = e instanceof Error ? e.message : 'Pairing failed';
       btn.disabled = false;
-      pin.select();
     }
   };
-
   btn.addEventListener('click', () => void submit());
   pin.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') void submit();
   });
 }
 
-async function loadBrowse(): Promise<void> {
+async function refreshCaches(): Promise<void> {
+  try {
+    const [pl, lb] = await Promise.all([
+      api<{ playlists: Array<{ id: string; name: string; trackCount: number }> }>('/api/v1/playlists'),
+      api<{ labels: Array<{ name: string; trackCount: number }> }>('/api/v1/labels'),
+    ]);
+    playlistCache = pl.playlists;
+    labelCache = lb.labels;
+  } catch {
+    /* ignore */
+  }
+}
+
+function libraryDrillPath(): string | null {
+  if (libraryScope === 'folders') return folderPath;
+  if (libraryScope === 'albums') return albumDrill?.id ?? null;
+  if (libraryScope === 'artists') return artistDrill;
+  return null;
+}
+
+function clearLibraryDrill(): void {
+  folderPath = null;
+  folderStack = [];
+  albumDrill = null;
+  artistDrill = null;
+}
+
+async function loadLibrary(): Promise<void> {
   if (searchQuery.trim()) {
     const res = await api<{ items: unknown[] }>(
       `/api/v1/search?q=${encodeURIComponent(searchQuery.trim())}`
@@ -161,37 +211,68 @@ async function loadBrowse(): Promise<void> {
     items = res.items;
     return;
   }
-  const pathQ = folderPath ? `&path=${encodeURIComponent(folderPath)}` : '';
-  const res = await api<{ items: unknown[] }>(`/api/v1/browse?scope=${browseScope}${pathQ}`);
+  const drill = libraryDrillPath();
+  const pathQ = drill ? `&path=${encodeURIComponent(drill)}` : '';
+  const res = await api<{ items: unknown[] }>(
+    `/api/v1/browse?scope=${libraryScope}${pathQ}`
+  );
   items = res.items;
-  await refreshCaches();
 }
 
-async function refreshCaches(): Promise<void> {
-  try {
-    const [pl, lb] = await Promise.all([
-      api<{ playlists: Array<{ id: string; name: string }> }>('/api/v1/playlists'),
-      api<{ labels: Array<{ name: string }> }>('/api/v1/labels'),
-    ]);
-    playlistCache = pl.playlists;
-    labelCache = lb.labels.map((l) => l.name);
-  } catch {
-    /* ignore */
+async function loadCollectionTracks(): Promise<void> {
+  if (!collectionId || !collectionKind) {
+    items = [];
+    return;
+  }
+  if (collectionKind === 'playlist') {
+    const res = await api<{ tracks: unknown[]; name: string }>(
+      `/api/v1/playlists/${encodeURIComponent(collectionId)}/tracks`
+    );
+    collectionTitle = res.name;
+    items = res.tracks;
+  } else {
+    const res = await api<{ tracks: unknown[]; name: string }>(
+      `/api/v1/labels/${encodeURIComponent(collectionId)}/tracks`
+    );
+    collectionTitle = res.name;
+    items = res.tracks;
   }
 }
 
+function hasNowTrack(): boolean {
+  return Boolean(nowPlaying?.track);
+}
+
+/** Mobile mini player — hide on full Now Playing to avoid doubling. */
+function wantsMini(): boolean {
+  return hasNowTrack() && tab !== 'now' && !isDesktopUi();
+}
+
+/** Compact header player on Library / Playlists (desktop + mobile). */
+function wantsHeaderPlayer(): boolean {
+  return hasNowTrack() && (tab === 'library' || tab === 'collections');
+}
+
 function renderApp(): void {
-  const hasTrack = Boolean(nowPlaying?.track);
+  const mini = wantsMini();
+  const wide = isDesktopUi();
   app.innerHTML = `
-    <div class="app-shell ${hasTrack ? '' : 'no-mini'}">
-      <main class="screen" id="main"></main>
-      ${hasTrack ? `<div class="mini-player" id="mini"></div>` : ''}
-      <nav class="tab-bar" id="tabs">
-        ${tabBtn('browse', 'Library', icons.browse)}
-        ${tabBtn('now', 'Playing', icons.now)}
-        ${tabBtn('mounts', 'Folders', icons.library)}
-        ${tabBtn('output', 'Output', icons.output)}
-      </nav>
+    <div class="app-shell layout ${mini ? '' : 'no-mini'} ${wide ? 'wide' : ''}">
+      ${wide ? renderSidebar() : ''}
+      <div class="content-col">
+        <main class="screen" id="main"></main>
+        ${mini ? `<div class="mini-player" id="mini"></div>` : ''}
+        ${
+          wide
+            ? ''
+            : `<nav class="tab-bar" id="tabs">
+          ${tabBtn('library', 'Library', icons.browse)}
+          ${tabBtn('collections', 'Playlists', icons.library)}
+          ${tabBtn('now', 'Playing', icons.now)}
+          ${tabBtn('settings', 'Settings', icons.output)}
+        </nav>`
+        }
+      </div>
     </div>
   `;
 
@@ -199,17 +280,105 @@ function renderApp(): void {
     btn.addEventListener('click', async () => {
       haptic('light');
       tab = btn.dataset.tab as Tab;
-      if (tab === 'browse') await loadBrowse();
+      collectionKind = null;
+      collectionId = null;
+      if (tab === 'library') {
+        clearLibraryDrill();
+        await loadLibrary();
+      }
+      if (tab === 'collections') await refreshCaches();
       renderApp();
     });
   });
 
+  app.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const nav = btn.dataset.nav!;
+      if (nav === 'library' || nav === 'collections' || nav === 'now' || nav === 'settings') {
+        tab = nav;
+        collectionKind = null;
+        collectionId = null;
+        if (tab === 'library') {
+          clearLibraryDrill();
+          await loadLibrary();
+        }
+        if (tab === 'collections') await refreshCaches();
+        renderApp();
+        return;
+      }
+      if (nav === 'playlist') {
+        tab = 'collections';
+        collectionKind = 'playlist';
+        collectionId = btn.dataset.id!;
+        collectionTitle = btn.dataset.name ?? null;
+        await loadCollectionTracks();
+        renderApp();
+        return;
+      }
+      if (nav === 'label') {
+        tab = 'collections';
+        collectionKind = 'label';
+        collectionId = btn.dataset.id!;
+        collectionTitle = btn.dataset.id!;
+        await loadCollectionTracks();
+        renderApp();
+      }
+    });
+  });
+
+  app.querySelector('#sideNewPl')?.addEventListener('click', () => createPlaylist());
+
   const main = app.querySelector('#main')!;
-  if (tab === 'browse') renderBrowse(main);
+  if (tab === 'library') renderLibrary(main);
+  if (tab === 'collections') void renderCollections(main);
   if (tab === 'now') renderNow(main);
-  if (tab === 'mounts') void renderMounts(main);
-  if (tab === 'output') void renderOutput(main);
-  if (hasTrack) paintMini();
+  if (tab === 'settings') void renderSettings(main);
+  if (mini) paintMini();
+  if (wantsHeaderPlayer()) paintHeaderPlayer();
+}
+
+function renderSidebar(): string {
+  const pl = playlistCache
+    .map(
+      (p) => `
+      <button type="button" class="side-row ${tab === 'collections' && collectionKind === 'playlist' && collectionId === p.id ? 'active' : ''}"
+        data-nav="playlist" data-id="${escAttr(p.id)}" data-name="${escAttr(p.name)}">
+        <i class="side-dot playlist" aria-hidden="true"></i>
+        <span>${esc(p.name)}</span>
+        <em>${p.trackCount ?? ''}</em>
+      </button>`
+    )
+    .join('');
+  const lb = labelCache
+    .map(
+      (l) => `
+      <button type="button" class="side-row ${tab === 'collections' && collectionKind === 'label' && collectionId === l.name ? 'active' : ''}"
+        data-nav="label" data-id="${escAttr(l.name)}">
+        <i class="side-dot label" aria-hidden="true"></i>
+        <span>${esc(l.name)}</span>
+        <em>${l.trackCount ?? ''}</em>
+      </button>`
+    )
+    .join('');
+  const overview = tab === 'collections' && !collectionId;
+  return `
+    <aside class="sidebar" aria-label="Navigation">
+      <div class="side-brand">Audio Harbor</div>
+      <button type="button" class="side-row ${tab === 'library' ? 'active' : ''}" data-nav="library">${icons.browse}<span>Library</span></button>
+      <button type="button" class="side-row ${overview ? 'active' : ''}" data-nav="collections">${icons.library}<span>Playlists &amp; Labels</span></button>
+      <button type="button" class="side-row ${tab === 'now' ? 'active' : ''}" data-nav="now">${icons.now}<span>Now Playing</span></button>
+      <div class="side-heading">
+        <p class="side-label">Playlists</p>
+        <button type="button" class="side-plus" id="sideNewPl" aria-label="New playlist" title="New playlist">+</button>
+      </div>
+      <div class="side-scroll">${pl || `<p class="side-empty">No playlists yet</p>`}</div>
+      <div class="side-heading"><p class="side-label">Labels</p></div>
+      <div class="side-scroll">${lb || `<p class="side-empty">No labels yet</p>`}</div>
+      <div class="side-foot">
+        <button type="button" class="side-row ${tab === 'settings' ? 'active' : ''}" data-nav="settings">${icons.output}<span>Settings</span></button>
+      </div>
+    </aside>
+  `;
 }
 
 function tabBtn(id: Tab, label: string, icon: string): string {
@@ -221,139 +390,107 @@ function tabBtn(id: Tab, label: string, icon: string): string {
 function updateChrome(): void {
   const shell = app.querySelector('.app-shell');
   if (!shell) return;
-  const hasTrack = Boolean(nowPlaying?.track);
-  shell.classList.toggle('no-mini', !hasTrack);
-  let mini = app.querySelector('#mini');
-  if (hasTrack && !mini) {
-    mini = document.createElement('div');
-    mini.className = 'mini-player';
-    mini.id = 'mini';
-    shell.insertBefore(mini, app.querySelector('#tabs'));
+  const wantMini = wantsMini();
+  const mini = app.querySelector('#mini');
+  const header = document.querySelector('#headerPlayer');
+  if (wantMini !== Boolean(mini) || wantsHeaderPlayer() !== Boolean(header)) {
+    renderApp();
+    return;
   }
-  if (!hasTrack && mini) mini.remove();
-  if (hasTrack) paintMini();
+  shell.classList.toggle('no-mini', !wantMini);
+  if (wantMini) paintMini();
+  if (wantsHeaderPlayer()) paintHeaderPlayer();
   if (tab === 'now') {
     const main = app.querySelector('#main');
     if (main) renderNow(main);
   }
 }
 
-function renderBrowse(main: Element): void {
-  const inDetail = Boolean(folderPath);
-  const collectionMode = browseScope === 'playlists' || browseScope === 'labels';
+function headerPlayerSlot(): string {
+  if (!wantsHeaderPlayer()) return `<div class="header-player" id="headerPlayer" hidden></div>`;
+  return `<div class="header-player" id="headerPlayer" aria-label="Now Playing"></div>`;
+}
+
+function renderLibrary(main: Element): void {
+  const inFolder = libraryScope === 'folders' && Boolean(folderPath);
+  const inAlbum = libraryScope === 'albums' && Boolean(albumDrill);
+  const inArtist = libraryScope === 'artists' && Boolean(artistDrill);
+  const drilled = inFolder || inAlbum || inArtist;
+
   let title = 'Library';
-  if (browseScope === 'folders' && folderPath) {
-    title = folderPath.split(/[/\\]/).filter(Boolean).pop() ?? 'Folders';
-  } else if (browseScope === 'playlists' && folderPath) {
-    title = detailTitle ?? 'Playlist';
-  } else if (browseScope === 'labels' && folderPath) {
-    title = folderPath;
-  } else if (browseScope === 'playlists') title = 'Playlists';
-  else if (browseScope === 'labels') title = 'Labels';
-
-  const backLabel =
-    browseScope === 'folders'
-      ? 'Folders'
-      : browseScope === 'playlists'
-        ? 'Playlists'
-        : browseScope === 'labels'
-          ? 'Labels'
-          : 'Back';
-
-  const hideSearch = collectionMode && !inDetail;
-  const showCollectionBar = collectionMode && inDetail;
+  let backLabel = '';
+  if (inFolder) {
+    title = folderPath!.split(/[/\\]/).filter(Boolean).pop() ?? 'Folders';
+    backLabel = '‹ Folders';
+  } else if (inAlbum && albumDrill) {
+    title = albumDrill.title;
+    backLabel = '‹ Albums';
+  } else if (inArtist && artistDrill) {
+    title = artistDrill;
+    backLabel = '‹ Artists';
+  }
 
   main.innerHTML = `
-    <div class="nav-row">
-      ${
-        inDetail
-          ? `<button type="button" class="nav-link" id="backBtn">‹ ${esc(backLabel)}</button>`
-          : `<span></span>`
-      }
-      ${
-        browseScope === 'playlists' && !inDetail
-          ? `<button type="button" class="nav-link accent" id="newPlaylist">＋ New</button>`
-          : `<span></span>`
-      }
-    </div>
-    <h1 class="large-title">${esc(title)}</h1>
     ${
-      showCollectionBar
-        ? `<div class="collection-bar">
-            <button type="button" class="pill-btn primary" id="playCollection">Play All</button>
-            ${
-              browseScope === 'playlists'
-                ? `<button type="button" class="pill-btn" id="manageCollection">Manage</button>`
-                : ''
-            }
-            <span class="collection-meta">${items.length} song${items.length === 1 ? '' : 's'}</span>
+      drilled
+        ? `<div class="nav-row">
+            <button type="button" class="nav-link" id="backBtn">${backLabel}</button>
+            <button type="button" class="nav-link accent" id="playDrill" ${items.length ? '' : 'disabled'}>Play</button>
           </div>`
         : ''
     }
-    <div class="segmented scroll">
-      <button type="button" data-scope="albums" class="${browseScope === 'albums' ? 'active' : ''}">Albums</button>
-      <button type="button" data-scope="artists" class="${browseScope === 'artists' ? 'active' : ''}">Artists</button>
-      <button type="button" data-scope="folders" class="${browseScope === 'folders' ? 'active' : ''}">Folders</button>
-      <button type="button" data-scope="playlists" class="${browseScope === 'playlists' ? 'active' : ''}">Playlists</button>
-      <button type="button" data-scope="labels" class="${browseScope === 'labels' ? 'active' : ''}">Labels</button>
+    <div class="page-header">
+      <h1 class="large-title">${esc(title)}</h1>
+      ${headerPlayerSlot()}
     </div>
     ${
-      hideSearch
+      inAlbum && albumDrill
+        ? `<p class="drill-sub">${esc(albumDrill.artist)}</p>`
+        : ''
+    }
+    ${
+      drilled
         ? ''
-        : `<div class="search-wrap">
+        : `<div class="segmented">
+      <button type="button" data-scope="albums" class="${libraryScope === 'albums' ? 'active' : ''}">Albums</button>
+      <button type="button" data-scope="artists" class="${libraryScope === 'artists' ? 'active' : ''}">Artists</button>
+      <button type="button" data-scope="folders" class="${libraryScope === 'folders' ? 'active' : ''}">Folders</button>
+    </div>
+    <div class="search-wrap">
       ${icons.search}
       <input id="search" type="search" enterkeyhint="search" placeholder="Songs, albums, artists"
         value="${esc(searchQuery)}" />
     </div>`
     }
-    <div class="group" id="list"></div>
+    <div id="list" class="group"></div>
   `;
 
   main.querySelectorAll('[data-scope]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      browseScope = (btn as HTMLElement).dataset.scope as BrowseScope;
-      folderPath = null;
-      folderStack = [];
-      detailTitle = null;
+      libraryScope = (btn as HTMLElement).dataset.scope as LibraryScope;
+      clearLibraryDrill();
       searchQuery = '';
-      await loadBrowse();
+      await loadLibrary();
       renderApp();
     });
   });
-
   main.querySelector('#backBtn')?.addEventListener('click', async () => {
-    folderPath = folderStack.pop() ?? null;
-    detailTitle = null;
-    await loadBrowse();
+    if (inFolder) {
+      folderPath = folderStack.pop() ?? null;
+    } else if (inAlbum) {
+      albumDrill = null;
+    } else if (inArtist) {
+      artistDrill = null;
+    }
+    searchQuery = '';
+    await loadLibrary();
     renderApp();
   });
-
-  main.querySelector('#newPlaylist')?.addEventListener('click', () => {
-    openNameSheet({
-      title: 'New Playlist',
-      placeholder: 'Name',
-      confirmLabel: 'Create',
-      onConfirm: async (name) => {
-        await api('/api/v1/playlists', { method: 'POST', body: { name } });
-        toast(`Created “${name}”`);
-        haptic();
-        await loadBrowse();
-        renderApp();
-      },
-    });
+  main.querySelector('#playDrill')?.addEventListener('click', () => {
+    if (inAlbum && albumDrill) void playNow({ albumId: albumDrill.id });
+    else if (inArtist && artistDrill) void playNow({ artist: artistDrill });
+    else if (inFolder && folderPath) void playNow({ folder: folderPath });
   });
-
-  main.querySelector('#playCollection')?.addEventListener('click', () => {
-    if (browseScope === 'playlists' && folderPath) void playNow({ playlistId: folderPath });
-    if (browseScope === 'labels' && folderPath) void playNow({ label: folderPath });
-  });
-
-  main.querySelector('#manageCollection')?.addEventListener('click', () => {
-    if (browseScope === 'playlists' && folderPath) {
-      void openPlaylistManage(folderPath, detailTitle ?? 'Playlist');
-    }
-  });
-
   const search = main.querySelector<HTMLInputElement>('#search');
   if (search) {
     let debounce: number | undefined;
@@ -361,139 +498,319 @@ function renderBrowse(main: Element): void {
       window.clearTimeout(debounce);
       debounce = window.setTimeout(async () => {
         searchQuery = search.value;
-        await loadBrowse();
-        paintList(main.querySelector('#list')!);
+        clearLibraryDrill();
+        await loadLibrary();
+        paintMediaList(main.querySelector('#list')!);
       }, 220);
     });
   }
-
-  paintList(main.querySelector('#list')!);
+  paintMediaList(main.querySelector('#list')!);
+  if (wantsHeaderPlayer()) paintHeaderPlayer();
 }
 
-function paintList(list: Element): void {
-  list.innerHTML = '';
-  if (!items.length) {
-    const emptyMsg =
-      browseScope === 'playlists'
-        ? `<div class="empty"><strong>No Playlists Yet</strong>Create one, then use <em>Add</em> on any album or song.</div>`
-        : browseScope === 'labels'
-          ? `<div class="empty"><strong>No Labels Yet</strong>Open <em>Add</em> on a song or album and pick a label.</div>`
-          : `<div class="empty"><strong>No Music</strong>Add a folder on the Folders tab, then come back here.</div>`;
-    list.innerHTML = emptyMsg;
+async function renderCollections(main: Element): Promise<void> {
+  await refreshCaches();
+  if (collectionKind && collectionId) {
+    await loadCollectionTracks();
+    renderCollectionDetail(main);
     return;
   }
 
+  main.innerHTML = `
+    <div class="nav-row">
+      <span></span>
+      <button type="button" class="nav-link accent" id="newPlaylist">New Playlist</button>
+    </div>
+    <div class="page-header">
+      <h1 class="large-title">Playlists</h1>
+      ${headerPlayerSlot()}
+    </div>
+    <p class="group-label">Playlists</p>
+    <div class="group" id="plList"></div>
+    <p class="group-label">Labels</p>
+    <div class="group" id="lbList"></div>
+  `;
+
+  main.querySelector('#newPlaylist')?.addEventListener('click', () => createPlaylist());
+
+  const plList = main.querySelector('#plList')!;
+  if (!playlistCache.length) {
+    plList.innerHTML = `<div class="empty"><strong>No Playlists</strong>Collect albums, artists, or songs for later.</div>`;
+  } else {
+    for (const p of playlistCache) {
+      plList.appendChild(
+        collectionRow('playlist', p.id, p.name, Number(p.trackCount ?? 0), () =>
+          openPlaylistManage(p.id, p.name)
+        )
+      );
+    }
+  }
+
+  const lbList = main.querySelector('#lbList')!;
+  if (!labelCache.length) {
+    lbList.innerHTML = `<div class="empty"><strong>No Labels</strong>Tag music with Add → Labels on any item.</div>`;
+  } else {
+    for (const l of labelCache) {
+      lbList.appendChild(
+        collectionRow('label', l.name, l.name, Number(l.trackCount ?? 0), () =>
+          openLabelManage(l.name)
+        )
+      );
+    }
+  }
+  if (wantsHeaderPlayer()) paintHeaderPlayer();
+}
+
+function collectionRow(
+  kind: 'playlist' | 'label',
+  id: string,
+  name: string,
+  count: number,
+  onMore: () => void
+): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'row-wrap';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'row has-icon';
+  btn.innerHTML = rowHtml(
+    kind,
+    name,
+    count === 0 ? 'Empty' : `${count} song${count === 1 ? '' : 's'}`,
+    true
+  );
+  btn.addEventListener('click', async () => {
+    collectionKind = kind;
+    collectionId = id;
+    collectionTitle = name;
+    await loadCollectionTracks();
+    renderApp();
+  });
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'row-more';
+  more.setAttribute('aria-label', 'More');
+  more.innerHTML = `<span class="more-glyph">···</span>`;
+  more.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onMore();
+  });
+  wrap.append(btn, more);
+  return wrap;
+}
+
+function renderCollectionDetail(main: Element): void {
+  const title = collectionTitle ?? 'Collection';
+  const count = items.length;
+  const firstArt = (() => {
+    for (const raw of items) {
+      const t = raw as Record<string, unknown>;
+      if (t.artworkHash) return String(t.artworkHash);
+    }
+    return null;
+  })();
+  main.innerHTML = `
+    <div class="nav-row">
+      <button type="button" class="nav-link" id="backBtn">‹ Playlists</button>
+      ${headerPlayerSlot()}
+      ${
+        collectionKind === 'playlist' || collectionKind === 'label'
+          ? `<button type="button" class="nav-link" id="manageBtn" aria-label="Options">Edit</button>`
+          : '<span></span>'
+      }
+    </div>
+    <header class="collection-hero">
+      <div class="collection-mosaic ${collectionKind ?? ''} ${firstArt ? 'has-art' : ''}" aria-hidden="true">
+        ${firstArt ? coverHtml(firstArt, title) : `<span>${esc((title[0] ?? 'P').toUpperCase())}</span>`}
+      </div>
+      <div class="collection-hero-text">
+        <p class="collection-kind">${collectionKind === 'label' ? 'Label' : 'Playlist'}</p>
+        <h1 class="collection-title">${esc(title)}</h1>
+        <p class="collection-meta">${count === 0 ? 'No songs' : `${count} song${count === 1 ? '' : 's'}`}</p>
+        <div class="collection-actions ${collectionKind === 'playlist' ? '' : 'single'}">
+          <button type="button" class="pill-btn primary" id="playAll" ${count ? '' : 'disabled'}>${icons.playSm}<span>Play</span></button>
+          ${
+            collectionKind === 'playlist'
+              ? `<button type="button" class="pill-btn" id="addMusic"><span aria-hidden="true">+</span><span>Add Music</span></button>`
+              : ''
+          }
+        </div>
+      </div>
+    </header>
+    <div class="group" id="list"></div>
+  `;
+
+  main.querySelector('#backBtn')?.addEventListener('click', () => {
+    collectionKind = null;
+    collectionId = null;
+    collectionTitle = null;
+    renderApp();
+  });
+  main.querySelector('#manageBtn')?.addEventListener('click', () => {
+    if (collectionKind === 'playlist' && collectionId) openPlaylistManage(collectionId, title);
+    if (collectionKind === 'label' && collectionId) openLabelManage(collectionId);
+  });
+  main.querySelector('#playAll')?.addEventListener('click', () => {
+    if (collectionKind === 'playlist' && collectionId) void playNow({ playlistId: collectionId });
+    if (collectionKind === 'label' && collectionId) void playNow({ label: collectionId });
+  });
+  main.querySelector('#addMusic')?.addEventListener('click', () => {
+    tab = 'library';
+    renderApp();
+    showToast('Pick music in Library, then use Add');
+  });
+  hydrateCovers(main);
+  paintMediaList(main.querySelector('#list')!, true);
+  if (wantsHeaderPlayer()) paintHeaderPlayer();
+}
+
+function paintMediaList(list: Element, inCollection = false): void {
+  list.innerHTML = '';
+  if (!items.length) {
+    list.innerHTML = inCollection
+      ? `<div class="empty"><strong>This Collection Is Empty</strong>Add music from your Library.</div>`
+      : `<div class="empty"><strong>No Music</strong>Add a folder in Settings → Sources.</div>`;
+    return;
+  }
+
+  const listingAlbums =
+    tab === 'library' &&
+    libraryScope === 'albums' &&
+    !albumDrill &&
+    !searchQuery.trim();
+  const listingArtists =
+    tab === 'library' &&
+    libraryScope === 'artists' &&
+    !artistDrill &&
+    !searchQuery.trim();
+
   for (const raw of items) {
     const item = raw as Record<string, unknown>;
-    const row = document.createElement('div');
-    row.className = 'row-wrap';
 
+    const wrap = document.createElement('div');
+    wrap.className = 'row-wrap';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'row has-icon';
-
     const more = document.createElement('button');
     more.type = 'button';
     more.className = 'row-more';
-    more.setAttribute('aria-label', 'Add to playlist or label');
-    more.innerHTML = `<span class="more-glyph">＋</span>`;
+    more.innerHTML = `<span class="more-glyph">···</span>`;
+    more.setAttribute('aria-label', 'Actions');
 
     let selection: Selection | null = null;
     let primary: (() => Promise<void>) | null = null;
-    let moreHandler: (() => void) | null = null;
 
-    if (item.kind === 'playlist' && item.id) {
-      const count = Number(item.trackCount ?? 0);
-      btn.innerHTML = rowHtml(
-        'playlist',
-        String(item.name),
-        count === 0 ? 'Empty' : `${count} song${count === 1 ? '' : 's'}`,
-        true
-      );
-      primary = async () => {
-        detailTitle = String(item.name);
-        if (folderPath) folderStack.push(folderPath);
-        folderPath = String(item.id);
-        searchQuery = '';
-        await loadBrowse();
-        renderApp();
-      };
-      moreHandler = () => void openPlaylistManage(String(item.id), String(item.name));
-      more.setAttribute('aria-label', 'Manage playlist');
-      more.innerHTML = `<span class="more-glyph">···</span>`;
-    } else if (item.kind === 'label' && item.name) {
-      const count = Number(item.trackCount ?? 0);
-      btn.innerHTML = rowHtml(
-        'label',
-        String(item.name),
-        count === 0 ? 'Empty' : `${count} song${count === 1 ? '' : 's'}`,
-        true
-      );
-      primary = async () => {
-        detailTitle = String(item.name);
-        if (folderPath) folderStack.push(folderPath);
-        folderPath = String(item.name);
-        searchQuery = '';
-        await loadBrowse();
-        renderApp();
-      };
-      moreHandler = () => void playNow({ label: String(item.name) });
-      more.setAttribute('aria-label', 'Play label');
-      more.innerHTML = `<span class="more-glyph play">${icons.playSm}</span>`;
-    } else if (
-      (browseScope === 'albums' || searchQuery) &&
+    if (
+      listingAlbums &&
       item.title &&
       item.artist &&
       item.id &&
       !item.cataloguePath
     ) {
-      btn.innerHTML = rowHtml('album', String(item.title), String(item.artist), false);
-      selection = { albumId: String(item.id), title: String(item.title) };
-      primary = async () => playNow({ albumId: String(item.id) });
-      moreHandler = () => void openOrganizeSheet(selection!);
+      const title = String(item.title);
+      const artist = String(item.artist);
+      const id = String(item.id);
+      const hash = item.artworkHash ? String(item.artworkHash) : null;
+      const count = Number(item.trackCount ?? 0);
+      btn.innerHTML = rowHtml(
+        'album',
+        title,
+        count ? `${artist} · ${count} songs` : artist,
+        true,
+        hash,
+        true
+      );
+      selection = { albumId: id, title };
+      primary = async () => {
+        albumDrill = { id, title, artist };
+        searchQuery = '';
+        await loadLibrary();
+        renderApp();
+      };
     } else if (
-      browseScope === 'artists' &&
+      listingArtists &&
       item.name &&
-      !item.cataloguePath &&
-      item.kind !== 'label' &&
-      item.kind !== 'playlist'
+      !item.cataloguePath
     ) {
+      const name = String(item.name);
       btn.innerHTML = rowHtml(
         'artist',
-        String(item.name),
-        `${item.trackCount ?? 0} songs`,
-        false
+        name,
+        `${item.trackCount ?? 0} song${Number(item.trackCount) === 1 ? '' : 's'}`,
+        true
       );
-      selection = { artist: String(item.name), title: String(item.name) };
-      primary = async () => playNow({ artist: String(item.name) });
-      moreHandler = () => void openOrganizeSheet(selection!);
+      selection = { artist: name, title: name };
+      primary = async () => {
+        artistDrill = name;
+        searchQuery = '';
+        await loadLibrary();
+        renderApp();
+      };
+    } else if (
+      searchQuery &&
+      item.title &&
+      item.artist &&
+      item.id &&
+      !item.cataloguePath &&
+      tab === 'library'
+    ) {
+      // Search hit that looks like an album row (rare) — open it.
+      const hash = item.artworkHash ? String(item.artworkHash) : null;
+      btn.innerHTML = rowHtml('album', String(item.title), String(item.artist), true, hash, true);
+      selection = { albumId: String(item.id), title: String(item.title) };
+      primary = async () => {
+        albumDrill = {
+          id: String(item.id),
+          title: String(item.title),
+          artist: String(item.artist),
+        };
+        searchQuery = '';
+        libraryScope = 'albums';
+        await loadLibrary();
+        renderApp();
+      };
     } else if (item.isDirectory) {
       btn.innerHTML = rowHtml('folder', String(item.name), 'Folder', true);
       selection = { folder: String(item.path), title: String(item.name) };
       primary = async () => {
-        detailTitle = null;
         if (folderPath) folderStack.push(folderPath);
         folderPath = String(item.path);
         searchQuery = '';
-        await loadBrowse();
+        await loadLibrary();
         renderApp();
       };
-      moreHandler = () => void openOrganizeSheet(selection!);
-    } else if (item.cataloguePath || item.track) {
-      const track = (item.track as Record<string, unknown>) ?? item;
-      const path = String(track.cataloguePath ?? item.path ?? '');
+    } else if (item.cataloguePath || item.track || item.title) {
+      const nested = item.track as Record<string, unknown> | null | undefined;
+      const track = nested && typeof nested === 'object' ? nested : item;
+      const path = String(track.cataloguePath ?? '');
+      if (!path) continue;
       const labels = Array.isArray(track.labels)
         ? (track.labels as string[]).slice(0, 2).join(' · ')
         : '';
+      const hash = track.artworkHash ? String(track.artworkHash) : null;
+      const isNow = isNowPlayingPath(path);
       btn.innerHTML = rowHtml(
         'track',
-        String(track.title ?? item.name),
+        String(track.title ?? item.name ?? 'Track'),
         labels ? `${track.artist ?? ''} · ${labels}` : String(track.artist ?? ''),
-        false
+        false,
+        hash,
+        false,
+        isNow
       );
-      selection = { cataloguePath: path, title: String(track.title ?? item.name) };
-      primary = async () => playNow({ cataloguePath: path });
-      moreHandler = () => void openOrganizeSheet(selection!);
+      wrap.dataset.path = path;
+      if (isNow) {
+        wrap.classList.add('playing');
+        btn.classList.add('playing');
+      }
+      selection = {
+        cataloguePath: path,
+        title: String(track.title ?? item.name ?? 'Track'),
+      };
+      primary = async () => {
+        await playNow({ cataloguePath: path });
+      };
     } else {
       continue;
     }
@@ -501,47 +818,144 @@ function paintList(list: Element): void {
     btn.addEventListener('click', () => {
       if (primary) void primary();
     });
-    if (moreHandler) {
-      more.addEventListener('click', (e) => {
-        e.stopPropagation();
-        haptic('light');
-        moreHandler!();
-      });
-    } else {
-      more.style.visibility = 'hidden';
-    }
+    more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (selection) openOrganize(selection);
+    });
+    btn.addEventListener('contextmenu', (e) => {
+      if (!selection) return;
+      e.preventDefault();
+      openOrganize(selection);
+    });
 
-    row.appendChild(btn);
-    row.appendChild(more);
-    list.appendChild(row);
+    wrap.append(btn, more);
+    list.appendChild(wrap);
   }
+
+  hydrateCovers(list);
+  markNowPlayingRows();
+}
+
+function nowPlayingPath(): string | null {
+  const track = nowPlaying?.track as Record<string, unknown> | null | undefined;
+  if (!track?.cataloguePath) return null;
+  return String(track.cataloguePath);
+}
+
+function isNowPlayingPath(path: string): boolean {
+  const cur = nowPlayingPath();
+  return Boolean(cur && path && cur === path);
+}
+
+/** Highlight the playing track and show a speaker glyph (list may already be painted). */
+function markNowPlayingRows(): void {
+  const cur = nowPlayingPath();
+  document.querySelectorAll<HTMLElement>('.row-wrap[data-path]').forEach((wrap) => {
+    const path = wrap.dataset.path ?? '';
+    const on = Boolean(cur && path === cur);
+    wrap.classList.toggle('playing', on);
+    const row = wrap.querySelector('.row');
+    row?.classList.toggle('playing', on);
+    const trail = wrap.querySelector('.row-trail');
+    if (!trail) return;
+    if (on) {
+      trail.innerHTML = `<span class="playing-glyph" aria-label="Now playing">${icons.speaker}</span>`;
+      trail.classList.add('playing');
+    } else if (trail.classList.contains('playing')) {
+      trail.innerHTML = '';
+      trail.classList.remove('playing');
+    }
+  });
+}
+
+function coverHtml(hash: string | null | undefined, title: string): string {
+  const initial = (title.trim()[0] ?? '•').toUpperCase();
+  const url = artworkUrl(hash);
+  if (url) {
+    return `<img class="cover-img" src="${escAttr(url)}" alt="" loading="lazy" decoding="async" data-cover="${escAttr(String(hash))}" />`;
+  }
+  return `<span class="cover-fallback">${esc(initial)}</span>`;
+}
+
+function hydrateCovers(root: Element): void {
+  root.querySelectorAll<HTMLImageElement>('img.cover-img').forEach((img) => {
+    img.addEventListener(
+      'error',
+      () => {
+        const hash = img.dataset.cover;
+        if (!hash) {
+          img.replaceWith(fallbackSpan(img.alt || '•'));
+          return;
+        }
+        // Retry via Authorization header (blob) if query-token load failed.
+        void artworkObjectUrl(hash)
+          .then((url) => {
+            img.src = url;
+          })
+          .catch(() => {
+            img.replaceWith(fallbackSpan(img.alt || '•'));
+          });
+      },
+      { once: true }
+    );
+  });
+}
+
+function fallbackSpan(title: string): HTMLElement {
+  const span = document.createElement('span');
+  span.className = 'cover-fallback';
+  span.textContent = (title.trim()[0] ?? '•').toUpperCase();
+  return span;
 }
 
 function rowHtml(
   kind: string,
   title: string,
   sub: string,
-  chevron: boolean
+  chevron: boolean,
+  artworkHash?: string | null,
+  tinyThumb = false,
+  nowPlayingRow = false
 ): string {
   const initial = (title.trim()[0] ?? '•').toUpperCase();
+  const url = artworkUrl(artworkHash);
+  const thumbClass = tinyThumb ? ' thumb' : '';
+  const icon = url
+    ? `<div class="row-icon ${kind}${thumbClass} has-art"><img class="cover-img" src="${escAttr(url)}" alt="" loading="lazy" decoding="async" data-cover="${escAttr(String(artworkHash))}" /></div>`
+    : `<div class="row-icon ${kind}${thumbClass}">${esc(initial)}</div>`;
+  let trail = `<span class="row-trail"></span>`;
+  if (nowPlayingRow) {
+    trail = `<span class="row-trail playing"><span class="playing-glyph" aria-label="Now playing">${icons.speaker}</span></span>`;
+  } else if (chevron) {
+    trail = `<span class="row-trail chevron">${icons.chevron}</span>`;
+  }
   return `
-    <div class="row-icon ${kind}">${esc(initial)}</div>
+    ${icon}
     <div class="row-text">
       <div class="row-title">${esc(title)}</div>
       <div class="row-sub">${esc(sub)}</div>
     </div>
-    ${chevron ? `<span class="chevron">${icons.chevron}</span>` : `<span></span>`}
+    ${trail}
   `;
 }
 
 async function playNow(body: Record<string, unknown>): Promise<void> {
   haptic('medium');
-  closeSheet();
+  closeOverlay();
+  const hadTrack = hasNowTrack();
   await api('/api/v1/play', { method: 'POST', body });
-  tab = 'now';
   nowPlaying = await api('/api/v1/now-playing');
   playing = nowPlaying?.state === 'playing';
-  renderApp();
+  localPos = Number(nowPlaying?.positionSecs ?? 0);
+  // Stay on Library / Playlists — never jump to Now Playing.
+  if (!hadTrack || wantsHeaderPlayer() !== Boolean(document.querySelector('#headerPlayer'))) {
+    renderApp();
+    return;
+  }
+  paintHeaderPlayer();
+  if (wantsMini()) paintMini();
+  paintScrub();
+  markNowPlayingRows();
 }
 
 function selectionBody(sel: Selection): Record<string, unknown> {
@@ -553,63 +967,105 @@ function selectionBody(sel: Selection): Record<string, unknown> {
   };
 }
 
-async function openOrganizeSheet(sel: Selection): Promise<void> {
-  await refreshCaches();
-  const destructive: Array<{ label: string; danger?: boolean; run: () => Promise<void> }> = [];
-  if (browseScope === 'playlists' && folderPath && sel.cataloguePath) {
-    destructive.push({
-      label: 'Remove from This Playlist',
-      danger: true,
-      run: async () => {
-        await api(`/api/v1/playlists/${encodeURIComponent(folderPath!)}/items`, {
-          method: 'DELETE',
-          body: { cataloguePath: sel.cataloguePath },
-        });
-        toast('Removed from playlist');
-        await loadBrowse();
-        renderApp();
-      },
-    });
-  }
-  if (browseScope === 'labels' && folderPath && sel.cataloguePath) {
-    destructive.push({
-      label: `Remove Label “${folderPath}”`,
-      danger: true,
-      run: async () => {
-        await api('/api/v1/labels/items', {
-          method: 'DELETE',
-          body: { name: folderPath, cataloguePath: sel.cataloguePath },
-        });
-        toast('Label removed');
-        await loadBrowse();
-        renderApp();
-      },
-    });
-  }
-
-  showActionSheet({
-    title: sel.title,
-    subtitle: 'Play or organize',
-    groups: [
-      [
-        {
-          label: 'Play',
-          run: async () => playNow(selectionBody(sel)),
-        },
-      ],
-      [
-        {
-          label: 'Add to Playlist…',
-          run: async () => openPlaylistPicker(sel),
-        },
-        {
-          label: 'Add Label…',
-          run: async () => openLabelPicker(sel),
-        },
-      ],
-      destructive,
-    ].filter((g) => g.length > 0),
+function createPlaylist(): void {
+  openNameDialog({
+    title: 'New Playlist',
+    placeholder: 'Name',
+    confirmLabel: 'Create',
+    onConfirm: async (name) => {
+      const created = await api<{ id: string; name: string }>('/api/v1/playlists', {
+        method: 'POST',
+        body: { name },
+      });
+      showToast(`Created “${name}”`);
+      haptic();
+      await refreshCaches();
+      tab = 'collections';
+      collectionKind = 'playlist';
+      collectionId = created.id;
+      collectionTitle = created.name;
+      await loadCollectionTracks();
+      renderApp();
+    },
   });
+}
+
+function openOrganize(sel: Selection): void {
+  const groups: Array<Array<{ label: string; danger?: boolean; run: () => Promise<void> }>> = [
+    [
+      {
+        label: 'Play',
+        run: async () => playNow(selectionBody(sel)),
+      },
+    ],
+    [
+      {
+        label: 'Add to Playlist…',
+        run: async () => openPlaylistPicker(sel),
+      },
+      {
+        label: 'Labels…',
+        run: async () => openLabelEditor(sel),
+      },
+    ],
+  ];
+  if (collectionKind === 'playlist' && collectionId && sel.cataloguePath) {
+    groups.push([
+      {
+        label: 'Remove from Playlist',
+        danger: true,
+        run: async () => {
+          const path = sel.cataloguePath!;
+          const id = collectionId!;
+          await api(`/api/v1/playlists/${encodeURIComponent(id)}/items`, {
+            method: 'DELETE',
+            body: { cataloguePath: path },
+          });
+          showToast('Removed', {
+            undo: async () => {
+              await api(`/api/v1/playlists/${encodeURIComponent(id)}/items`, {
+                method: 'POST',
+                body: { cataloguePath: path },
+              });
+              await loadCollectionTracks();
+              renderApp();
+            },
+          });
+          await loadCollectionTracks();
+          renderApp();
+        },
+      },
+    ]);
+  }
+  if (collectionKind === 'label' && collectionId && sel.cataloguePath) {
+    const label = collectionId;
+    groups.push([
+      {
+        label: `Remove Label “${label}”`,
+        danger: true,
+        run: async () => {
+          const path = sel.cataloguePath!;
+          await api('/api/v1/labels/remove-items', {
+            method: 'POST',
+            body: { name: label, cataloguePath: path },
+          });
+          showToast('Label removed', {
+            undo: async () => {
+              await api('/api/v1/labels/items', {
+                method: 'POST',
+                body: { name: label, cataloguePath: path },
+              });
+              await loadCollectionTracks();
+              renderApp();
+            },
+          });
+          await loadCollectionTracks();
+          renderApp();
+        },
+      },
+    ]);
+  }
+  openActionMenu({ title: sel.title, subtitle: 'Play or organize', groups });
 }
 
 async function openPlaylistPicker(sel: Selection): Promise<void> {
@@ -617,34 +1073,38 @@ async function openPlaylistPicker(sel: Selection): Promise<void> {
   const rows = playlistCache
     .map(
       (p) => `
-      <button type="button" class="picker-row" data-id="${esc(p.id)}">
+      <button type="button" class="picker-row" data-id="${escAttr(p.id)}">
         <span class="row-icon playlist">${esc((p.name[0] ?? 'P').toUpperCase())}</span>
-        <span class="picker-text">
-          <strong>${esc(p.name)}</strong>
-        </span>
+        <span class="picker-text"><strong>${esc(p.name)}</strong></span>
         <span class="picker-add">Add</span>
       </button>`
     )
     .join('');
 
-  showPanelSheet({
+  openPanel({
     title: 'Add to Playlist',
     subtitle: sel.title,
     bodyHtml: `
-      <button type="button" class="picker-row create" id="pickerNewPl">
-        <span class="row-icon playlist">＋</span>
-        <span class="picker-text"><strong>New Playlist</strong><span>Create and add</span></span>
-      </button>
-      <div class="picker-list">${rows || `<p class="picker-empty">No playlists yet — create one above.</p>`}</div>
+      <div class="ah-group">
+        <button type="button" class="picker-row create" id="pickerNewPl">
+          <span class="row-icon create" aria-hidden="true">+</span>
+          <span class="picker-text"><strong>New Playlist…</strong><span>Create and add</span></span>
+        </button>
+      </div>
+      ${
+        rows
+          ? `<p class="ah-section">Playlists</p><div class="ah-group picker-list">${rows}</div>`
+          : `<p class="picker-empty">No playlists yet.</p>`
+      }
     `,
     bind: (root, close) => {
       root.querySelector('#pickerNewPl')?.addEventListener('click', () => {
         close();
-        openNameSheet({
+        openNameDialog({
           title: 'New Playlist',
           placeholder: 'Name',
           initial: sel.title,
-          confirmLabel: 'Create & Add',
+          confirmLabel: 'Create',
           onConfirm: async (name) => {
             const created = await api<{ id: string }>('/api/v1/playlists', {
               method: 'POST',
@@ -654,7 +1114,7 @@ async function openPlaylistPicker(sel: Selection): Promise<void> {
               method: 'POST',
               body: selectionBody(sel),
             });
-            toast(`Added to “${name}”`);
+            showToast(`Added to new playlist “${name}”`);
             haptic();
             await refreshCaches();
           },
@@ -670,10 +1130,20 @@ async function openPlaylistPicker(sel: Selection): Promise<void> {
               body: selectionBody(sel),
             });
             close();
-            toast(`Added to “${name}”`);
+            showToast(`Added to “${name}”`, {
+              undo: async () => {
+                if (sel.cataloguePath) {
+                  await api(`/api/v1/playlists/${encodeURIComponent(id)}/items`, {
+                    method: 'DELETE',
+                    body: { cataloguePath: sel.cataloguePath },
+                  });
+                }
+              },
+            });
             haptic();
+            await refreshCaches();
           } catch (err) {
-            toast(err instanceof Error ? err.message : 'Failed', true);
+            showToast(err instanceof Error ? err.message : 'Failed', { error: true });
           }
         });
       });
@@ -681,84 +1151,161 @@ async function openPlaylistPicker(sel: Selection): Promise<void> {
   });
 }
 
-async function openLabelPicker(sel: Selection): Promise<void> {
-  await refreshCaches();
-  const chips = labelCache
-    .map(
-      (name) =>
-        `<button type="button" class="chip" data-label="${esc(name)}">${esc(name)}</button>`
-    )
-    .join('');
+function hasLabelSelection(sel: Selection): boolean {
+  return Boolean(sel.cataloguePath || sel.albumId || sel.artist || sel.folder);
+}
 
-  showPanelSheet({
-    title: 'Add Label',
+async function openLabelEditor(sel: Selection): Promise<void> {
+  if (!hasLabelSelection(sel)) {
+    showToast('Cannot label this item', { error: true });
+    return;
+  }
+  await refreshCaches();
+  let current: string[] = [];
+  if (sel.cataloguePath) {
+    try {
+      const opt = await api<{ trackLabels: string[] }>(
+        `/api/v1/track-options?path=${encodeURIComponent(sel.cataloguePath)}`
+      );
+      current = opt.trackLabels ?? [];
+    } catch {
+      current = [];
+    }
+  }
+  let known = [...new Set([...labelCache.map((l) => l.name), ...current])].sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  const renderChips = () =>
+    current
+      .map(
+        (n) =>
+          `<button type="button" class="chip on" data-remove="${escAttr(n)}">${esc(n)} <span aria-hidden="true">×</span></button>`
+      )
+      .join('');
+
+  const renderKnown = () =>
+    known
+      .filter((n) => !current.includes(n))
+      .map((n) => `<button type="button" class="chip" data-add="${escAttr(n)}">${esc(n)}</button>`)
+      .join('');
+
+  let addFn: ((name: string) => Promise<boolean>) | null = null;
+
+  openPanel({
+    title: 'Labels',
     subtitle: sel.title,
-    bodyHtml: `
-      <form class="sheet-form" id="labelForm">
-        <label class="field-label" for="labelInput">Label</label>
-        <input id="labelInput" class="sheet-input" type="text" enterkeyhint="done"
-          placeholder="e.g. Favorites" autocomplete="off" />
-        <button type="submit" class="sheet-primary">Add Label</button>
-      </form>
-      ${
-        chips
-          ? `<p class="field-label soft">Or choose existing</p><div class="chip-row">${chips}</div>`
-          : `<p class="picker-empty">No labels yet — type a name above.</p>`
+    primaryLabel: 'Done',
+    onPrimary: async () => {
+      const input = document.querySelector<HTMLInputElement>('#labelInput');
+      const pending = input?.value.trim() ?? '';
+      if (pending && addFn) {
+        const ok = await addFn(pending);
+        if (!ok) return;
       }
+      closeOverlay();
+    },
+    bodyHtml: `
+      <form class="ah-form label-add-form" id="labelForm">
+        <input class="ah-input" id="labelInput" type="text" placeholder="New label" enterkeyhint="done" autocomplete="off" aria-label="New label" />
+        <button type="submit" class="ah-add-btn" id="labelAddBtn">Add</button>
+      </form>
+      <p class="ah-section">On This Item</p>
+      <div class="chip-row" id="currentChips">${renderChips() || `<span class="picker-empty">No labels on this item yet.</span>`}</div>
+      <p class="ah-section">Suggestions</p>
+      <div class="chip-row" id="knownChips">${renderKnown() || `<span class="picker-empty">Type a new label above.</span>`}</div>
     `,
-    bind: (root, close) => {
+    bind: (root) => {
       const input = root.querySelector<HTMLInputElement>('#labelInput')!;
-      const submit = async (name: string) => {
+      const refreshUi = () => {
+        const cur = root.querySelector('#currentChips');
+        const kn = root.querySelector('#knownChips');
+        if (cur)
+          cur.innerHTML =
+            renderChips() || `<span class="picker-empty">No labels on this item yet.</span>`;
+        if (kn)
+          kn.innerHTML =
+            renderKnown() || `<span class="picker-empty">Type a new label above.</span>`;
+        bindChips();
+      };
+      const add = async (name: string): Promise<boolean> => {
         const trimmed = name.trim();
-        if (!trimmed) return;
+        if (!trimmed) {
+          input.focus();
+          return false;
+        }
         try {
           await api('/api/v1/labels/items', {
             method: 'POST',
             body: { name: trimmed, ...selectionBody(sel) },
           });
-          close();
-          toast(`Labeled “${trimmed}”`);
-          haptic();
-          await refreshCaches();
-          if (browseScope === 'labels') {
-            await loadBrowse();
-            renderApp();
-          }
         } catch (err) {
-          toast(err instanceof Error ? err.message : 'Failed', true);
+          showToast(err instanceof Error ? err.message : 'Could not add label', { error: true });
+          return false;
         }
+        if (!current.includes(trimmed)) current.push(trimmed);
+        if (!known.includes(trimmed)) {
+          known = [...known, trimmed].sort((a, b) => a.localeCompare(b));
+        }
+        input.value = '';
+        showToast(`Labeled “${trimmed}”`);
+        haptic();
+        await refreshCaches();
+        refreshUi();
+        return true;
+      };
+      addFn = add;
+      const remove = async (name: string) => {
+        try {
+          await api('/api/v1/labels/remove-items', {
+            method: 'POST',
+            body: {
+              name,
+              ...selectionBody(sel),
+            },
+          });
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : 'Could not remove label', { error: true });
+          return;
+        }
+        current = current.filter((n) => n !== name);
+        showToast('Label removed');
+        await refreshCaches();
+        refreshUi();
+      };
+      const bindChips = () => {
+        root.querySelectorAll<HTMLElement>('[data-add]').forEach((el) => {
+          el.addEventListener('click', () => void add(el.dataset.add ?? ''));
+        });
+        root.querySelectorAll<HTMLElement>('[data-remove]').forEach((el) => {
+          el.addEventListener('click', () => void remove(el.dataset.remove ?? ''));
+        });
       };
       root.querySelector('#labelForm')?.addEventListener('submit', (e) => {
         e.preventDefault();
-        void submit(input.value);
+        void add(input.value);
       });
-      root.querySelectorAll<HTMLElement>('[data-label]').forEach((el) => {
-        el.addEventListener('click', () => void submit(el.dataset.label ?? ''));
-      });
+      bindChips();
       queueMicrotask(() => input.focus());
     },
   });
 }
 
 function openPlaylistManage(id: string, name: string): void {
-  showActionSheet({
+  openActionMenu({
     title: name,
     subtitle: 'Playlist',
     groups: [
       [
-        {
-          label: 'Play',
-          run: async () => playNow({ playlistId: id }),
-        },
+        { label: 'Play', run: async () => playNow({ playlistId: id }) },
         {
           label: 'Open',
           run: async () => {
-            detailTitle = name;
-            folderPath = id;
-            folderStack = [];
-            searchQuery = '';
-            browseScope = 'playlists';
-            await loadBrowse();
+            tab = 'collections';
+            collectionKind = 'playlist';
+            collectionId = id;
+            collectionTitle = name;
+            await loadCollectionTracks();
             renderApp();
           },
         },
@@ -767,9 +1314,8 @@ function openPlaylistManage(id: string, name: string): void {
         {
           label: 'Rename…',
           run: async () => {
-            openNameSheet({
+            openNameDialog({
               title: 'Rename Playlist',
-              placeholder: 'Name',
               initial: name,
               confirmLabel: 'Save',
               onConfirm: async (next) => {
@@ -777,9 +1323,9 @@ function openPlaylistManage(id: string, name: string): void {
                   method: 'PATCH',
                   body: { name: next },
                 });
-                if (folderPath === id) detailTitle = next;
-                toast('Playlist renamed');
-                await loadBrowse();
+                if (collectionId === id) collectionTitle = next;
+                showToast('Playlist renamed');
+                await refreshCaches();
                 renderApp();
               },
             });
@@ -788,32 +1334,23 @@ function openPlaylistManage(id: string, name: string): void {
       ],
       [
         {
-          label: 'Delete Playlist',
+          label: 'Delete Playlist…',
           danger: true,
           run: async () => {
-            showActionSheet({
+            openConfirmDialog({
               title: `Delete “${name}”?`,
-              subtitle: 'Songs stay in your library.',
-              groups: [
-                [
-                  {
-                    label: 'Delete Playlist',
-                    danger: true,
-                    run: async () => {
-                      await api(`/api/v1/playlists/${encodeURIComponent(id)}`, {
-                        method: 'DELETE',
-                      });
-                      if (folderPath === id) {
-                        folderPath = null;
-                        detailTitle = null;
-                      }
-                      toast('Playlist deleted');
-                      await loadBrowse();
-                      renderApp();
-                    },
-                  },
-                ],
-              ],
+              message: 'Songs stay in your library.',
+              confirmLabel: 'Delete Playlist',
+              onConfirm: async () => {
+                await api(`/api/v1/playlists/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                if (collectionId === id) {
+                  collectionId = null;
+                  collectionKind = null;
+                }
+                showToast('Playlist deleted');
+                await refreshCaches();
+                renderApp();
+              },
             });
           },
         },
@@ -822,144 +1359,161 @@ function openPlaylistManage(id: string, name: string): void {
   });
 }
 
-function openNameSheet(opts: {
-  title: string;
-  placeholder: string;
-  initial?: string;
-  confirmLabel: string;
-  onConfirm: (name: string) => Promise<void>;
-}): void {
-  showPanelSheet({
-    title: opts.title,
-    bodyHtml: `
-      <form class="sheet-form" id="nameForm">
-        <input id="nameInput" class="sheet-input" type="text" enterkeyhint="done"
-          placeholder="${esc(opts.placeholder)}" value="${esc(opts.initial ?? '')}" autocomplete="off" />
-        <button type="submit" class="sheet-primary">${esc(opts.confirmLabel)}</button>
-      </form>
-    `,
-    bind: (root, close) => {
-      const input = root.querySelector<HTMLInputElement>('#nameInput')!;
-      root.querySelector('#nameForm')?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const name = input.value.trim();
-        if (!name) {
-          input.focus();
-          return;
-        }
-        try {
-          await opts.onConfirm(name);
-          close();
-        } catch (err) {
-          toast(err instanceof Error ? err.message : 'Failed', true);
-        }
-      });
-      queueMicrotask(() => {
-        input.focus();
-        input.select();
-      });
-    },
+function openLabelManage(name: string): void {
+  openActionMenu({
+    title: name,
+    subtitle: 'Label',
+    groups: [
+      [
+        { label: 'Play', run: async () => playNow({ label: name }) },
+        {
+          label: 'Open',
+          run: async () => {
+            tab = 'collections';
+            collectionKind = 'label';
+            collectionId = name;
+            collectionTitle = name;
+            await loadCollectionTracks();
+            renderApp();
+          },
+        },
+      ],
+      [
+        {
+          label: 'Rename…',
+          run: async () => {
+            openNameDialog({
+              title: 'Rename Label',
+              initial: name,
+              confirmLabel: 'Save',
+              onConfirm: async (next) => {
+                await api(`/api/v1/labels/${encodeURIComponent(name)}`, {
+                  method: 'PATCH',
+                  body: { name: next },
+                });
+                if (collectionKind === 'label' && collectionId === name) {
+                  collectionId = next;
+                  collectionTitle = next;
+                }
+                showToast('Label renamed');
+                await refreshCaches();
+                renderApp();
+              },
+            });
+          },
+        },
+      ],
+      [
+        {
+          label: 'Delete Label…',
+          danger: true,
+          run: async () => {
+            openConfirmDialog({
+              title: `Delete “${name}”?`,
+              message: 'Removes this label from all songs. Songs stay in your library.',
+              confirmLabel: 'Delete Label',
+              onConfirm: async () => {
+                await api(`/api/v1/labels/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                if (collectionKind === 'label' && collectionId === name) {
+                  collectionId = null;
+                  collectionKind = null;
+                  collectionTitle = null;
+                }
+                showToast('Label deleted');
+                await refreshCaches();
+                renderApp();
+              },
+            });
+          },
+        },
+      ],
+    ],
   });
 }
 
-function closeSheet(): void {
-  document.getElementById('actionSheet')?.remove();
-}
-
-function showActionSheet(opts: {
-  title: string;
-  subtitle?: string;
-  groups: Array<Array<{ label: string; danger?: boolean; run: () => Promise<void> }>>;
-}): void {
-  closeSheet();
-  const wrap = document.createElement('div');
-  wrap.id = 'actionSheet';
-  wrap.className = 'sheet-backdrop';
-  const groupsHtml = opts.groups
-    .map((group, gi) => {
-      const buttons = group
-        .map(
-          (a, ai) =>
-            `<button type="button" class="sheet-btn ${a.danger ? 'danger' : ''}" data-g="${gi}" data-a="${ai}">${esc(a.label)}</button>`
-        )
-        .join('');
-      return `<div class="sheet-group">${buttons}</div>`;
-    })
-    .join('');
-  wrap.innerHTML = `
-    <div class="sheet-stack" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}">
-      <div class="sheet">
-        <p class="sheet-title">${esc(opts.title)}</p>
-        ${opts.subtitle ? `<p class="sheet-sub">${esc(opts.subtitle)}</p>` : ''}
-        ${groupsHtml}
-      </div>
-      <button type="button" class="sheet-cancel">Cancel</button>
+async function renderSettings(main: Element): Promise<void> {
+  main.innerHTML = `
+    <h1 class="large-title">Settings</h1>
+    <div class="segmented">
+      <button type="button" data-pane="sources" class="${settingsPane === 'sources' ? 'active' : ''}">Sources</button>
+      <button type="button" data-pane="output" class="${settingsPane === 'output' ? 'active' : ''}">Output</button>
     </div>
+    <div id="settingsBody"></div>
   `;
-  wrap.querySelectorAll<HTMLButtonElement>('[data-g]').forEach((btn) => {
+  main.querySelectorAll('[data-pane]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const g = Number(btn.dataset.g);
-      const a = Number(btn.dataset.a);
-      const action = opts.groups[g]?.[a];
-      if (!action) return;
-      closeSheet();
-      try {
-        await action.run();
-      } catch (err) {
-        toast(err instanceof Error ? err.message : String(err), true);
-      }
+      settingsPane = (btn as HTMLElement).dataset.pane as 'sources' | 'output';
+      await renderSettings(main);
     });
   });
-  wrap.querySelector('.sheet-cancel')?.addEventListener('click', () => closeSheet());
-  wrap.addEventListener('click', (e) => {
-    if (e.target === wrap) closeSheet();
-  });
-  document.body.appendChild(wrap);
+  const body = main.querySelector('#settingsBody')!;
+  if (settingsPane === 'sources') await renderMounts(body);
+  else await renderOutput(body);
 }
 
-function showPanelSheet(opts: {
-  title: string;
-  subtitle?: string;
-  bodyHtml: string;
-  bind: (root: HTMLElement, close: () => void) => void;
-}): void {
-  closeSheet();
-  const wrap = document.createElement('div');
-  wrap.id = 'actionSheet';
-  wrap.className = 'sheet-backdrop';
-  wrap.innerHTML = `
-    <div class="sheet-stack" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}">
-      <div class="sheet sheet-panel">
-        <div class="sheet-panel-head">
-          <p class="sheet-title">${esc(opts.title)}</p>
-          ${opts.subtitle ? `<p class="sheet-sub">${esc(opts.subtitle)}</p>` : ''}
-        </div>
-        <div class="sheet-panel-body">${opts.bodyHtml}</div>
-      </div>
-      <button type="button" class="sheet-cancel">Cancel</button>
-    </div>
-  `;
-  const close = () => closeSheet();
-  wrap.querySelector('.sheet-cancel')?.addEventListener('click', close);
-  wrap.addEventListener('click', (e) => {
-    if (e.target === wrap) close();
+function bindPlayerControls(root: Element): void {
+  root.querySelectorAll('[data-cmd]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      haptic('medium');
+      const command = (btn as HTMLElement).dataset.cmd!;
+      nowPlaying = await api('/api/v1/transport', { method: 'POST', body: { command } });
+      playing = nowPlaying?.state === 'playing';
+      localPos = Number(nowPlaying?.positionSecs ?? localPos);
+      updateNowChrome();
+      paintScrub();
+    });
   });
-  document.body.appendChild(wrap);
-  opts.bind(wrap.querySelector('.sheet-panel') as HTMLElement, close);
+
+  root.querySelectorAll<HTMLInputElement>('input[data-vol]').forEach((vol) => {
+    vol.addEventListener('input', async () => {
+      const level = Number(vol.value);
+      nowPlaying = await api('/api/v1/transport', {
+        method: 'POST',
+        body: { command: 'setVolume', level },
+      });
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement>('input[data-seek]').forEach((seek) => {
+    seek.addEventListener('pointerdown', () => {
+      scrubbing = true;
+    });
+    seek.addEventListener('input', () => {
+      localPos = Number(seek.value);
+      document.querySelectorAll('[data-time-pos]').forEach((el) => {
+        el.textContent = fmtTime(localPos);
+      });
+    });
+    const commitSeek = async () => {
+      const seconds = Number(seek.value ?? 0);
+      localPos = seconds;
+      scrubbing = false;
+      nowPlaying = await api('/api/v1/transport', {
+        method: 'POST',
+        body: { command: 'seek', seconds },
+      });
+      playing = nowPlaying?.state === 'playing';
+      localPos = Number(nowPlaying?.positionSecs ?? seconds);
+      paintScrub();
+    };
+    seek.addEventListener('pointerup', () => void commitSeek());
+    seek.addEventListener('change', () => void commitSeek());
+  });
 }
 
-function toast(message: string, error = false): void {
-  document.getElementById('toast')?.remove();
-  const el = document.createElement('div');
-  el.id = 'toast';
-  el.className = error ? 'toast error' : 'toast';
-  el.textContent = message;
-  document.body.appendChild(el);
-  window.setTimeout(() => el.classList.add('show'), 10);
-  window.setTimeout(() => {
-    el.classList.remove('show');
-    window.setTimeout(() => el.remove(), 280);
-  }, 2200);
+function fillArtwork(slot: Element | null, hash: string | null | undefined): void {
+  if (!slot || !hash) return;
+  const url = artworkUrl(hash);
+  if (url) {
+    slot.innerHTML = `<img class="cover-img" src="${escAttr(url)}" alt="" data-cover="${escAttr(hash)}" />`;
+    hydrateCovers(slot);
+  } else {
+    void artworkObjectUrl(hash)
+      .then((blobUrl) => {
+        slot.innerHTML = `<img src="${blobUrl}" alt="" />`;
+      })
+      .catch(() => undefined);
+  }
 }
 
 function renderNow(main: Element): void {
@@ -978,8 +1532,8 @@ function renderNow(main: Element): void {
         ${badge}
       </div>
       <div class="scrub">
-        <input id="seek" type="range" min="0" max="${Math.max(dur, 1)}" step="0.1" value="${localPos}" ${track ? '' : 'disabled'} />
-        <div class="time-row"><span>${fmtTime(localPos)}</span><span>${dur ? fmtTime(dur) : '--:--'}</span></div>
+        <input data-seek type="range" min="0" max="${Math.max(dur, 1)}" step="0.1" value="${localPos}" ${track ? '' : 'disabled'} />
+        <div class="time-row"><span data-time-pos>${fmtTime(localPos)}</span><span data-time-end>${dur ? fmtTime(dur) : '--:--'}</span></div>
       </div>
       <div class="transport">
         <button type="button" class="icon-btn" data-cmd="previous" ${track ? '' : 'disabled'}>${icons.prev}</button>
@@ -990,94 +1544,82 @@ function renderNow(main: Element): void {
       </div>
       <div class="volume-row">
         ${icons.volMin}
-        <input id="vol" type="range" min="0" max="1" step="0.01" value="${Number(nowPlaying?.volume ?? 0.8)}" />
+        <input data-vol type="range" min="0" max="1" step="0.01" value="${Number(nowPlaying?.volume ?? 0.8)}" />
         ${icons.volMax}
       </div>
     </section>
   `;
 
-  if (track?.artworkHash) {
-    void artworkObjectUrl(String(track.artworkHash))
-      .then((url) => {
-        const slot = main.querySelector('#artSlot');
-        if (slot) slot.innerHTML = `<img src="${url}" alt="" />`;
-      })
-      .catch(() => undefined);
+  fillArtwork(main.querySelector('#artSlot'), track?.artworkHash ? String(track.artworkHash) : null);
+  bindPlayerControls(main);
+}
+
+function paintHeaderPlayer(): void {
+  const el = document.querySelector('#headerPlayer');
+  if (!el) return;
+  const track = (nowPlaying?.track as Record<string, unknown> | null) ?? null;
+  if (!track) {
+    el.setAttribute('hidden', '');
+    el.innerHTML = '';
+    return;
   }
-
-  main.querySelectorAll('[data-cmd]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      haptic('medium');
-      const command = (btn as HTMLElement).dataset.cmd!;
-      nowPlaying = await api('/api/v1/transport', { method: 'POST', body: { command } });
-      playing = nowPlaying?.state === 'playing';
-      localPos = Number(nowPlaying?.positionSecs ?? localPos);
-      updateNowChrome();
-      paintScrub();
-    });
+  el.removeAttribute('hidden');
+  el.innerHTML = `
+    <button type="button" class="header-player-main" id="headerPlayerOpen" aria-label="Open Now Playing">
+      <div class="header-player-art" id="headerArt">${icons.musicSm}</div>
+      <span class="header-player-text">
+        <strong class="now-title">${esc(String(track.title ?? ''))}</strong>
+        <span class="now-artist">${esc(String(track.artist ?? ''))}</span>
+      </span>
+    </button>
+    <div class="header-player-actions">
+      <button type="button" data-cmd="previous" aria-label="Previous">${icons.prev}</button>
+      <button type="button" class="play-btn" data-cmd="toggle" aria-label="${playing ? 'Pause' : 'Play'}">
+        ${playing ? icons.pauseSm : icons.playSm}
+      </button>
+      <button type="button" data-cmd="next" aria-label="Next">${icons.next}</button>
+    </div>
+  `;
+  fillArtwork(
+    el.querySelector('#headerArt'),
+    track.artworkHash ? String(track.artworkHash) : null
+  );
+  el.querySelector('#headerPlayerOpen')?.addEventListener('click', () => {
+    haptic('light');
+    tab = 'now';
+    renderApp();
   });
-
-  main.querySelector('#vol')?.addEventListener('input', async (e) => {
-    const level = Number((e.target as HTMLInputElement).value);
-    nowPlaying = await api('/api/v1/transport', {
-      method: 'POST',
-      body: { command: 'setVolume', level },
-    });
-  });
-
-  const seek = main.querySelector<HTMLInputElement>('#seek');
-  seek?.addEventListener('pointerdown', () => {
-    scrubbing = true;
-  });
-  seek?.addEventListener('input', () => {
-    localPos = Number(seek.value);
-    const t0 = document.querySelector('.time-row span');
-    if (t0) t0.textContent = fmtTime(localPos);
-  });
-  const commitSeek = async () => {
-    const seconds = Number(seek?.value ?? 0);
-    localPos = seconds;
-    scrubbing = false;
-    nowPlaying = await api('/api/v1/transport', {
-      method: 'POST',
-      body: { command: 'seek', seconds },
-    });
-    playing = nowPlaying?.state === 'playing';
-    localPos = Number(nowPlaying?.positionSecs ?? seconds);
-    paintScrub();
-  };
-  seek?.addEventListener('pointerup', () => void commitSeek());
-  seek?.addEventListener('change', () => void commitSeek());
+  bindPlayerControls(el);
 }
 
 async function renderMounts(main: Element): Promise<void> {
   const mounts = (await api('/api/v1/mounts')) as Array<{ path: string; displayName: string }>;
   main.innerHTML = `
-    <h1 class="large-title">Folders</h1>
     <p class="group-label">On This Host</p>
     <div class="group" id="mountList"></div>
     <p class="group-label">Add Folder</p>
     <div class="group">
-      <form id="addMount" class="cell" style="display:flex; gap:8px;">
-        <input name="path" type="text" placeholder="/path/to/music" required autocomplete="off" />
+      <form id="addMount" class="cell form-cell">
+        <input name="path" type="text" placeholder="/path/to/music" required autocomplete="off"
+          autocapitalize="off" spellcheck="false" aria-label="Folder path" />
         <button class="btn-text" type="submit">Add</button>
       </form>
     </div>
     <div class="group">
       <button type="button" class="cell" id="rescan"><span>Update Library</span><span class="value">Rescan</span></button>
     </div>
-    <p class="footer-note">Paths must exist on the Mac or Linux host running Harbor.</p>
+    <p class="footer-note">Paths must exist on the host running Harbor.</p>
   `;
 
   const list = main.querySelector('#mountList')!;
   if (!mounts.length) {
-    list.innerHTML = `<div class="empty" style="padding:28px 16px"><strong>No Folders</strong>Add a music directory to get started.</div>`;
+    list.innerHTML = `<div class="empty compact"><strong>No Folders</strong>Add a music directory to get started.</div>`;
   }
   for (const m of mounts) {
     const row = document.createElement('div');
     row.className = 'cell';
     row.innerHTML = `
-      <div class="row-text" style="text-align:left">
+      <div class="row-text">
         <div class="row-title">${esc(m.displayName)}</div>
         <div class="row-sub">${esc(m.path)}</div>
       </div>
@@ -1097,7 +1639,7 @@ async function renderMounts(main: Element): Promise<void> {
       await api('/api/v1/mounts', { method: 'POST', body: { path: String(fd.get('path')) } });
       await renderMounts(main);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not add folder');
+      showToast(err instanceof Error ? err.message : 'Could not add folder', { error: true });
     }
   });
 
@@ -1127,7 +1669,6 @@ async function renderOutput(main: Element): Promise<void> {
   };
 
   main.innerHTML = `
-    <h1 class="large-title">Output</h1>
     <p class="group-label">Playback Destination</p>
     <div class="group">
       <div class="cell">
@@ -1160,16 +1701,17 @@ async function renderOutput(main: Element): Promise<void> {
           : ''
       }
     </div>
-    <div class="group" style="margin-top:20px">
-      <button type="button" class="cell" id="apply"><span style="color:var(--tint);font-weight:600">Apply Changes</span><span></span></button>
+    <div class="group">
+      <button type="button" class="cell cell-action" id="apply">Apply Changes</button>
     </div>
-    <p class="footer-note">Exclusive and DoP require an external DAC on Mac, or an ALSA hw: device on Linux.</p>
+    <p class="footer-note">Exclusive and DoP work best with backend native (Core Audio / ALSA / WASAPI).</p>
   `;
 
   main.querySelector('#apply')!.addEventListener('click', async () => {
     const deviceUid = (main.querySelector('#device') as HTMLSelectElement).value || null;
     const mode = (main.querySelector('#mode') as HTMLSelectElement).value;
     await api('/api/v1/output', { method: 'PUT', body: { deviceUid, mode } });
+    showToast('Output updated');
     await renderOutput(main);
   });
 }
@@ -1179,25 +1721,28 @@ function paintMini(): void {
   if (!mini) return;
   const track = (nowPlaying?.track as Record<string, unknown> | null) ?? null;
   if (!track) return;
+  const wide = mini.classList.contains('now-bar');
   mini.innerHTML = `
     <div class="mini-art" id="miniArt">${icons.musicSm}</div>
-    <button type="button" class="mini-text" id="miniOpen">
+    <button type="button" class="mini-text" id="miniOpen" aria-label="Open Now Playing">
       <strong>${esc(String(track.title ?? ''))}</strong>
       <span>${esc(String(track.artist ?? ''))}</span>
     </button>
     <div class="mini-actions">
-      <button type="button" id="miniToggle" aria-label="Play/Pause">${playing ? icons.pauseSm : icons.playSm}</button>
+      ${wide ? `<button type="button" id="miniPrev" aria-label="Previous">${icons.prev}</button>` : ''}
+      <button type="button" id="miniToggle" aria-label="${playing ? 'Pause' : 'Play'}">${playing ? icons.pauseSm : icons.playSm}</button>
       <button type="button" id="miniNext" aria-label="Next">${icons.next}</button>
     </div>
   `;
 
   if (track.artworkHash) {
-    void artworkObjectUrl(String(track.artworkHash))
-      .then((url) => {
-        const slot = mini.querySelector('#miniArt');
-        if (slot) slot.innerHTML = `<img src="${url}" alt="" />`;
-      })
-      .catch(() => undefined);
+    const hash = String(track.artworkHash);
+    const slot = mini.querySelector('#miniArt');
+    const url = artworkUrl(hash);
+    if (slot && url) {
+      slot.innerHTML = `<img class="cover-img" src="${escAttr(url)}" alt="" data-cover="${escAttr(hash)}" />`;
+      hydrateCovers(slot);
+    }
   }
 
   mini.querySelector('#miniOpen')?.addEventListener('click', () => {
@@ -1212,13 +1757,18 @@ function paintMini(): void {
     playing = nowPlaying?.state === 'playing';
     updateChrome();
   });
-  mini.querySelector('#miniNext')?.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    haptic('light');
-    nowPlaying = await api('/api/v1/transport', { method: 'POST', body: { command: 'next' } });
-    playing = nowPlaying?.state === 'playing';
-    updateChrome();
-  });
+  for (const [sel, command] of [
+    ['#miniNext', 'next'],
+    ['#miniPrev', 'previous'],
+  ] as const) {
+    mini.querySelector(sel)?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      haptic('light');
+      nowPlaying = await api('/api/v1/transport', { method: 'POST', body: { command } });
+      playing = nowPlaying?.state === 'playing';
+      updateChrome();
+    });
+  }
 }
 
 function fmtTime(secs: number): string {
@@ -1245,5 +1795,12 @@ if ('serviceWorker' in navigator) {
     void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
   });
 }
+
+window.addEventListener('resize', () => {
+  const shell = document.querySelector('.app-shell');
+  if (!shell) return;
+  const wantWide = isDesktopUi();
+  if (shell.classList.contains('wide') !== wantWide) renderApp();
+});
 
 void boot();

@@ -371,8 +371,20 @@ export class Catalogue {
   browse(scope: BrowseScope, roots: string[], folderPath?: string | null) {
     switch (scope) {
       case 'albums':
+        if (folderPath) {
+          return this.albumTracks(folderPath).map((t) => ({
+            ...t,
+            cataloguePath: t.cataloguePath,
+          }));
+        }
         return this.albums();
       case 'artists':
+        if (folderPath) {
+          return this.artistTracks(folderPath).map((t) => ({
+            ...t,
+            cataloguePath: t.cataloguePath,
+          }));
+        }
         return this.artists();
       case 'folders':
         return this.browseFolder(roots, folderPath);
@@ -523,6 +535,36 @@ export class Catalogue {
       'DELETE FROM labels WHERE catalogue_path = ? AND label = ?'
     );
     for (const p of paths) stmt.run(p, name);
+  }
+
+  /** Remove a label from every track. Returns how many rows were deleted. */
+  deleteLabel(label: string): number {
+    const name = label.trim();
+    if (!name) return 0;
+    const r = this.db.prepare('DELETE FROM labels WHERE label = ?').run(name);
+    return Number(r.changes ?? 0);
+  }
+
+  renameLabel(from: string, to: string): number {
+    const prev = from.trim();
+    const next = to.trim();
+    if (!prev || !next) throw new Error('name required');
+    if (prev === next) return 0;
+    // Move associations; ignore conflicts already tagged with the new name.
+    const rows = this.db
+      .prepare('SELECT catalogue_path FROM labels WHERE label = ?')
+      .all(prev) as Array<{ catalogue_path: string }>;
+    const insert = this.db.prepare(
+      'INSERT OR IGNORE INTO labels (catalogue_path, label) VALUES (?, ?)'
+    );
+    const del = this.db.prepare('DELETE FROM labels WHERE catalogue_path = ? AND label = ?');
+    let n = 0;
+    for (const row of rows) {
+      insert.run(row.catalogue_path, next);
+      del.run(row.catalogue_path, prev);
+      n += 1;
+    }
+    return n;
   }
 
   /** Expand album / artist / folder / paths into catalogue paths (like Mac TrackMenuItems). */
