@@ -38,12 +38,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install ALSA (Linux)
+      # juceaide (built during JUCE FetchContent) needs X11/freetype even for
+      # headless audio-only targets — see JUCE docs/Linux Dependencies.md
+      - name: Install Linux build deps (ALSA + JUCE)
         if: matrix.apt
         run: |
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            build-essential cmake pkg-config libasound2-dev
+            build-essential cmake ninja-build pkg-config \
+            libasound2-dev \
+            libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev
 
       - uses: actions/setup-node@v4
         with:
