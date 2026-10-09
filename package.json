@@ -1,7 +1,7 @@
 {
   "name": "audio-harbor-headless",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Headless audiophile media host — JUCE engine + TypeScript host",
   "workspaces": [
     "host",
