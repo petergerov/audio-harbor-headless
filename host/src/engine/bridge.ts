@@ -1,6 +1,13 @@
 import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
-import type { AudioBackendInfo, EngineDevice, EngineState, OutputMode } from '@harbor/engine';
+import type {
+  AudioBackendInfo,
+  EngineDevice,
+  EngineState,
+  NetStreamInfo,
+  NetStreamOptions,
+  OutputMode,
+} from '@harbor/engine';
 import type { AudioBackend, OutputDevice, OutputStatus } from '../types.js';
 
 const require = createRequire(import.meta.url);
@@ -24,6 +31,9 @@ type NativeEngine = {
   dstBegin?(sampleRateHz: number, channels: number): unknown;
   dstDecodeFrame?(session: unknown, frame: Buffer): Buffer;
   dstEnd?(session: unknown): void;
+  netStreamOpen?(path: string, options?: NetStreamOptions): Promise<NetStreamInfo>;
+  netStreamRead?(handle: unknown, startFrame: number, frameCount: number): Promise<Buffer>;
+  netStreamClose?(handle: unknown): void;
 };
 
 let native: NativeEngine | null = null;
@@ -126,12 +136,39 @@ export function engineDstEnd(session: unknown): void {
   loadNative()?.dstEnd?.(session);
 }
 
+/** PCM for a network player (DSD converted, other formats decoded), read by frame. */
+export async function engineNetStreamOpen(path: string, options: NetStreamOptions): Promise<NetStreamInfo> {
+  const eng = loadNative();
+  if (!eng?.netStreamOpen) throw new Error(loadError ?? 'Engine cannot stream to network players');
+  return eng.netStreamOpen(path, options);
+}
+
+export async function engineNetStreamRead(
+  handle: unknown,
+  startFrame: number,
+  frameCount: number
+): Promise<Buffer> {
+  const eng = loadNative();
+  if (!eng?.netStreamRead) throw new Error('Engine cannot stream to network players');
+  return eng.netStreamRead(handle, startFrame, frameCount);
+}
+
+export function engineNetStreamClose(handle: unknown): void {
+  loadNative()?.netStreamClose?.(handle);
+}
+
+/** What the engine knows; the playback service adds the pick and the network side. */
+export type EngineOutputStatus = Omit<
+  OutputStatus,
+  'selectedName' | 'selectedKind' | 'selectedAvailable' | 'networkStream' | 'discoveryError'
+>;
+
 export function buildOutputStatus(
   selectedUid: string | null,
   requestedMode: OutputMode,
   networkDevices: OutputDevice[] = [],
   requestedBackend: AudioBackend = 'auto'
-): OutputStatus {
+): EngineOutputStatus {
   const local = listLocalDevices();
   const devices = [...local, ...networkDevices];
   const st = engineGetState();

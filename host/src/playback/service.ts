@@ -19,18 +19,34 @@ import {
   resolveSacdPlaybackPath,
   SACD_MARKER,
 } from '../library/sacd.js';
-import type { DiscoveredRenderer } from '../upnp/rendererOutput.js';
-import { pauseOnRenderer, playOnRenderer, prepareNextOnRenderer } from '../upnp/rendererOutput.js';
+import { needsTranscode } from '../upnp/networkMedia.js';
+import { LoadSuperseded, type NetworkPlayer } from '../upnp/networkPlayer.js';
+import { isNetworkUid, rendererUid, type RendererBrowser, type UpnpRenderer } from '../upnp/ssdp.js';
 import type {
   AudioBackend,
   HarborConfig,
+  NetworkStreamQuality,
   NowPlayingSnapshot,
   OutputDevice,
   OutputMode,
+  OutputStatus,
   QueueSnapshot,
   RepeatMode,
   Track,
 } from '../types.js';
+
+function rendererDevice(r: UpnpRenderer): OutputDevice {
+  return {
+    uid: rendererUid(r.udn),
+    name: r.name,
+    kind: 'network',
+    supportsExclusive: false,
+    supportsDop: false,
+    isExternal: false,
+    manufacturer: r.manufacturer,
+    model: r.modelName,
+  };
+}
 
 export class PlaybackService extends EventEmitter {
   private queue: Track[] = [];
@@ -38,63 +54,99 @@ export class PlaybackService extends EventEmitter {
   private shuffle = false;
   private repeat: RepeatMode = 'off';
   private current: Track | null = null;
-  private networkDevices: DiscoveredRenderer[] = [];
+  /** Bumped by every load; an older load that finishes late is dropped. */
+  private loadSeq = 0;
 
   constructor(
     private catalogue: Catalogue,
     private getConfig: () => HarborConfig,
-    private saveConfig: (cfg: HarborConfig) => void
+    private saveConfig: (cfg: HarborConfig) => void,
+    private browser: RendererBrowser,
+    private network: NetworkPlayer
   ) {
     super();
     engineEvents.on('state', () => this.emitUpdate());
     engineEvents.on('ended', () => {
-      void this.next();
+      if (!this.usingNetwork()) void this.next();
+    });
+    network.on('change', () => this.emitNowPlaying());
+    network.on('trackEnded', (track: Track) => void this.networkTrackEnded(track));
+    browser.on('change', () => {
+      this.rememberDeviceName();
+      this.emitNowPlaying();
     });
   }
 
-  setNetworkDevices(devices: DiscoveredRenderer[]): void {
-    this.networkDevices = devices;
-    this.emitUpdate();
+  /** The stored pick is a network player (even while it is off). */
+  private usingNetwork(): boolean {
+    return isNetworkUid(this.getConfig().output.device_uid);
   }
 
-  private isNetworkOutput(uid: string | null | undefined): boolean {
-    return Boolean(uid && uid.startsWith('upnp:'));
-  }
-
-  private selectedRenderer(): DiscoveredRenderer | null {
-    const uid = this.getConfig().output.device_uid ?? null;
-    if (!uid) return null;
-    return this.networkDevices.find((d) => d.uid === uid) ?? null;
+  outputStatus(): OutputStatus {
+    const cfg = this.getConfig();
+    const uid = cfg.output.device_uid ?? null;
+    const network = isNetworkUid(uid);
+    const base = buildOutputStatus(
+      uid,
+      cfg.output.mode,
+      this.browser.renderers.map(rendererDevice),
+      cfg.output.backend
+    );
+    const selected = uid ? (base.devices.find((d) => d.uid === uid) ?? null) : null;
+    return {
+      ...base,
+      selectedName: selected?.name ?? cfg.output.device_name ?? null,
+      selectedKind: uid ? (network ? 'network' : 'local') : null,
+      selectedAvailable: uid ? Boolean(selected || (network && this.browser.find(uid))) : true,
+      // Exclusive and DoP need a DAC on this host.
+      effectiveMode: network ? 'shared' : base.effectiveMode,
+      volume: network ? this.network.volume : base.volume,
+      conversionBadge: network ? (this.current ? this.network.pathLabel : null) : base.conversionBadge,
+      networkStream: cfg.output.network_stream,
+      discoveryError: this.browser.lastError,
+    };
   }
 
   snapshot(): NowPlayingSnapshot {
-    const cfg = this.getConfig();
+    const output = this.outputStatus();
+    if (this.usingNetwork()) {
+      const n = this.network;
+      const hasTrack = Boolean(this.current);
+      return {
+        state: hasTrack ? n.state : 'idle',
+        track: this.current,
+        positionSecs: hasTrack ? n.positionNow() : 0,
+        durationSecs: n.durationSecs || this.current?.durationSecs || null,
+        shuffle: this.shuffle,
+        repeat: this.repeat,
+        volume: n.volume,
+        output,
+        conversionBadge: hasTrack ? n.pathLabel : null,
+        error: n.error,
+      };
+    }
     const eng = engineGetState();
-    const net = this.networkDevices as OutputDevice[];
-    const output = buildOutputStatus(
-      cfg.output.device_uid ?? null,
-      cfg.output.mode,
-      net,
-      cfg.output.backend
-    );
-    const network = this.isNetworkOutput(cfg.output.device_uid);
     return {
-      state: network ? (this.current ? 'playing' : 'idle') : (eng?.state ?? 'idle'),
+      state: eng?.state ?? 'idle',
       track: this.current,
       positionSecs: eng?.positionSecs ?? 0,
       durationSecs: eng?.durationSecs ?? this.current?.durationSecs ?? null,
       shuffle: this.shuffle,
       repeat: this.repeat,
       volume: eng?.volume ?? output.volume,
-      output: network
-        ? { ...output, effectiveMode: 'shared', conversionBadge: 'Network' }
-        : output,
-      conversionBadge: network ? 'Network' : (eng?.conversionBadge ?? output.conversionBadge),
+      output,
+      conversionBadge: eng?.conversionBadge ?? output.conversionBadge,
+      error: eng?.error ?? null,
     };
   }
 
   queueSnapshot(): QueueSnapshot {
     return { tracks: this.queue, currentIndex: this.index };
+  }
+
+  /** One M-SEARCH now — when the output picker opens. */
+  discoverNetworkPlayers(): void {
+    this.browser.searchNow();
   }
 
   async playTrack(cataloguePath: string): Promise<void> {
@@ -138,32 +190,27 @@ export class PlaybackService extends EventEmitter {
   }
 
   async transport(cmd: TransportCommand): Promise<void> {
+    const net = this.usingNetwork();
     switch (cmd.type) {
-      case 'play': {
-        const r = this.selectedRenderer();
-        if (r && this.current) await playOnRenderer(r, this.current.cataloguePath);
-        else enginePlay();
+      case 'play':
+        await this.resume();
         break;
-      }
-      case 'pause': {
-        const r = this.selectedRenderer();
-        if (r) await pauseOnRenderer(r);
+      case 'pause':
+        if (net) this.network.pause();
         else enginePause();
         break;
-      }
-      case 'toggle': {
-        const r = this.selectedRenderer();
-        if (r && this.current) {
-          await pauseOnRenderer(r);
+      case 'toggle':
+        if (this.isPlaying()) {
+          if (net) this.network.pause();
+          else enginePause();
         } else {
-          const st = engineGetState()?.state;
-          if (st === 'playing') enginePause();
-          else enginePlay();
+          await this.resume();
         }
         break;
-      }
       case 'stop':
+        this.loadSeq += 1;
         engineStop();
+        this.network.stop();
         this.current = null;
         break;
       case 'next':
@@ -173,70 +220,186 @@ export class PlaybackService extends EventEmitter {
         await this.previous();
         break;
       case 'seek':
-        engineSeek(cmd.seconds);
+        if (net) this.network.seek(cmd.seconds);
+        else engineSeek(cmd.seconds);
         break;
       case 'setVolume':
-        engineSetVolume(cmd.level);
+        if (net) this.network.setVolume(cmd.level);
+        else engineSetVolume(cmd.level);
         break;
       case 'setShuffle':
         this.shuffle = cmd.enabled;
         break;
       case 'setRepeat':
         this.repeat = cmd.mode;
+        // The renderer may hold a different next track now.
+        void this.prepareFollowingTrack();
         break;
     }
     this.emitUpdate();
   }
 
-  setOutput(deviceUid: string | null, mode: OutputMode, backend?: AudioBackend): void {
+  /**
+   * Picks the output (`upnp:<UDN>` = network player) and how to play to it. Moving between
+   * this host and a network player carries the current track over at the same position.
+   */
+  async setOutput(
+    deviceUid: string | null,
+    mode: OutputMode,
+    backend?: AudioBackend,
+    networkStream?: NetworkStreamQuality
+  ): Promise<void> {
     const cfg = this.getConfig();
+    const previousUid = cfg.output.device_uid ?? null;
+    const previousStream = cfg.output.network_stream;
+    // Read from the output that plays now, before the pick changes.
+    const was = { at: this.positionNow(), playing: this.isPlaying() };
     cfg.output.device_uid = deviceUid;
     cfg.output.mode = mode;
     if (backend) cfg.output.backend = backend;
+    if (networkStream) cfg.output.network_stream = networkStream;
+    if (deviceUid !== previousUid) cfg.output.device_name = this.deviceName(deviceUid);
     this.saveConfig(cfg);
-    applyOutput(deviceUid, mode, cfg.output.dsd_pcm_level, cfg.output.backend);
+
+    const toNetwork = isNetworkUid(deviceUid);
+    const moves = deviceUid !== previousUid && (toNetwork || isNetworkUid(previousUid));
+    // Wi‑Fi vs Full only changes what DSD becomes.
+    const restream =
+      toNetwork &&
+      deviceUid === previousUid &&
+      cfg.output.network_stream !== previousStream &&
+      this.current !== null &&
+      needsTranscode(this.current);
+    const carry = this.current && (moves || restream) ? { track: this.current, ...was } : null;
+
+    if (toNetwork) {
+      this.loadSeq += 1;
+      engineStop();
+    }
+    applyOutput(toNetwork ? null : deviceUid, mode, cfg.output.dsd_pcm_level, cfg.output.backend);
+    this.network.setStreamQuality(cfg.output.network_stream);
+    this.network.setOutputDevice(toNetwork ? deviceUid : null);
+    if (carry) {
+      await this.loadAndPlay(carry.track, carry.at, carry.playing);
+    }
     this.emitUpdate();
   }
 
   applyConfigOutput(): void {
     const cfg = this.getConfig();
-    applyOutput(
-      cfg.output.device_uid ?? null,
-      cfg.output.mode,
-      cfg.output.dsd_pcm_level,
-      cfg.output.backend
-    );
+    const uid = cfg.output.device_uid ?? null;
+    applyOutput(isNetworkUid(uid) ? null : uid, cfg.output.mode, cfg.output.dsd_pcm_level, cfg.output.backend);
+    this.network.setStreamQuality(cfg.output.network_stream);
+    this.network.setDsdLevel(cfg.output.dsd_pcm_level);
+    this.network.setOutputDevice(uid);
   }
 
-  private async loadAndPlay(track: Track): Promise<void> {
+  private isPlaying(): boolean {
+    if (this.usingNetwork()) return this.network.state === 'playing';
+    return engineGetState()?.state === 'playing';
+  }
+
+  private positionNow(): number {
+    if (this.usingNetwork()) return this.network.positionNow();
+    return engineGetState()?.positionSecs ?? 0;
+  }
+
+  private async resume(): Promise<void> {
+    if (!this.usingNetwork()) {
+      enginePlay();
+      return;
+    }
+    if (!this.current) return;
+    const n = this.network;
+    // A failed load, or a player that left and came back, holds nothing — load the track
+    // again at the same place.
+    if (n.state === 'idle' || n.state === 'failed' || n.track?.cataloguePath !== this.current.cataloguePath) {
+      const at = n.track?.cataloguePath === this.current.cataloguePath ? n.positionNow() : 0;
+      await this.loadAndPlay(this.current, at);
+      return;
+    }
+    void n.play();
+  }
+
+  private async loadAndPlay(track: Track, at = 0, autoplay = true): Promise<void> {
+    const seq = ++this.loadSeq;
     this.current = track;
     this.emitUpdate();
-    const renderer = this.selectedRenderer();
-    if (renderer) {
-      engineStop();
-      await playOnRenderer(renderer, track.cataloguePath);
-      await this.prepareNetworkNext(renderer);
+
+    if (this.usingNetwork()) {
+      try {
+        await this.network.load(track);
+      } catch (err) {
+        if (!(err instanceof LoadSuperseded) && seq === this.loadSeq) this.emitUpdate();
+        return;
+      }
+      if (seq !== this.loadSeq) return;
+      if (at > 1) this.network.seek(at);
+      if (autoplay) {
+        // Play may take long (some players buffer before they answer); arm the next track after.
+        void this.network.play().then(() => {
+          if (seq === this.loadSeq) void this.prepareFollowingTrack();
+        });
+      } else {
+        void this.prepareFollowingTrack();
+      }
       this.emitUpdate();
       prefetchSacdNeighbors(track.cataloguePath, 2);
       return;
     }
+
     const playPath = track.cataloguePath.includes(SACD_MARKER)
-      ? resolveSacdPlaybackPath(track.cataloguePath)
+      ? await resolveSacdPlaybackPath(track.cataloguePath)
       : track.cataloguePath;
+    if (seq !== this.loadSeq) return;
     await engineLoad(playPath);
-    enginePlay();
+    if (seq !== this.loadSeq) return;
+    if (at > 1) engineSeek(at);
+    if (autoplay) enginePlay();
     this.emitUpdate();
     // Demux next tracks while the current one plays.
     prefetchSacdNeighbors(track.cataloguePath, 2);
   }
 
-  private async prepareNetworkNext(
-    renderer: NonNullable<ReturnType<PlaybackService['selectedRenderer']>>
-  ): Promise<void> {
-    if (this.index == null) return;
-    const next = this.queue[this.index + 1];
-    if (!next) return;
-    await prepareNextOnRenderer(renderer, next.cataloguePath);
+  /** Arms SetNextAVTransportURI for the track that follows (network output only). */
+  private async prepareFollowingTrack(): Promise<void> {
+    if (!this.usingNetwork() || !this.current) return;
+    const index = this.indexAfterEnd();
+    await this.network.prepareNext(index === null ? null : this.queue[index]!);
+  }
+
+  /** Where the queue goes when the current track plays out; null at the end. */
+  private indexAfterEnd(): number | null {
+    if (this.index == null || !this.queue.length) return null;
+    if (this.repeat === 'one') return this.index;
+    const next = this.index + 1;
+    if (next < this.queue.length) return next;
+    return this.repeat === 'all' ? 0 : null;
+  }
+
+  private async networkTrackEnded(ended: Track): Promise<void> {
+    // A late end signal from a track we already left must not skip the current one.
+    if (ended.cataloguePath !== this.current?.cataloguePath) return;
+    const index = this.indexAfterEnd();
+    if (index === null) {
+      this.loadSeq += 1;
+      this.network.stop();
+      this.current = null;
+      this.emitUpdate();
+      return;
+    }
+    const next = this.queue[index]!;
+    this.index = index;
+    // Gapless: the renderer already plays the track SetNext armed — take it without a reload.
+    const adopted = this.network.adoptPreparedNext();
+    if (adopted && adopted.cataloguePath === next.cataloguePath) {
+      this.current = adopted;
+      this.emitUpdate();
+      void this.prepareFollowingTrack();
+      prefetchSacdNeighbors(next.cataloguePath, 2);
+      return;
+    }
+    await this.loadAndPlay(next);
   }
 
   private async next(): Promise<void> {
@@ -249,7 +412,9 @@ export class PlaybackService extends EventEmitter {
     if (next >= this.queue.length) {
       if (this.repeat === 'all') next = 0;
       else {
+        this.loadSeq += 1;
         engineStop();
+        this.network.stop();
         this.current = null;
         this.emitUpdate();
         return;
@@ -261,15 +426,35 @@ export class PlaybackService extends EventEmitter {
 
   private async previous(): Promise<void> {
     if (this.index == null || !this.queue.length) return;
-    const eng = engineGetState();
-    if ((eng?.positionSecs ?? 0) > 3) {
-      engineSeek(0);
+    if (this.positionNow() > 3) {
+      if (this.usingNetwork()) this.network.seek(0);
+      else engineSeek(0);
       this.emitUpdate();
       return;
     }
     const prev = Math.max(0, this.index - 1);
     this.index = prev;
     await this.loadAndPlay(this.queue[prev]!);
+  }
+
+  private deviceName(uid: string | null): string | null {
+    if (!uid) return null;
+    return this.outputStatus().devices.find((d) => d.uid === uid)?.name ?? null;
+  }
+
+  /** Keeps the pick's name, so it can be shown while the player is off. */
+  private rememberDeviceName(): void {
+    const cfg = this.getConfig();
+    const uid = cfg.output.device_uid ?? null;
+    if (!isNetworkUid(uid)) return;
+    const name = this.browser.find(uid)?.name;
+    if (!name || name === cfg.output.device_name) return;
+    cfg.output.device_name = name;
+    this.saveConfig(cfg);
+  }
+
+  private emitNowPlaying(): void {
+    this.emit('nowPlaying', this.snapshot());
   }
 
   private emitUpdate(): void {

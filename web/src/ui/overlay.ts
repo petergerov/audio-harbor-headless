@@ -1,5 +1,8 @@
 /** Responsive overlays: bottom sheet on mobile, centered modal on desktop. */
 
+import { isDesktopUi } from '../core/device';
+import { escapeHtml } from '../core/html';
+
 export type MenuItem = {
   label: string;
   danger?: boolean;
@@ -7,13 +10,7 @@ export type MenuItem = {
   run: () => void | Promise<void>;
 };
 
-const DESKTOP_MQ = '(min-width: 700px)';
-
 let lastFocus: HTMLElement | null = null;
-
-export function isDesktopUi(): boolean {
-  return window.matchMedia(DESKTOP_MQ).matches;
-}
 
 export function closeOverlay(): void {
   const el = document.getElementById('ah-overlay');
@@ -315,12 +312,4 @@ export function showToast(
     el.classList.remove('show');
     window.setTimeout(() => el.remove(), 280);
   }, opts?.undo ? 5000 : 2600);
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

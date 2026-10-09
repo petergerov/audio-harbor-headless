@@ -834,6 +834,16 @@ button.cell:active {
   padding: 0 16px 24px;
 }
 
+.cell[hidden],
+.footer-note[hidden] {
+  display: none;
+}
+
+.cell select:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 /* —— Collection detail —— */
 .collection-hero {
   display: grid;
@@ -1023,6 +1033,23 @@ button.cell:active {
   color: var(--secondary);
   font-size: 12px;
   font-weight: 600;
+}
+
+/* The path badge stays in the markup to follow playback live; empty, it takes no space. */
+.now-badge:empty,
+.now-bar-badge:empty {
+  display: none;
+}
+
+.now-error {
+  margin: 10px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.now-error:empty {
+  display: none;
 }
 
 .scrub {

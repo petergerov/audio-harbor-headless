@@ -1,6 +1,6 @@
 # Audio Harbor Headless
 
-GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Also acts as a DLNA music server.
+GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Plays to UPnP / DLNA network players like to a DAC, and also acts as a DLNA music server.
 
 **Product page:** [docs/index.html](docs/index.html) — same brand design as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs).
 
@@ -34,7 +34,7 @@ npm run build:web
 npm run serve          # or: npm run harbor -- serve
 ```
 
-Open the printed LAN URL on your iPhone (or scan the QR in the terminal).
+Open `http://audioharbor.local:8787` on your iPhone (or scan the QR in the terminal; the IP URL printed next to it works too).
 
 ```bash
 npm run harbor -- pair     # show / rotate pairing PIN
@@ -44,6 +44,14 @@ npm run harbor -- rescan   # re-index library roots
 Config lives at `~/.audio-harbor-headless/config.toml` (created from `config.example.toml` on first run).
 
 Enable DLNA sharing with `sharing.enabled = true` (restart `harbor serve`). Bonjour remote (`_audioharbor._tcp`) starts when `remote.bonjour_enabled = true`.
+
+### Name on the network
+
+The host answers to **`audioharbor.local`** over mDNS / Bonjour, so the remote is at `http://audioharbor.local:8787`. The QR code uses that name, so an app saved to the iPhone home screen keeps working when the host gets a new IP. The web remote (`_http._tcp`) and the Bonjour remote are announced on it, IPv4 only.
+
+- When another device already answers to the name, the host takes `audioharbor-2.local` (then `-3` …) and says so at start.
+- Change it or turn it off with `server.local_hostname` (`""` = off).
+- For the bare name `audioharbor` through the router's DNS (e.g. `audioharbor.fritz.box`), give the machine that hostname — on a Raspberry Pi `sudo hostnamectl set-hostname audioharbor`.
 
 ### Prebuilt packages (ready to start)
 
@@ -100,10 +108,41 @@ Same idea as Audio Harbor: playlists and labels are sets of catalogue paths.
 - **Exclusive** — strongest with `backend = "native"` (Core Audio hog / ALSA `hw:` / WASAPI Exclusive)
 - **DoP** — native DoP path; on JUCE, DSD→PCM with an honest badge
 
+### Network players (UPnP / DLNA)
+
+A UPnP / DLNA renderer on the home network — a streamer, an amp such as a Devialet Expert, some TVs and soundbars — is an output like a DAC. The host stays the player with library and queue; the renderer pulls the audio over HTTP. Same behaviour as [Audio Harbor](https://github.com/petergerov/audio-harbor/blob/main/docs/UPNP.md).
+
+- **Pick it** under Settings → Output → Device (listed under *Network Players*, marked `Network`), or `PUT /api/v1/output` with `{ "deviceUid": "upnp:uuid:…" }`. The host searches all the time (SSDP M-SEARCH every 30 s, NOTIFY alive / byebye); a new player shows up within seconds. The pick is stored by UDN and comes back after the player's power cycle; while it is off, its name stays in the list.
+- **What is sent:**
+
+  | File | Goes to the player as |
+  |---|---|
+  | FLAC, WAV, AIFF, ALAC / AAC (M4A), MP3 the player lists (`GetProtocolInfo`) | the file itself, untouched |
+  | a format the player does not list | WAV at the file's rate (16-bit sources stay 16-bit, else 24-bit) |
+  | DSF, DFF, SACD ISO (also DST) | PCM WAV, ~88.2 kHz / 24-bit, with `dsd_pcm_level` applied |
+
+  WAV is made on the fly with a computed `Content-Length`, so `Range` requests map to frames and seeking works.
+- **Network stream** (`output.network_stream`, shown under Output once a network player is picked): `full` sends the best the player takes; `wifi` turns only DSD / SACD into 44.1 kHz / 16-bit (about 1.4 instead of 4.2 Mbit/s). Use it when DSD drops out over Wi‑Fi.
+- **Gapless** with `SetNextAVTransportURI` when the player has it; otherwise tracks change with a short gap.
+- **Volume** from the web remote and the iPhone remote sets the player's volume (RenderingControl); a knob on the device shows up in the remote.
+- Exclusive and DoP are for DACs on this host and are greyed out for a network player. Moving between this host and a network player carries the current track over at the same position.
+- **Player gone** (off, Wi‑Fi drop): playback stops with a message; once it is back, Play loads the track again where it was.
+- The host is kept from idle sleep while a player streams (`caffeinate` on macOS, `systemd-inhibit` on Linux).
+- **Firewall:** players connect *in* to `network.media_port` (default 49153, any free port when taken). On macOS 15+ allow **Local Network** access for the terminal / Node when asked, or players are not found.
+
+```toml
+[output]
+device_uid = "upnp:uuid:…"   # a network player
+network_stream = "full"      # full | wifi
+
+[network]
+media_port = 49153
+```
+
 ## Layout
 
 ```
-host/     TypeScript daemon (API, library, DLNA, Bonjour)
+host/     TypeScript daemon (API, library, DLNA server, network players, Bonjour)
 engine/   C++ + N-API — JucePlayer + Mac/Linux/Win native (runtime switch)
 web/      Mobile web remote
 ```

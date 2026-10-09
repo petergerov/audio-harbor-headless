@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import TOML from '@iarna/toml';
-import type { AudioBackend, HarborConfig, OutputMode } from './types.js';
+import type { AudioBackend, HarborConfig, NetworkStreamQuality, OutputMode } from './types.js';
 import { configPath, exampleConfigPath } from './paths.js';
 
 const DEFAULTS: HarborConfig = {
@@ -8,13 +8,19 @@ const DEFAULTS: HarborConfig = {
     host: '0.0.0.0',
     port: 8787,
     name: 'Audio Harbor',
+    local_hostname: 'audioharbor',
   },
   library: { roots: [] },
   output: {
     device_uid: null,
+    device_name: null,
     mode: 'shared',
     dsd_pcm_level: 3,
     backend: 'auto',
+    network_stream: 'full',
+  },
+  network: {
+    media_port: 49153,
   },
   sharing: {
     enabled: false,
@@ -42,6 +48,15 @@ function normalizeBackend(backend: unknown): AudioBackend {
   return 'auto';
 }
 
+export function normalizeNetworkStream(value: unknown): NetworkStreamQuality {
+  return value === 'wifi' ? 'wifi' : 'full';
+}
+
+function normalizePort(value: unknown, fallback: number): number {
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 0 && port < 65536 ? port : fallback;
+}
+
 export function loadConfig(): HarborConfig {
   const dest = configPath();
   if (!fs.existsSync(dest)) {
@@ -59,12 +74,14 @@ export function loadConfig(): HarborConfig {
   const output = (parsed.output ?? {}) as Record<string, unknown>;
   const sharing = (parsed.sharing ?? {}) as Record<string, unknown>;
   const remote = (parsed.remote ?? {}) as Record<string, unknown>;
+  const network = (parsed.network ?? {}) as Record<string, unknown>;
 
   return {
     server: {
       host: String(server.host ?? DEFAULTS.server.host),
       port: Number(server.port ?? DEFAULTS.server.port),
       name: String(server.name ?? DEFAULTS.server.name),
+      local_hostname: String(server.local_hostname ?? DEFAULTS.server.local_hostname),
     },
     library: {
       roots: Array.isArray(library.roots)
@@ -73,9 +90,14 @@ export function loadConfig(): HarborConfig {
     },
     output: {
       device_uid: output.device_uid ? String(output.device_uid) : null,
+      device_name: output.device_name ? String(output.device_name) : null,
       mode: normalizeMode(output.mode),
       dsd_pcm_level: normalizeLevel(output.dsd_pcm_level),
       backend: normalizeBackend(output.backend),
+      network_stream: normalizeNetworkStream(output.network_stream),
+    },
+    network: {
+      media_port: normalizePort(network.media_port, DEFAULTS.network.media_port),
     },
     sharing: {
       enabled: Boolean(sharing.enabled ?? DEFAULTS.sharing.enabled),
@@ -95,10 +117,13 @@ export function saveConfig(cfg: HarborConfig): void {
     library: cfg.library,
     output: {
       device_uid: cfg.output.device_uid ?? '',
+      device_name: cfg.output.device_name ?? '',
       mode: cfg.output.mode,
       dsd_pcm_level: cfg.output.dsd_pcm_level,
       backend: cfg.output.backend,
+      network_stream: cfg.output.network_stream,
     },
+    network: cfg.network,
     sharing: cfg.sharing,
     remote: cfg.remote,
   });

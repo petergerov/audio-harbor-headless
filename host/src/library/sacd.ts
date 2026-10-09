@@ -510,7 +510,13 @@ function createBufferedWriter(fd: number, bufSize = 4 * 1024 * 1024) {
   };
 }
 
-const extracting = new Set<string>();
+/** Extractions in progress, by cache file — a second caller waits for the first. */
+const extracting = new Map<string, Promise<string>>();
+
+/** Sectors between yields, so streams and the API keep running while a track is extracted. */
+const YIELD_EVERY_SECTORS = 64;
+
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 function sacdCacheFile(filePath: string, track: SacdTrackInfo): string {
   // Kind bump invalidates caches written with the padded (broken) FRM8 preamble.
@@ -523,7 +529,7 @@ function isWarmCache(out: string): boolean {
 }
 
 /** Extract SACD track to cached uncompressed DFF (DST decoded via AHDST). */
-export function resolveSacdPlaybackPath(cataloguePath: string): string {
+export async function resolveSacdPlaybackPath(cataloguePath: string): Promise<string> {
   const parsed = parseSacdPath(cataloguePath);
   if (!parsed) return cataloguePath;
 
@@ -536,11 +542,17 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
 
   const out = sacdCacheFile(parsed.filePath, discTrack);
   if (isWarmCache(out)) return out;
+  const running = extracting.get(out);
+  if (running) return running;
+  const job = extractTrack(parsed.filePath, discTrack, out).finally(() => extracting.delete(out));
+  extracting.set(out, job);
+  return job;
+}
 
-  const fd = fs.openSync(parsed.filePath, 'r');
+async function extractTrack(filePath: string, discTrack: SacdTrackInfo, out: string): Promise<string> {
+  const fd = fs.openSync(filePath, 'r');
   const tmp = `${out}.part`;
   let session: unknown = null;
-  extracting.add(out);
   try {
     const layout = detectLayout(fd);
     const preamble = dffPreamble(discTrack.sampleRateHz, discTrack.channels);
@@ -561,6 +573,7 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
           haveFrame = false;
         };
         for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
+          if ((lsn - discTrack.startLsn) % YIELD_EVERY_SECTORS === 0) await yieldToEventLoop();
           const sector = readSector(fd, lsn, layout);
           for (const packet of audioPackets(sector)) {
             if (packet.type !== 2) continue;
@@ -576,6 +589,7 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
         flushFrame();
       } else {
         for (let lsn = discTrack.startLsn; lsn < end; lsn++) {
+          if ((lsn - discTrack.startLsn) % YIELD_EVERY_SECTORS === 0) await yieldToEventLoop();
           const chunk = demuxAudioPackets(readSector(fd, lsn, layout));
           if (chunk.length) writer.write(chunk);
         }
@@ -592,7 +606,6 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
     fs.rmSync(tmp, { force: true });
     throw err;
   } finally {
-    extracting.delete(out);
     if (session) engineDstEnd(session);
     fs.closeSync(fd);
   }
@@ -600,7 +613,7 @@ export function resolveSacdPlaybackPath(cataloguePath: string): string {
 
 /**
  * Warm-cache neighboring tracks on the same ISO so next/prev (or clicks) don't
- * block on a full demux. Runs on the event loop; safe to fire-and-forget.
+ * block on a full demux. One at a time, yielding as it goes; fire-and-forget.
  */
 export function prefetchSacdNeighbors(cataloguePath: string, extra = 1): void {
   const parsed = parseSacdPath(cataloguePath);
@@ -621,13 +634,9 @@ export function prefetchSacdNeighbors(cataloguePath: string, extra = 1): void {
       targets.push(t.cataloguePath);
     }
   }
-  for (const path of targets) {
-    setImmediate(() => {
-      try {
-        resolveSacdPlaybackPath(path);
-      } catch {
-        // Prefetch is best-effort.
-      }
-    });
-  }
+  void targets.reduce<Promise<unknown>>(
+    // Prefetch is best-effort.
+    (previous, path) => previous.then(() => resolveSacdPlaybackPath(path).catch(() => undefined)),
+    Promise.resolve()
+  );
 }

@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import { loadConfig, saveConfig } from '../config.js';
+import { loadConfig, normalizeNetworkStream, saveConfig } from '../config.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
 import { isAuthorized, loadPairing, pairWithPin, rotatePin } from '../pairing.js';
@@ -116,23 +116,31 @@ export async function buildServer(ctx: AppContext) {
     return { items: ctx.catalogue.search(req.query.q ?? '', Number(req.query.limit ?? 50)) };
   });
 
-  app.get('/api/v1/output', async () => ctx.playback.snapshot().output);
+  app.get('/api/v1/output', async () => ctx.playback.outputStatus());
+
+  // Search for network players now (the output picker opened); they show up within seconds.
+  app.post('/api/v1/output/discover', async () => {
+    ctx.playback.discoverNetworkPlayers();
+    return ctx.playback.outputStatus();
+  });
 
   app.put<{
     Body: {
       deviceUid?: string | null;
       mode?: OutputMode;
       backend?: 'auto' | 'juce' | 'native';
+      networkStream?: string;
     };
   }>('/api/v1/output', async (req) => {
     const body = req.body ?? {};
     const cfg = ctx.getConfig();
-    ctx.playback.setOutput(
+    await ctx.playback.setOutput(
       body.deviceUid === undefined ? (cfg.output.device_uid ?? null) : body.deviceUid,
       body.mode ?? cfg.output.mode,
-      body.backend ?? cfg.output.backend
+      body.backend ?? cfg.output.backend,
+      body.networkStream === undefined ? undefined : normalizeNetworkStream(body.networkStream)
     );
-    return ctx.playback.snapshot().output;
+    return ctx.playback.outputStatus();
   });
 
   app.post<{

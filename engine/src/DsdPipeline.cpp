@@ -2,9 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <vector>
+#if !defined(_WIN32)
+#include <sys/types.h>
+#endif
 
 // MSVC does not expose M_PI from <cmath> without _USE_MATH_DEFINES
 #ifndef M_PI
@@ -71,12 +75,12 @@ struct FirDesign {
   int decimation = 32;
 };
 
-FirDesign makeDesign(uint32_t dsdRate, int decimation) {
+FirDesign makeDesign(uint32_t dsdRate, int decimation, double passbandHz = 0.0) {
   FirDesign d;
   d.decimation = decimation;
   const double outRate = double(dsdRate) / double(decimation);
   const int halfStages = std::max(1, int(std::lround(std::log2(double(decimation / 8)))));
-  const double passband = std::min(25000.0, outRate * 0.3);
+  const double passband = passbandHz > 0.0 ? passbandHz : std::min(25000.0, outRate * 0.3);
   auto stopband = [&](double stageOutRate) { return stageOutRate - outRate / 2.0; };
 
   const double stage1Rate = double(dsdRate) / 8.0;
@@ -425,4 +429,299 @@ void dsdToPcmProgressive(const DsdStream& in, std::vector<float>& pcmInterleaved
 void dsdToPcm(const DsdStream& in, std::vector<float>& pcmInterleaved,
               uint32_t& outRate, float gainDb) {
   dsdToPcmProgressive(in, pcmInterleaved, outRate, gainDb, nullptr, nullptr);
+}
+
+bool readDsdLayout(const std::string& path, DsdFileLayout& out, std::string& error) {
+  out = {};
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    error = "Cannot open DSD file";
+    return false;
+  }
+  std::vector<uint8_t> head(64 * 1024);
+  in.read(reinterpret_cast<char*>(head.data()), std::streamsize(head.size()));
+  head.resize(size_t(in.gcount()));
+  in.clear();
+  in.seekg(0, std::ios::end);
+  const uint64_t fileSize = uint64_t(in.tellg());
+
+  if (head.size() >= 92 && std::memcmp(head.data(), "DSD ", 4) == 0) {
+    // DSF: "DSD " (28 bytes), "fmt " (52), then "data" with a 12-byte header.
+    const uint64_t fmt = 28;
+    if (std::memcmp(head.data() + fmt, "fmt ", 4) != 0) {
+      error = "DSF missing fmt";
+      return false;
+    }
+    const uint8_t* f = head.data() + fmt;
+    out.channels = static_cast<uint16_t>(readU32(f + 24));
+    out.sampleRate = readU32(f + 28);
+    out.lsbFirst = readU32(f + 32) != 8;
+    const uint64_t samplesPerChannel = readU64(f + 36);
+    out.dsfBlockSize = readU32(f + 44);
+    const uint64_t data = fmt + readU64(f + 4);
+    if (data + 12 > head.size() || std::memcmp(head.data() + data, "data", 4) != 0 ||
+        readU64(head.data() + data + 4) <= 12) {
+      error = "DSF missing data";
+      return false;
+    }
+    if (out.channels == 0) out.channels = 2;
+    if (out.sampleRate == 0) out.sampleRate = 2822400;
+    if (out.dsfBlockSize == 0) out.dsfBlockSize = 4096;
+    out.dataStart = data + 12;
+    if (out.dataStart >= fileSize) {
+      error = "DSF truncated";
+      return false;
+    }
+    const uint64_t dataBytes = std::min(readU64(head.data() + data + 4) - 12, fileSize - out.dataStart);
+    const uint64_t stride = uint64_t(out.dsfBlockSize) * out.channels;
+    const uint64_t blockBytes = dataBytes / stride * out.dsfBlockSize;
+    // The last block is padded; the sample count says where the music stops.
+    out.bytesPerChannel = samplesPerChannel > 0 ? std::min(samplesPerChannel / 8, blockBytes) : blockBytes;
+    return out.bytesPerChannel > 0;
+  }
+
+  if (head.size() >= 16 && std::memcmp(head.data(), "FRM8", 4) == 0) {
+    auto be32 = [](const uint8_t* p) {
+      return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
+    };
+    auto be64 = [&](const uint8_t* p) { return (uint64_t(be32(p)) << 32) | uint64_t(be32(p + 4)); };
+    uint64_t pos = 16;
+    while (pos + 12 <= fileSize) {
+      uint8_t chunk[12];
+      in.clear();
+      in.seekg(std::streamoff(pos));
+      if (!in.read(reinterpret_cast<char*>(chunk), 12)) break;
+      const uint64_t size = be64(chunk + 4);
+      const uint64_t body = pos + 12;
+      if (std::memcmp(chunk, "PROP", 4) == 0) {
+        std::vector<uint8_t> prop(size_t(std::min<uint64_t>(size, 1 << 20)));
+        in.read(reinterpret_cast<char*>(prop.data()), std::streamsize(prop.size()));
+        size_t p = 4; // "SND "
+        while (p + 12 <= prop.size()) {
+          const uint64_t sub = be64(prop.data() + p + 4);
+          const size_t subBody = p + 12;
+          if (std::memcmp(prop.data() + p, "FS  ", 4) == 0 && subBody + 4 <= prop.size()) {
+            out.sampleRate = be32(prop.data() + subBody);
+          } else if (std::memcmp(prop.data() + p, "CHNL", 4) == 0 && subBody + 2 <= prop.size()) {
+            out.channels = uint16_t((prop[subBody] << 8) | prop[subBody + 1]);
+          } else if (std::memcmp(prop.data() + p, "CMPR", 4) == 0 && subBody + 4 <= prop.size() &&
+                     std::memcmp(prop.data() + subBody, "DSD ", 4) != 0) {
+            error = "DST-compressed DFF is not supported";
+            return false;
+          }
+          p = subBody + size_t(sub) + size_t(sub & 1);
+        }
+      } else if (std::memcmp(chunk, "DSD ", 4) == 0) {
+        if (out.channels == 0) out.channels = 2;
+        if (out.sampleRate == 0) out.sampleRate = 2822400;
+        out.dataStart = body;
+        out.bytesPerChannel = std::min(size, fileSize - body) / out.channels;
+        return out.bytesPerChannel > 0;
+      } else if (std::memcmp(chunk, "DST ", 4) == 0) {
+        error = "DST-compressed DFF is not supported";
+        return false;
+      }
+      pos = body + size + (size & 1);
+    }
+    error = "DFF missing DSD data";
+    return false;
+  }
+
+  error = "Not a DSF or DFF file";
+  return false;
+}
+
+struct DsdPcmReader::Impl {
+  std::FILE* file = nullptr;
+  DsdFileLayout layout;
+  FirDesign design;
+  int bytesPerFrame = 4; // DSD bytes per channel for one output frame
+  uint32_t outRate = 88200;
+  uint64_t frames = 0;
+  uint64_t settleFrames = 0;
+  float gain = 1.0f;
+  std::vector<ChannelDecim> chans;
+  uint64_t nextFrame = UINT64_MAX; // where the filter state stands
+  uint64_t cursor = 0;             // next DSD byte per channel
+  std::vector<std::vector<uint8_t>> chunk; // per channel, MSB-first
+  uint64_t chunkStart = 0;
+  size_t chunkLength = 0;
+  std::vector<uint8_t> raw;
+  uint8_t reverse[256];
+
+  ~Impl() {
+    if (file) std::fclose(file);
+  }
+
+  void reset(uint64_t frame) {
+    for (auto& ch : chans) {
+      ch.ring.assign(size_t(design.stage1Bytes) * 2, 256);
+      ch.byteWrite = 0;
+      ch.stages.clear();
+      for (const auto& taps : design.halfStageTaps) ch.stages.emplace_back(taps);
+    }
+    cursor = frame * uint64_t(bytesPerFrame);
+    nextFrame = frame;
+  }
+
+  bool seekFile(uint64_t offset) {
+#if defined(_WIN32)
+    return _fseeki64(file, int64_t(offset), SEEK_SET) == 0;
+#else
+    return fseeko(file, off_t(offset), SEEK_SET) == 0;
+#endif
+  }
+
+  /** Loads the chunk holding DSD byte `index` (per channel). */
+  bool load(uint64_t index) {
+    const size_t channels = layout.channels;
+    if (index >= layout.bytesPerChannel) return false;
+    uint64_t start = index;
+    size_t length = 64 * 1024;
+    uint64_t offset = 0;
+    if (layout.dsfBlockSize > 0) {
+      const uint64_t block = index / layout.dsfBlockSize;
+      start = block * layout.dsfBlockSize;
+      offset = layout.dataStart + block * layout.dsfBlockSize * channels;
+    } else {
+      offset = layout.dataStart + start * channels;
+    }
+    length = size_t(std::min<uint64_t>(length, layout.bytesPerChannel - start));
+    if (layout.dsfBlockSize > 0) {
+      // Whole blocks: the file has channel 0's block, then channel 1's, …
+      const size_t bs = layout.dsfBlockSize;
+      const size_t blocks = (length + bs - 1) / bs;
+      raw.resize(blocks * bs * channels);
+      if (!seekFile(offset)) return false;
+      const size_t got = std::fread(raw.data(), 1, raw.size(), file);
+      if (got < raw.size()) std::memset(raw.data() + got, 0, raw.size() - got);
+      for (size_t c = 0; c < channels; ++c) {
+        uint8_t* dst = chunk[c].data();
+        for (size_t b = 0; b < blocks; ++b) {
+          const uint8_t* src = raw.data() + (b * channels + c) * bs;
+          const size_t n = std::min(bs, length - b * bs);
+          if (layout.lsbFirst) {
+            for (size_t i = 0; i < n; ++i) dst[b * bs + i] = reverse[src[i]];
+          } else {
+            std::memcpy(dst + b * bs, src, n);
+          }
+        }
+      }
+    } else {
+      raw.resize(length * channels);
+      if (!seekFile(offset)) return false;
+      const size_t got = std::fread(raw.data(), 1, raw.size(), file);
+      if (got < raw.size()) std::memset(raw.data() + got, 0, raw.size() - got);
+      for (size_t i = 0; i < length; ++i) {
+        for (size_t c = 0; c < channels; ++c) chunk[c][i] = raw[i * channels + c];
+      }
+    }
+    chunkStart = start;
+    chunkLength = length;
+    return true;
+  }
+
+  static float push(ChannelDecim& ch, const FirDesign& design, uint8_t b, bool& have) {
+    const int length = design.stage1Bytes;
+    ch.ring[size_t(ch.byteWrite)] = b;
+    ch.ring[size_t(ch.byteWrite + length)] = b;
+    ch.byteWrite = ch.byteWrite + 1 == length ? 0 : ch.byteWrite + 1;
+    float value = 0.0f;
+    const uint16_t* ring = ch.ring.data() + ch.byteWrite;
+    const float* table = design.stage1Table.data();
+    for (int j = 0; j < length; ++j) value += table[size_t(j * 257 + ring[j])];
+    for (auto& stage : ch.stages) {
+      float* o = stage.push(value);
+      if (!o) {
+        have = false;
+        return 0.0f;
+      }
+      value = *o;
+    }
+    have = true;
+    return value;
+  }
+
+  /** One output frame into out (nullptr = discard). False at the end of the data. */
+  bool produce(float* out) {
+    if (nextFrame >= frames) return false;
+    if (cursor < chunkStart || cursor + uint64_t(bytesPerFrame) > chunkStart + chunkLength) {
+      if (!load(cursor)) return false;
+    }
+    const size_t base = size_t(cursor - chunkStart);
+    for (size_t c = 0; c < chans.size(); ++c) {
+      const uint8_t* bytes = chunk[c].data() + base;
+      float value = 0.0f;
+      bool have = false;
+      for (int k = 0; k < bytesPerFrame; ++k) value = push(chans[c], design, bytes[k], have);
+      if (out) {
+        value *= gain;
+        if (value > 1.0f) value = 1.0f;
+        if (value < -1.0f) value = -1.0f;
+        out[c] = have ? value : 0.0f;
+      }
+    }
+    cursor += uint64_t(bytesPerFrame);
+    ++nextFrame;
+    return true;
+  }
+};
+
+DsdPcmReader::DsdPcmReader() : impl_(std::make_unique<Impl>()) {}
+DsdPcmReader::~DsdPcmReader() = default;
+
+bool DsdPcmReader::open(const std::string& path, float gainDb, bool halfRate, std::string& error) {
+  auto& s = *impl_;
+  if (!readDsdLayout(path, s.layout, error)) return false;
+  s.file = std::fopen(path.c_str(), "rb");
+  if (!s.file) {
+    error = "Cannot open DSD file";
+    return false;
+  }
+  int decimation = 32;
+  if (s.layout.sampleRate >= 11289600) decimation = 128; // DSD256 → ~88.2
+  else if (s.layout.sampleRate >= 5644800) decimation = 64; // DSD128 → ~88.2
+  if (halfRate) decimation *= 2;
+  s.design = makeDesign(s.layout.sampleRate, decimation, halfRate ? 20000.0 : 0.0);
+  s.bytesPerFrame = decimation / 8;
+  s.outRate = s.layout.sampleRate / uint32_t(decimation);
+  s.frames = s.layout.bytesPerChannel / uint64_t(s.bytesPerFrame);
+  s.gain = std::pow(10.0f, gainDb / 20.0f);
+
+  // Frames until fresh filter state matches continuous play: every stage's length in output
+  // frames, plus a margin.
+  uint64_t settle = uint64_t((s.design.stage1Bytes + s.bytesPerFrame - 1) / s.bytesPerFrame);
+  const size_t halfStages = s.design.halfStageTaps.size();
+  for (size_t i = 0; i < halfStages; ++i) {
+    const uint64_t inputsPerFrame = uint64_t(1) << (halfStages - i);
+    settle += (uint64_t(s.design.halfStageTaps[i].size()) + inputsPerFrame - 1) / inputsPerFrame;
+  }
+  s.settleFrames = settle + 8;
+
+  for (int b = 0; b < 256; ++b) s.reverse[b] = bitReverse(uint8_t(b));
+  s.chans.assign(s.layout.channels, ChannelDecim {});
+  s.chunk.assign(s.layout.channels, std::vector<uint8_t>(64 * 1024));
+  s.chunkLength = 0;
+  s.reset(0);
+  return s.frames > 0;
+}
+
+uint32_t DsdPcmReader::sampleRate() const { return impl_->outRate; }
+uint16_t DsdPcmReader::channels() const { return impl_->layout.channels; }
+uint64_t DsdPcmReader::frameCount() const { return impl_->frames; }
+
+size_t DsdPcmReader::read(uint64_t startFrame, size_t count, float* out) {
+  auto& s = *impl_;
+  if (!s.file || startFrame >= s.frames) return 0;
+  count = size_t(std::min<uint64_t>(count, s.frames - startFrame));
+  if (startFrame != s.nextFrame) {
+    s.reset(startFrame > s.settleFrames ? startFrame - s.settleFrames : 0);
+    while (s.nextFrame < startFrame) {
+      if (!s.produce(nullptr)) return 0;
+    }
+  }
+  const size_t channels = s.layout.channels;
+  size_t written = 0;
+  while (written < count && s.produce(out + written * channels)) ++written;
+  return written;
 }

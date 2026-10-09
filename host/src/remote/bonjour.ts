@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import net from 'node:net';
-import { Bonjour } from 'bonjour-service';
 import type { Catalogue } from '../library/catalogue.js';
 import {
   existingToken,
@@ -10,6 +9,7 @@ import {
 } from '../pairing.js';
 import type { PlaybackService } from '../playback/service.js';
 import type { HarborConfig } from '../types.js';
+import type { Mdns } from './mdns.js';
 import { toUuid, wireNowPlaying, wireQueue } from './wire.js';
 
 const PROTOCOL_VERSION = 2;
@@ -22,6 +22,8 @@ export interface BonjourRemoteOptions {
   playback: PlaybackService;
   catalogue: Catalogue;
   getConfig: () => HarborConfig;
+  /** Announces `_audioharbor._tcp` on this host's `.local` name. */
+  mdns: Mdns;
 }
 
 /** Harbor FrameCodec: `[u32be length][kind][payload]` — kind 0=JSON, 1=binary. */
@@ -147,8 +149,7 @@ export async function startBonjourRemote(opts: BonjourRemoteOptions): Promise<vo
   await new Promise<void>((resolve) => server.listen(opts.port, '0.0.0.0', resolve));
 
   try {
-    const bonjour = new Bonjour();
-    bonjour.publish({
+    opts.mdns.publish({
       name: opts.name,
       type: SERVICE_TYPE,
       port: opts.port,

@@ -1,11 +1,13 @@
 #include <napi.h>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include "HarborEngine.h"
 #include "AHDSTDecoder.h"
+#include "NetPcmSource.h"
 
 namespace {
 
@@ -240,6 +242,147 @@ Napi::Value DstEnd(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+// --- Network streams: PCM a network player pulls as WAV, read on the libuv pool ---
+
+struct NetStream {
+  std::mutex mutex;
+  std::unique_ptr<NetPcmSource> source;
+};
+
+struct NetStreamHolder {
+  std::shared_ptr<NetStream> stream;
+};
+
+class NetStreamOpenWorker : public Napi::AsyncWorker {
+public:
+  NetStreamOpenWorker(Napi::Env env, std::string path, NetPcmOptions options)
+    : Napi::AsyncWorker(env),
+      deferred_(Napi::Promise::Deferred::New(env)),
+      path_(std::move(path)),
+      options_(options) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    std::string error;
+    source_ = openNetPcmSource(path_, options_, error);
+    if (!source_) SetError(error.empty() ? "Cannot open audio for streaming" : error);
+  }
+
+  void OnOK() override {
+    auto env = Env();
+    auto stream = std::make_shared<NetStream>();
+    stream->source = std::move(source_);
+    const NetPcmSource& s = *stream->source;
+    auto info = Napi::Object::New(env);
+    info.Set("sampleRate", Napi::Number::New(env, s.sampleRate()));
+    info.Set("channels", Napi::Number::New(env, s.channels()));
+    info.Set("frameCount", Napi::Number::New(env, double(s.frameCount())));
+    info.Set("bitsPerSample", Napi::Number::New(env, s.bitsPerSample()));
+    info.Set("handle", Napi::External<NetStreamHolder>::New(
+      env, new NetStreamHolder{stream}, [](Napi::Env, NetStreamHolder* holder) { delete holder; }));
+    deferred_.Resolve(info);
+  }
+
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+private:
+  Napi::Promise::Deferred deferred_;
+  std::string path_;
+  NetPcmOptions options_;
+  std::unique_ptr<NetPcmSource> source_;
+};
+
+class NetStreamReadWorker : public Napi::AsyncWorker {
+public:
+  NetStreamReadWorker(Napi::Env env, std::shared_ptr<NetStream> stream, uint64_t start, size_t count)
+    : Napi::AsyncWorker(env),
+      deferred_(Napi::Promise::Deferred::New(env)),
+      stream_(std::move(stream)),
+      start_(start),
+      count_(count) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    std::lock_guard<std::mutex> lock(stream_->mutex);
+    if (!stream_->source) {
+      SetError("Stream closed");
+      return;
+    }
+    NetPcmSource& s = *stream_->source;
+    const size_t blockAlign = size_t(s.channels()) * (s.bitsPerSample() / 8);
+    data_.resize(count_ * blockAlign);
+    data_.resize(s.read(start_, count_, data_.data()) * blockAlign);
+  }
+
+  void OnOK() override {
+    deferred_.Resolve(Napi::Buffer<uint8_t>::Copy(Env(), data_.data(), data_.size()));
+  }
+
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+private:
+  Napi::Promise::Deferred deferred_;
+  std::shared_ptr<NetStream> stream_;
+  uint64_t start_;
+  size_t count_;
+  std::vector<uint8_t> data_;
+};
+
+NetStreamHolder* netStreamArg(const Napi::CallbackInfo& info) {
+  if (info.Length() < 1 || !info[0].IsExternal()) return nullptr;
+  return info[0].As<Napi::External<NetStreamHolder>>().Data();
+}
+
+Napi::Value NetStreamOpen(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "path required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  NetPcmOptions options;
+  if (info.Length() > 1 && info[1].IsObject()) {
+    auto o = info[1].As<Napi::Object>();
+    if (o.Has("wifi")) options.wifi = o.Get("wifi").ToBoolean().Value();
+    if (o.Has("dsdLevel") && o.Get("dsdLevel").IsNumber()) {
+      const int db = o.Get("dsdLevel").As<Napi::Number>().Int32Value();
+      options.dsdLevelDb = (db == 0 || db == 3 || db == 6) ? db : 3;
+    }
+  }
+  auto* worker = new NetStreamOpenWorker(env, info[0].As<Napi::String>(), options);
+  auto promise = worker->Promise();
+  worker->Queue();
+  return promise;
+}
+
+Napi::Value NetStreamRead(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  NetStreamHolder* holder = netStreamArg(info);
+  if (!holder || info.Length() < 3 || !info[1].IsNumber() || !info[2].IsNumber()) {
+    Napi::TypeError::New(env, "handle, startFrame, frameCount required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const double start = info[1].As<Napi::Number>().DoubleValue();
+  const double count = info[2].As<Napi::Number>().DoubleValue();
+  if (!(start >= 0) || !(count >= 0) || count > double(1 << 20)) {
+    Napi::RangeError::New(env, "bad frame range").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto* worker = new NetStreamReadWorker(env, holder->stream, uint64_t(start), size_t(count));
+  auto promise = worker->Promise();
+  worker->Queue();
+  return promise;
+}
+
+Napi::Value NetStreamClose(const Napi::CallbackInfo& info) {
+  if (NetStreamHolder* holder = netStreamArg(info)) {
+    std::lock_guard<std::mutex> lock(holder->stream->mutex);
+    holder->stream->source.reset();
+  }
+  return info.Env().Undefined();
+}
+
 Napi::Value SetEventListener(const Napi::CallbackInfo& info) {
   auto env = info.Env();
   if (!info[0].IsFunction()) {
@@ -282,6 +425,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("dstBegin", Napi::Function::New(env, DstBegin));
   exports.Set("dstDecodeFrame", Napi::Function::New(env, DstDecodeFrame));
   exports.Set("dstEnd", Napi::Function::New(env, DstEnd));
+  exports.Set("netStreamOpen", Napi::Function::New(env, NetStreamOpen));
+  exports.Set("netStreamRead", Napi::Function::New(env, NetStreamRead));
+  exports.Set("netStreamClose", Napi::Function::New(env, NetStreamClose));
   return exports;
 }
 

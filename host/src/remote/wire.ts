@@ -28,10 +28,12 @@ export function trackDto(track: Track | null | undefined): Record<string, unknow
 /** Harbor iOS NowPlayingSnapshot wire shape. */
 export function wireNowPlaying(snap: NowPlayingSnapshot, generation = 1): Record<string, unknown> {
   const rate = snap.state === 'playing' ? 1 : 0;
+  // Network player: the path is the stream ("DSD→PCM · Network"); the format badge stays the file's.
+  const network = snap.output.selectedKind === 'network';
   return {
     generation,
     track: trackDto(snap.track),
-    state: snap.state,
+    state: snap.state === 'failed' && snap.error ? `failed:${snap.error}` : snap.state,
     position: snap.positionSecs,
     duration: snap.durationSecs ?? snap.track?.durationSecs ?? 0,
     positionTimestamp: new Date().toISOString(),
@@ -42,10 +44,10 @@ export function wireNowPlaying(snap: NowPlayingSnapshot, generation = 1): Record
     queueSourceName: null,
     repeatMode: snap.repeat,
     isShuffled: snap.shuffle,
-    activeFormatLabel: snap.conversionBadge,
-    pathLabel: snap.output.effectiveMode,
+    activeFormatLabel: network ? null : snap.conversionBadge,
+    pathLabel: network ? (snap.conversionBadge ?? 'Network') : snap.output.effectiveMode,
     outputVolume: snap.volume,
-    outputName: snap.output.devices.find((d) => d.uid === snap.output.selectedUid)?.name ?? null,
+    outputName: snap.output.selectedName,
     playbackLocked: false,
   };
 }

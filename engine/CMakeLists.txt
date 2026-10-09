@@ -54,6 +54,7 @@ set(ENGINE_SOURCES
   src/StubPlayer.cpp
   src/DsdPipeline.cpp
   src/PcmDecoder.cpp
+  src/NetPcmSource.cpp
   src/AHDSTDecoder.c
   napi/binding.cpp
 )

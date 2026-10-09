@@ -2,12 +2,15 @@
 host = "0.0.0.0"
 port = 8787
 name = "Audio Harbor Headless"
+# Reachable as http://audioharbor.local:8787 (mDNS / Bonjour; "audioharbor-2" when the
+# name is taken on the network). "" turns it off.
+local_hostname = "audioharbor"
 
 [library]
 roots = []
 
 [output]
-# device_uid = ""
+# device_uid = ""        # a DAC, or a network player: "upnp:uuid:…"
 mode = "shared"          # shared | exclusive | dop
 dsd_pcm_level = 3        # 0 | 3 | 6
 # Audio stack: auto | juce | native
@@ -15,11 +18,19 @@ dsd_pcm_level = 3        # 0 | 3 | 6
 #   juce   → portable JUCE path on every OS
 #   native → Mac Core Audio | Linux ALSA hw: | Windows WASAPI Exclusive/DoP
 backend = "auto"
+# Network players (UPnP / DLNA): full | wifi
+#   full → the file untouched when the player takes it; DSD as 88.2 kHz / 24-bit
+#   wifi → DSD / SACD as 44.1 kHz / 16-bit (~1.4 Mbit/s); other files untouched
+network_stream = "full"
+
+[network]
+# Network players pull audio from this HTTP port (any free port when taken).
+media_port = 49153
 
 [sharing]
 enabled = false
 port = 8200
-friendly_name = "Audio Harbor"
+friendly_name = "Audio Harbor Headless"
 
 [remote]
 bonjour_enabled = true

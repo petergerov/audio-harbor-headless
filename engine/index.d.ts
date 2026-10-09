@@ -26,6 +26,23 @@ export interface EngineState {
   error: string | null;
 }
 
+/** PCM for a network player: random access by frame, little-endian, interleaved. */
+export interface NetStreamInfo {
+  /** Opaque; pass to netStreamRead / netStreamClose. */
+  handle: unknown;
+  sampleRate: number;
+  channels: number;
+  frameCount: number;
+  bitsPerSample: 16 | 24;
+}
+
+export interface NetStreamOptions {
+  /** DSD only: 44.1 kHz / 16-bit instead of ~88.2 kHz / 24-bit. */
+  wifi?: boolean;
+  /** Gain on DSD converted to PCM. */
+  dsdLevel?: 0 | 3 | 6;
+}
+
 export interface HarborEngine {
   version(): string;
   listDevices(): EngineDevice[];
@@ -46,6 +63,11 @@ export interface HarborEngine {
   dstBegin(sampleRateHz: number, channels: number): unknown;
   dstDecodeFrame(session: unknown, frame: Buffer): Buffer;
   dstEnd(session: unknown): void;
+  /** DSF / DFF → PCM; other formats decoded at their own rate. Opens on the libuv pool. */
+  netStreamOpen(path: string, options?: NetStreamOptions): Promise<NetStreamInfo>;
+  /** Packed frames [startFrame, startFrame + frameCount); shorter at the end. */
+  netStreamRead(handle: unknown, startFrame: number, frameCount: number): Promise<Buffer>;
+  netStreamClose(handle: unknown): void;
 }
 
 declare const engine: HarborEngine;

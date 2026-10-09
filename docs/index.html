@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Audio Harbor Headless — Audiophile host for Mac, Linux &amp; Windows</title>
-  <meta name="description" content="GUI-less audiophile media host. Native Exclusive / DoP on Mac, Linux, and Windows. Control from iPhone via web remote or Bonjour. DLNA music server. Open source." />
+  <meta name="description" content="GUI-less audiophile media host. Native Exclusive / DoP on Mac, Linux, and Windows. Plays to UPnP / DLNA network players. Control from iPhone via web remote or Bonjour. DLNA music server. Open source." />
   <meta name="keywords" content="audiophile, headless, bit-perfect, DSD, FLAC, Exclusive, DoP, WASAPI, ALSA, Core Audio, Raspberry Pi, DLNA, Bonjour" />
   <link rel="icon" type="image/png" sizes="32x32" href="images/web/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="64x64" href="images/web/favicon-64.png" />
@@ -35,6 +35,7 @@
       "Shared, Exclusive, and DoP output modes",
       "FLAC, ALAC, WAV, AIFF, AAC, MP3, DSF, DFF, SACD ISO",
       "Mobile web remote and Bonjour pairing",
+      "UPnP / DLNA network players as an output",
       "Optional DLNA / UPnP music server",
       "Prebuilt packages including Raspberry Pi ARM64"
     ]
@@ -594,7 +595,7 @@
           <p class="line">backend  <span class="ok">native</span> <span class="muted">(auto)</span></p>
           <p class="line">output   Shared · USB DAC ready for Exclusive</p>
           <div class="blank"></div>
-          <p class="line">LAN      <span class="ok">http://192.168.1.42:8787</span></p>
+          <p class="line">LAN      <span class="ok">http://audioharbor.local:8787</span></p>
           <p class="line">Bonjour  <span class="ok">_audioharbor._tcp</span></p>
           <p class="line muted">Open the URL on your iPhone — or scan the QR.</p>
           <div class="pill-row">
@@ -742,8 +743,8 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
       </div>
       <div class="feature">
         <span class="feature-icon">≡</span>
-        <h3>DLNA when you want it</h3>
-        <p>Optional UPnP media server so a phone or streamer can browse the same library. Off until you enable it.</p>
+        <h3>Network players and DLNA</h3>
+        <p>A streamer or network amp is an output like a DAC: files go out untouched, DSD as clean PCM, gapless where the player can. Optional UPnP server so a phone can browse the same library.</p>
       </div>
       <div class="feature">
         <span class="feature-icon">○</span>

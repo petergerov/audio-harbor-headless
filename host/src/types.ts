@@ -3,6 +3,8 @@ export type OutputMode = 'shared' | 'exclusive' | 'dop';
 export type AudioBackend = 'auto' | 'juce' | 'native';
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'failed';
 export type RepeatMode = 'off' | 'all' | 'one';
+/** UPnP network players: full = best the player takes; wifi = DSD as 44.1 kHz / 16-bit PCM. */
+export type NetworkStreamQuality = 'full' | 'wifi';
 export type BrowseScope = 'folders' | 'albums' | 'artists' | 'playlists' | 'labels';
 
 export type AudioFormat =
@@ -59,17 +61,26 @@ export interface FolderRoot {
 }
 
 export interface OutputDevice {
+  /** Network players: `upnp:<UDN>`, so the pick survives power cycles. */
   uid: string;
   name: string;
   kind: 'local' | 'network';
   supportsExclusive: boolean;
   supportsDop: boolean;
   isExternal: boolean;
+  manufacturer?: string;
+  model?: string;
 }
 
 export interface OutputStatus {
+  /** Local devices, then the network players on the LAN right now. */
   devices: OutputDevice[];
   selectedUid: string | null;
+  /** Last known name of the pick — kept while a network player is off. */
+  selectedName: string | null;
+  selectedKind: 'local' | 'network' | null;
+  /** The pick is plugged in / on the network now. */
+  selectedAvailable: boolean;
   requestedMode: OutputMode;
   effectiveMode: OutputMode;
   volume: number | null;
@@ -77,6 +88,9 @@ export interface OutputStatus {
   audioBackend: AudioBackend;
   effectiveAudioBackend: string;
   availableAudioBackends: string[];
+  networkStream: NetworkStreamQuality;
+  /** Why no network players can be found (no network, no Local Network access). */
+  discoveryError: string | null;
 }
 
 export interface NowPlayingSnapshot {
@@ -89,6 +103,8 @@ export interface NowPlayingSnapshot {
   volume: number | null;
   output: OutputStatus;
   conversionBadge: string | null;
+  /** Why playback failed (state `failed`), e.g. the network player left. */
+  error: string | null;
 }
 
 export interface QueueSnapshot {
@@ -101,16 +117,25 @@ export interface HarborConfig {
     host: string;
     port: number;
     name: string;
+    /** mDNS name: "audioharbor" → http://audioharbor.local:<port>; "" turns it off. */
+    local_hostname: string;
   };
   library: {
     roots: string[];
   };
   output: {
     device_uid?: string | null;
+    /** Name of the picked device, shown while it is unplugged / off the network. */
+    device_name?: string | null;
     mode: OutputMode;
     dsd_pcm_level: 0 | 3 | 6;
     /** auto = native on Mac/Linux, juce on Windows */
     backend: AudioBackend;
+    network_stream: NetworkStreamQuality;
+  };
+  network: {
+    /** HTTP port network players pull audio from (any free port when taken). */
+    media_port: number;
   };
   sharing: {
     enabled: boolean;
