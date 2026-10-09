@@ -157,18 +157,23 @@ export class Catalogue {
       mtime: number;
     }>;
     const mtimeMap = new Map(existing.map((r) => [r.catalogue_path, r.mtime]));
+    const seen = new Set<string>();
+    const resolvedRoots = roots.map((r) => path.resolve(r));
+    const scannedRoots: string[] = [];
 
     for (const root of roots) {
       if (!fs.existsSync(root)) continue;
+      scannedRoots.push(path.resolve(root));
       const files = walkAudioFiles(root);
       for (const file of files) {
         scanned += 1;
         const st = fs.statSync(file);
         const mtime = Math.floor(st.mtimeMs);
-        if (mtimeMap.get(file) === mtime) continue;
         try {
           if (path.extname(file).toLowerCase() === '.iso' && isSacdIso(file)) {
             for (const sacd of listSacdTracks(file)) {
+              seen.add(sacd.cataloguePath);
+              if (mtimeMap.get(sacd.cataloguePath) === mtime) continue;
               const track = sacdToTrack(sacd, st.size);
               upsert.run(
                 track.cataloguePath,
@@ -198,6 +203,8 @@ export class Catalogue {
             }
             continue;
           }
+          seen.add(file);
+          if (mtimeMap.get(file) === mtime) continue;
           const track = await readTrack(file, st.size);
           upsert.run(
             track.cataloguePath,
@@ -225,8 +232,70 @@ export class Catalogue {
       }
     }
 
+    this.removeOrphanTracks(seen, resolvedRoots, scannedRoots);
     this.db.exec(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`);
     return { scanned, indexed };
+  }
+
+  /**
+   * Drop tracks deleted from disk (under a root we walked) or no longer under any
+   * configured source. Roots that are temporarily missing are left alone.
+   */
+  private removeOrphanTracks(
+    seen: Set<string>,
+    resolvedRoots: string[],
+    scannedRoots: string[]
+  ): void {
+    const under = (filePath: string, rootList: string[]): boolean => {
+      const norm = path.resolve(filePath);
+      return rootList.some((r) => norm === r || norm.startsWith(r + path.sep));
+    };
+    const fileOf = (cataloguePathValue: string): string =>
+      parseSacdPath(cataloguePathValue)?.filePath ?? cataloguePathValue;
+
+    const all = this.db.prepare('SELECT catalogue_path FROM tracks').all() as Array<{
+      catalogue_path: string;
+    }>;
+    const orphans: string[] = [];
+    for (const { catalogue_path: cp } of all) {
+      const file = fileOf(cp);
+      if (!under(file, resolvedRoots)) {
+        orphans.push(cp);
+        continue;
+      }
+      if (under(file, scannedRoots) && !seen.has(cp)) orphans.push(cp);
+    }
+    if (!orphans.length) return;
+
+    const delTrack = this.db.prepare('DELETE FROM tracks WHERE catalogue_path = ?');
+    const delLabel = this.db.prepare('DELETE FROM labels WHERE catalogue_path = ?');
+    const orphanSet = new Set(orphans);
+    this.db.exec('BEGIN');
+    try {
+      for (const cp of orphans) {
+        delTrack.run(cp);
+        delLabel.run(cp);
+      }
+      const playlists = this.db.prepare('SELECT id, paths_json FROM playlists').all() as Array<{
+        id: string;
+        paths_json: string;
+      }>;
+      const updatePl = this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?');
+      for (const pl of playlists) {
+        let paths: string[] = [];
+        try {
+          paths = JSON.parse(pl.paths_json) as string[];
+        } catch {
+          continue;
+        }
+        const next = paths.filter((p) => !orphanSet.has(p));
+        if (next.length !== paths.length) updatePl.run(JSON.stringify(next), pl.id);
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
   }
 
   getTrack(cataloguePathValue: string): Track | null {

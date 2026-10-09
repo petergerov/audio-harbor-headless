@@ -7,7 +7,7 @@
 
 #include "HarborEngine.h"
 #include "AHDSTDecoder.h"
-#include "NetPcmSource.h"
+#include "FrameSource.h"
 
 namespace {
 
@@ -246,7 +246,7 @@ Napi::Value DstEnd(const Napi::CallbackInfo& info) {
 
 struct NetStream {
   std::mutex mutex;
-  std::unique_ptr<NetPcmSource> source;
+  std::unique_ptr<FrameSource> source;
 };
 
 struct NetStreamHolder {
@@ -255,7 +255,7 @@ struct NetStreamHolder {
 
 class NetStreamOpenWorker : public Napi::AsyncWorker {
 public:
-  NetStreamOpenWorker(Napi::Env env, std::string path, NetPcmOptions options)
+  NetStreamOpenWorker(Napi::Env env, std::string path, FrameSourceOptions options)
     : Napi::AsyncWorker(env),
       deferred_(Napi::Promise::Deferred::New(env)),
       path_(std::move(path)),
@@ -265,7 +265,7 @@ public:
 
   void Execute() override {
     std::string error;
-    source_ = openNetPcmSource(path_, options_, error);
+    source_ = openFrameSource(path_, options_, error);
     if (!source_) SetError(error.empty() ? "Cannot open audio for streaming" : error);
   }
 
@@ -273,7 +273,7 @@ public:
     auto env = Env();
     auto stream = std::make_shared<NetStream>();
     stream->source = std::move(source_);
-    const NetPcmSource& s = *stream->source;
+    const FrameSource& s = *stream->source;
     auto info = Napi::Object::New(env);
     info.Set("sampleRate", Napi::Number::New(env, s.sampleRate()));
     info.Set("channels", Napi::Number::New(env, s.channels()));
@@ -289,8 +289,8 @@ public:
 private:
   Napi::Promise::Deferred deferred_;
   std::string path_;
-  NetPcmOptions options_;
-  std::unique_ptr<NetPcmSource> source_;
+  FrameSourceOptions options_;
+  std::unique_ptr<FrameSource> source_;
 };
 
 class NetStreamReadWorker : public Napi::AsyncWorker {
@@ -310,10 +310,10 @@ public:
       SetError("Stream closed");
       return;
     }
-    NetPcmSource& s = *stream_->source;
+    FrameSource& s = *stream_->source;
     const size_t blockAlign = size_t(s.channels()) * (s.bitsPerSample() / 8);
     data_.resize(count_ * blockAlign);
-    data_.resize(s.read(start_, count_, data_.data()) * blockAlign);
+    data_.resize(s.readPacked(start_, count_, data_.data()) * blockAlign);
   }
 
   void OnOK() override {
@@ -341,7 +341,7 @@ Napi::Value NetStreamOpen(const Napi::CallbackInfo& info) {
     Napi::TypeError::New(env, "path required").ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  NetPcmOptions options;
+  FrameSourceOptions options;
   if (info.Length() > 1 && info[1].IsObject()) {
     auto o = info[1].As<Napi::Object>();
     if (o.Has("wifi")) options.wifi = o.Get("wifi").ToBoolean().Value();

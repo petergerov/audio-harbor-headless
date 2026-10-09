@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import type { Catalogue } from '../library/catalogue.js';
+import { resolveDstDffPlaybackPath } from '../library/dstDff.js';
 import { resolveSacdPlaybackPath, SACD_MARKER } from '../library/sacd.js';
 import type { KeepAwake } from '../power.js';
 import type { NetworkDsdMode, NetworkStreamQuality, PlaybackState, Track } from '../types.js';
@@ -416,10 +417,10 @@ export class NetworkPlayer extends EventEmitter {
   private async prepareMedia(track: Track, renderer: UpnpRenderer): Promise<PreparedMedia> {
     const sink = await this.protocolSink(renderer);
     const plan = planNetworkMedia(track, sink, this.quality, this.dsdMode);
-    // An SACD track plays from its extracted DFF.
+    // SACD / DST-compressed DFF play from an uncompressed DFF in the cache.
     const source = track.cataloguePath.includes(SACD_MARKER)
       ? await resolveSacdPlaybackPath(track.cataloguePath)
-      : track.cataloguePath;
+      : await resolveDstDffPlaybackPath(track.cataloguePath);
     let stream: MediaHandle;
     let mime: string;
     let durationSecs = track.durationSecs;

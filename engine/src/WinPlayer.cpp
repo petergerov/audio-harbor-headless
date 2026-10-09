@@ -7,8 +7,7 @@
 #define NOMINMAX
 #endif
 
-#include "DsdPipeline.h"
-#include "PcmDecoder.h"
+#include "PlaybackFeed.h"
 #include "Player.h"
 
 // Include order matters on MSVC. Do NOT include functiondiscoverykeys_devpkey.h —
@@ -95,7 +94,11 @@ private:
 class WinPlayer final : public IPlayer {
 public:
   WinPlayer() = default;
-  ~WinPlayer() override { stop(); closeClient_(); }
+  ~WinPlayer() override {
+    cancelDecode_();
+    stop();
+    closeClient_();
+  }
 
   std::vector<PlayerDevice> listDevices() override {
     ComInit com;
@@ -163,6 +166,7 @@ public:
   }
 
   bool load(const std::string& path) override {
+    cancelDecode_();
     stopUnlocked_();
     std::lock_guard lock(mutex_);
     path_ = path;
@@ -170,53 +174,58 @@ public:
     error_.clear();
     pcm_.clear();
     dop_.clear();
+    readyFrames_.store(0);
+    totalFrames_.store(0);
     isDop_ = false;
     frameIndex_ = 0;
     sampleRate_ = 44100;
     channels_ = 2;
 
-    refreshEffective_();
     const bool isDsd = endsWithCi(path, ".dsf") || endsWithCi(path, ".dff");
-    if (isDsd) {
-      DsdStream dsd;
-      if (!loadDsdFile(path, dsd, error_)) {
-        state_ = HARBOR_STATE_FAILED;
-        emit_("state", nullptr);
-        return false;
-      }
-      channels_ = dsd.channels;
-      if (effectiveMode_ == HARBOR_MODE_DOP) {
-        packDop(dsd, dop_, sampleRate_);
-        isDop_ = true;
-        badge_ = "DoP · WASAPI Exclusive";
-        duration_ = double(dop_.size() / channels_) / double(sampleRate_);
-      } else {
-        dsdToPcm(dsd, pcm_, sampleRate_, float(dsdLevel_));
+    refreshEffective_();
+    if (!isDsd && effectiveMode_ == HARBOR_MODE_DOP) {
+      badge_ = "Shared (DoP needs DSD)";
+      effectiveMode_ = HARBOR_MODE_SHARED;
+    }
+
+    FrameSourceOptions options;
+    options.dsdLevelDb = dsdLevel_;
+    options.dop = isDsd && effectiveMode_ == HARBOR_MODE_DOP;
+    if (!feed_.open(path, options, error_)) {
+      state_ = HARBOR_STATE_FAILED;
+      emit_("state", nullptr);
+      return false;
+    }
+    sampleRate_ = feed_.sampleRate();
+    channels_ = feed_.channels();
+    isDop_ = feed_.isDop();
+    totalFrames_.store(size_t(feed_.frameCount()));
+    duration_ = double(feed_.frameCount()) / double(sampleRate_ ? sampleRate_ : 1);
+
+    if (isDop_) {
+      badge_ = "DoP · WASAPI Exclusive";
+      cancelDecodeFlag_.store(false);
+      feed_.startDopFill(dop_, readyFrames_, cancelDecodeFlag_);
+    } else {
+      if (isDsd) {
         badge_ = effectiveMode_ == HARBOR_MODE_EXCLUSIVE ? "Exclusive · DSD→PCM"
                                                          : "Shared · DSD→PCM";
-        duration_ = double(pcm_.size() / channels_) / double(sampleRate_);
+      } else if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) {
+        badge_ = "Exclusive · WASAPI";
       }
-    } else {
-      DecodedPcm decoded;
-      if (!decodePcmFile(path, decoded, error_)) {
-        state_ = HARBOR_STATE_FAILED;
-        emit_("state", nullptr);
-        return false;
-      }
-      pcm_ = std::move(decoded.interleaved);
-      sampleRate_ = decoded.sampleRate;
-      channels_ = decoded.channels;
-      duration_ = double(pcm_.size() / channels_) / double(sampleRate_);
-      if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) badge_ = "Exclusive · WASAPI";
-      else if (effectiveMode_ == HARBOR_MODE_DOP) {
-        badge_ = "Shared (DoP needs DSD)";
-        effectiveMode_ = HARBOR_MODE_SHARED;
-      } else {
-        badge_.clear();
-      }
+      cancelDecodeFlag_.store(false);
+      feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
+    }
+
+    const size_t want = std::min<size_t>(4096, totalFrames_.load());
+    for (int i = 0; i < 20000; ++i) {
+      if (readyFrames_.load(std::memory_order_acquire) >= want) break;
+      if (cancelDecodeFlag_.load()) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     if (!openClient_()) {
+      cancelDecode_();
       if (error_.empty()) error_ = "WASAPI open failed";
       state_ = HARBOR_STATE_FAILED;
       emit_("state", nullptr);
@@ -513,12 +522,22 @@ private:
     bufferFrames_ = 0;
   }
 
+  void cancelDecode_() {
+    cancelDecodeFlag_.store(true);
+    feed_.join();
+    cancelDecodeFlag_.store(false);
+  }
+
   void stopUnlocked_() {
     state_ = HARBOR_STATE_IDLE;
+    cancelDecode_();
+    feed_.close();
     closeClient_();
     path_.clear();
     pcm_.clear();
     dop_.clear();
+    readyFrames_.store(0);
+    totalFrames_.store(0);
     frameIndex_ = 0;
     duration_ = -1;
   }
@@ -526,29 +545,31 @@ private:
   void writeFrames_(BYTE* data, UINT32 frames) {
     if (frames == 0) return;
     size_t idx = frameIndex_.load();
+    const size_t ready = readyFrames_.load(std::memory_order_acquire);
+    const size_t total = totalFrames_.load(std::memory_order_acquire);
+    size_t advanced = 0;
     if (isDop_) {
-      const size_t total = dop_.size() / channels_;
       for (UINT32 f = 0; f < frames; ++f) {
         for (uint16_t c = 0; c < channels_; ++c) {
           int32_t sample = 0;
-          if (idx + f < total) sample = dop_[(idx + f) * channels_ + c];
+          if (idx + f < ready) sample = dop_[(idx + f) * channels_ + c];
           if (bitsPerSample_ <= 16) {
             reinterpret_cast<int16_t*>(data)[f * channels_ + c] = int16_t(sample >> 16);
           } else {
-            // 24-in-32 or 32: DoP markers live in top bytes of 32-bit word
             reinterpret_cast<int32_t*>(data)[f * channels_ + c] = sample;
           }
         }
+        if (idx + f < ready) ++advanced;
+        else if (total > 0 && idx + f >= total) ++advanced;
       }
-      frameIndex_.store(std::min(idx + frames, total));
+      frameIndex_.store(idx + advanced);
       return;
     }
 
-    const size_t total = pcm_.size() / channels_;
     for (UINT32 f = 0; f < frames; ++f) {
       for (uint16_t c = 0; c < channels_; ++c) {
         float sample = 0.f;
-        if (idx + f < total) sample = pcm_[(idx + f) * channels_ + c] * volume_;
+        if (idx + f < ready) sample = pcm_[(idx + f) * channels_ + c] * volume_;
         if (useFloat_) {
           reinterpret_cast<float*>(data)[f * channels_ + c] = sample;
         } else if (bitsPerSample_ <= 16) {
@@ -561,14 +582,15 @@ private:
               int32_t(clamped * 2147483647.f);
         }
       }
+      if (idx + f < ready) ++advanced;
+      else if (total > 0 && idx + f >= total) ++advanced;
     }
-    frameIndex_.store(std::min(idx + frames, total));
+    frameIndex_.store(idx + advanced);
   }
 
   bool ended_() const {
-    const size_t idx = frameIndex_.load();
-    if (isDop_) return idx >= dop_.size() / channels_;
-    return idx >= pcm_.size() / channels_;
+    const size_t total = totalFrames_.load(std::memory_order_acquire);
+    return total > 0 && frameIndex_.load() >= total;
   }
 
   void ensureThread_() {
@@ -601,6 +623,14 @@ private:
           emit_("state", nullptr);
           threadRunning_ = false;
           break;
+        }
+
+        const size_t idx = frameIndex_.load();
+        const size_t ready = readyFrames_.load(std::memory_order_acquire);
+        const size_t total = totalFrames_.load(std::memory_order_acquire);
+        if (idx >= ready && (total == 0 || idx < total)) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+          continue;
         }
 
         client->Start();
@@ -659,7 +689,11 @@ private:
   WORD bitsPerSample_ = 32;
   std::vector<float> pcm_;
   std::vector<int32_t> dop_;
+  PlaybackFeed feed_;
   std::atomic<size_t> frameIndex_ { 0 };
+  std::atomic<size_t> readyFrames_ { 0 };
+  std::atomic<size_t> totalFrames_ { 0 };
+  std::atomic<bool> cancelDecodeFlag_ { false };
   IAudioClient* client_ = nullptr;
   IAudioRenderClient* render_ = nullptr;
   UINT32 bufferFrames_ = 0;

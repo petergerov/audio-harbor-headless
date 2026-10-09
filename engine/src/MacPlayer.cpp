@@ -1,6 +1,6 @@
 #if defined(__APPLE__)
 
-#include "DsdPipeline.h"
+#include "PlaybackFeed.h"
 #include "Player.h"
 
 #include <AudioToolbox/AudioToolbox.h>
@@ -126,7 +126,6 @@ public:
     error_.clear();
     pcm_.clear();
     dop_.clear();
-    dsdBits_ = DsdStream {};
     readyFrames_.store(0);
     totalFrames_.store(0);
     isDop_ = false;
@@ -135,78 +134,50 @@ public:
     frameIndex_ = 0;
 
     const bool isDsd = endsWithCi(path, ".dsf") || endsWithCi(path, ".dff");
-    if (isDsd) {
-      std::string err;
-      if (!loadDsdFile(path, dsdBits_, err)) {
-        error_ = err;
-        state_ = HARBOR_STATE_FAILED;
-        emit_("state", nullptr);
-        return false;
-      }
-      channels_ = dsdBits_.channels;
-      refreshEffective_();
-      if (effectiveMode_ == HARBOR_MODE_DOP) {
-        // DoP packing is cheap vs FIR — keep synchronous.
-        packDop(dsdBits_, dop_, sampleRate_);
-        isDop_ = true;
-        badge_ = "DoP";
-        totalFrames_.store(dop_.size() / channels_);
-        readyFrames_.store(totalFrames_.load());
-        duration_ = double(totalFrames_.load()) / double(sampleRate_);
-        dsdBits_ = DsdStream {};
-      } else {
-        isDop_ = false;
+    refreshEffective_();
+    if (!isDsd && effectiveMode_ == HARBOR_MODE_DOP) {
+      effectiveMode_ = HARBOR_MODE_EXCLUSIVE;
+      badge_ = "Exclusive (PCM, DoP N/A)";
+    }
+
+    FrameSourceOptions options;
+    options.dsdLevelDb = dsdLevel_;
+    options.dop = isDsd && effectiveMode_ == HARBOR_MODE_DOP;
+    if (!feed_.open(path, options, error_)) {
+      state_ = HARBOR_STATE_FAILED;
+      emit_("state", nullptr);
+      return false;
+    }
+    sampleRate_ = feed_.sampleRate();
+    channels_ = feed_.channels();
+    isDop_ = feed_.isDop();
+    totalFrames_.store(size_t(feed_.frameCount()));
+    duration_ = double(feed_.frameCount()) / double(sampleRate_ ? sampleRate_ : 1);
+
+    if (isDop_) {
+      badge_ = "DoP";
+      cancelDecodeFlag_.store(false);
+      feed_.startDopFill(dop_, readyFrames_, cancelDecodeFlag_);
+    } else {
+      if (isDsd) {
         badge_ = effectiveMode_ == HARBOR_MODE_EXCLUSIVE
                    ? "Exclusive · DSD→PCM"
                    : "Shared · DSD→PCM";
-        // Decode on a worker: start playback after ~1s of PCM is ready (like Harbor desktop).
-        cancelDecodeFlag_.store(false);
-        auto* bits = &dsdBits_;
-        auto* pcm = &pcm_;
-        auto* rate = &sampleRate_;
-        auto* ready = &readyFrames_;
-        auto* total = &totalFrames_;
-        auto* cancel = &cancelDecodeFlag_;
-        const float gain = float(dsdLevel_);
-        {
-          int decimation = 32;
-          if (dsdBits_.sampleRate >= 11289600) decimation = 128;
-          else if (dsdBits_.sampleRate >= 5644800) decimation = 64;
-          const uint32_t rate = dsdBits_.sampleRate / uint32_t(decimation);
-          if (rate) sampleRate_ = rate;
-          const int bytesPerPcm = decimation / 8;
-          const size_t ch = channels_ ? channels_ : 2;
-          const size_t frames =
-            dsdBits_.interleavedBits.size() / (ch * size_t(bytesPerPcm));
-          totalFrames_.store(frames);
-          duration_ = double(frames) / double(sampleRate_ ? sampleRate_ : 1);
-        }
-
-        decodeThread_ = std::thread([bits, pcm, rate, ready, cancel, gain]() {
-          dsdToPcmProgressive(*bits, *pcm, *rate, gain, ready, cancel);
-        });
-
-        // Wait for first PCM quantum (~50ms at 88.2k) so the device can start immediately.
-        for (int i = 0; i < 20000; ++i) {
-          if (readyFrames_.load(std::memory_order_acquire) >= 4096) break;
-          if (cancelDecodeFlag_.load()) break;
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+      } else if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) {
+        badge_ = "Exclusive";
+      } else if (badge_.empty()) {
+        badge_.clear();
       }
-    } else {
-      if (!loadPcmFile_(path)) {
-        state_ = HARBOR_STATE_FAILED;
-        emit_("state", nullptr);
-        return false;
-      }
-      readyFrames_.store(pcm_.size() / channels_);
-      totalFrames_.store(readyFrames_.load());
-      refreshEffective_();
-      if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) badge_ = "Exclusive";
-      else if (effectiveMode_ == HARBOR_MODE_DOP) {
-        effectiveMode_ = HARBOR_MODE_EXCLUSIVE;
-        badge_ = "Exclusive (PCM, DoP N/A)";
-      } else badge_.clear();
+      cancelDecodeFlag_.store(false);
+      feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
+    }
+
+    // Wait for the first quantum so the device can start immediately.
+    const size_t want = std::min<size_t>(4096, totalFrames_.load());
+    for (int i = 0; i < 20000; ++i) {
+      if (readyFrames_.load(std::memory_order_acquire) >= want) break;
+      if (cancelDecodeFlag_.load()) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     if (!openUnit_()) {
@@ -276,55 +247,6 @@ public:
   }
 
 private:
-  bool loadPcmFile_(const std::string& path) {
-    CFURLRef url = CFURLCreateFromFileSystemRepresentation(
-      kCFAllocatorDefault, reinterpret_cast<const UInt8*>(path.c_str()), path.size(), false);
-    if (!url) {
-      error_ = "Bad path";
-      return false;
-    }
-    ExtAudioFileRef eaf = nullptr;
-    OSStatus st = ExtAudioFileOpenURL(url, &eaf);
-    CFRelease(url);
-    if (st != noErr || !eaf) {
-      error_ = "Cannot open audio file";
-      return false;
-    }
-
-    AudioStreamBasicDescription fileFmt {};
-    UInt32 size = sizeof(fileFmt);
-    ExtAudioFileGetProperty(eaf, kExtAudioFileProperty_FileDataFormat, &size, &fileFmt);
-
-    AudioStreamBasicDescription client = fileFmt;
-    client.mFormatID = kAudioFormatLinearPCM;
-    client.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagsNativeEndian;
-    client.mBitsPerChannel = 32;
-    client.mChannelsPerFrame = fileFmt.mChannelsPerFrame ? fileFmt.mChannelsPerFrame : 2;
-    client.mBytesPerFrame = 4 * client.mChannelsPerFrame;
-    client.mFramesPerPacket = 1;
-    client.mBytesPerPacket = client.mBytesPerFrame;
-    ExtAudioFileSetProperty(eaf, kExtAudioFileProperty_ClientDataFormat, sizeof(client), &client);
-
-    sampleRate_ = uint32_t(client.mSampleRate);
-    channels_ = uint16_t(client.mChannelsPerFrame);
-
-    SInt64 frames = 0;
-    size = sizeof(frames);
-    ExtAudioFileGetProperty(eaf, kExtAudioFileProperty_FileLengthFrames, &size, &frames);
-    pcm_.resize(size_t(frames) * channels_);
-    AudioBufferList abl {};
-    abl.mNumberBuffers = 1;
-    abl.mBuffers[0].mNumberChannels = channels_;
-    abl.mBuffers[0].mDataByteSize = UInt32(pcm_.size() * sizeof(float));
-    abl.mBuffers[0].mData = pcm_.data();
-    UInt32 framesToRead = UInt32(frames);
-    ExtAudioFileRead(eaf, &framesToRead, &abl);
-    ExtAudioFileDispose(eaf);
-    duration_ = double(framesToRead) / double(sampleRate_);
-    isDop_ = false;
-    return true;
-  }
-
   AudioDeviceID selectedDeviceId_() const {
     if (selectedUid_.empty() || selectedUid_ == "default") {
       AudioDeviceID id = kAudioObjectUnknown;
@@ -455,17 +377,17 @@ private:
 
   void cancelDecode_() {
     cancelDecodeFlag_.store(true);
-    if (decodeThread_.joinable()) decodeThread_.join();
+    feed_.join();
     cancelDecodeFlag_.store(false);
   }
 
   void stopUnlocked_() {
     cancelDecode_();
+    feed_.close();
     closeUnit_();
     path_.clear();
     pcm_.clear();
     dop_.clear();
-    dsdBits_ = DsdStream {};
     readyFrames_.store(0);
     totalFrames_.store(0);
     frameIndex_ = 0;
@@ -498,9 +420,15 @@ private:
 
     if (self->isDop_) {
       auto* out = static_cast<int32_t*>(buf.mData);
-      const size_t totalFrames = self->dop_.size() / ch;
+      const size_t ready = self->readyFrames_.load(std::memory_order_acquire);
+      const size_t total = self->totalFrames_.load(std::memory_order_acquire);
       for (UInt32 i = 0; i < inNumberFrames; ++i) {
-        if (idx >= totalFrames) {
+        if (total > 0 && idx >= total) {
+          for (size_t c = 0; c < ch; ++c) out[i * ch + c] = 0;
+          ++idx;
+          continue;
+        }
+        if (idx >= ready) {
           for (size_t c = 0; c < ch; ++c) out[i * ch + c] = 0;
           continue;
         }
@@ -508,7 +436,7 @@ private:
         ++idx;
       }
       self->frameIndex_.store(idx);
-      if (idx >= totalFrames && self->state_ == HARBOR_STATE_PLAYING) {
+      if (total > 0 && idx >= total && self->state_ == HARBOR_STATE_PLAYING) {
         self->state_ = HARBOR_STATE_IDLE;
         self->emit_("ended", "{}");
         self->emit_("state", nullptr);
@@ -558,12 +486,11 @@ private:
   bool isDop_ = false;
   std::vector<float> pcm_;
   std::vector<int32_t> dop_;
-  DsdStream dsdBits_;
+  PlaybackFeed feed_;
   std::atomic<size_t> frameIndex_ { 0 };
   std::atomic<size_t> readyFrames_ { 0 };
   std::atomic<size_t> totalFrames_ { 0 };
   std::atomic<bool> cancelDecodeFlag_ { false };
-  std::thread decodeThread_;
   AudioUnit audioUnit_ = nullptr;
   AudioDeviceID hoggedId_ = kAudioObjectUnknown;
 };

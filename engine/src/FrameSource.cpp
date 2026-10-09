@@ -1,4 +1,4 @@
-#include "NetPcmSource.h"
+#include "FrameSource.h"
 
 #include "DsdPipeline.h"
 #include "PcmDecoder.h"
@@ -88,9 +88,14 @@ void packS32(const int32_t* in, size_t samples, uint16_t bits, uint8_t* out) {
   }
 }
 
-class DsdSource final : public NetPcmSource {
+
+void s32ToFloat(const int32_t* in, size_t samples, float* out) {
+  for (size_t i = 0; i < samples; ++i) out[i] = float(in[i]) * (1.0f / 2147483648.0f);
+}
+
+class DsdSource final : public FrameSource {
 public:
-  bool open(const std::string& path, const NetPcmOptions& options, std::string& error) {
+  bool open(const std::string& path, const FrameSourceOptions& options, std::string& error) {
     wifi_ = options.wifi;
     return reader_.open(path, float(options.dsdLevelDb), options.wifi, error);
   }
@@ -99,7 +104,11 @@ public:
   uint64_t frameCount() const override { return reader_.frameCount(); }
   uint16_t bitsPerSample() const override { return wifi_ ? 16 : 24; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    return reader_.read(startFrame, count, out);
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     floats_.resize(count * channels());
     const size_t n = reader_.read(startFrame, count, floats_.data());
     packFloat(floats_.data(), n, channels(), bitsPerSample(), true, startFrame, out);
@@ -116,7 +125,7 @@ private:
  * DSD as DoP: per channel and frame, two DSD bytes under a marker that alternates 0x05 / 0xFA
  * frame by frame. The marker follows the absolute frame, so a seek continues the sequence.
  */
-class DopSource final : public NetPcmSource {
+class DopSource final : public FrameSource {
 public:
   bool open(const std::string& path, std::string& error) {
     if (!bytes_.open(path, error)) return false;
@@ -132,7 +141,33 @@ public:
   uint64_t frameCount() const override { return frames_; }
   uint16_t bitsPerSample() const override { return 24; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  bool isDop() const override { return true; }
+  size_t readFloat(uint64_t, size_t, float*) override { return 0; }
+  size_t readDop(uint64_t startFrame, size_t count, int32_t* out) override {
+    if (startFrame >= frames_) return 0;
+    count = size_t(std::min<uint64_t>(count, frames_ - startFrame));
+    const uint16_t channels = this->channels();
+    size_t written = 0;
+    while (written < count) {
+      const uint64_t frame = startFrame + written;
+      const size_t readable = bytes_.ensure(frame * 2, 2);
+      if (readable < 2) break;
+      const size_t run = std::min(count - written, readable / 2);
+      for (size_t f = 0; f < run; ++f) {
+        const uint8_t marker = ((frame + f) & 1) ? 0xFA : 0x05;
+        for (uint16_t c = 0; c < channels; ++c) {
+          const uint8_t* dsd = bytes_.at(c, (frame + f) * 2);
+          // marker in 31–24, older DSD byte in 23–16, newer in 15–8.
+          out[(written + f) * channels + c] =
+            (int32_t(marker) << 24) | (int32_t(dsd[0]) << 16) | (int32_t(dsd[1]) << 8);
+        }
+      }
+      written += run;
+    }
+    return written;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     if (startFrame >= frames_) return 0;
     count = size_t(std::min<uint64_t>(count, frames_ - startFrame));
     const uint16_t channels = this->channels();
@@ -167,7 +202,7 @@ private:
   uint64_t frames_ = 0;
 };
 
-class FlacSource final : public NetPcmSource {
+class FlacSource final : public FrameSource {
 public:
   ~FlacSource() override {
     if (flac_) drflac_close(flac_);
@@ -186,7 +221,20 @@ public:
   uint64_t frameCount() const override { return flac_->totalPCMFrameCount; }
   uint16_t bitsPerSample() const override { return bits_; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    if (startFrame >= frameCount()) return 0;
+    if (startFrame != position_) {
+      if (!drflac_seek_to_pcm_frame(flac_, startFrame)) return 0;
+      position_ = startFrame;
+    }
+    buffer_.resize(count * channels());
+    const size_t n = size_t(drflac_read_pcm_frames_s32(flac_, count, buffer_.data()));
+    position_ += n;
+    s32ToFloat(buffer_.data(), n * channels(), out);
+    return n;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     if (startFrame >= frameCount()) return 0;
     if (startFrame != position_) {
       if (!drflac_seek_to_pcm_frame(flac_, startFrame)) return 0;
@@ -206,7 +254,7 @@ private:
   std::vector<int32_t> buffer_;
 };
 
-class WavSource final : public NetPcmSource {
+class WavSource final : public FrameSource {
 public:
   ~WavSource() override {
     if (open_) drwav_uninit(&wav_);
@@ -225,7 +273,20 @@ public:
   uint64_t frameCount() const override { return wav_.totalPCMFrameCount; }
   uint16_t bitsPerSample() const override { return bits_; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    if (startFrame >= frameCount()) return 0;
+    if (startFrame != position_) {
+      if (!drwav_seek_to_pcm_frame(&wav_, startFrame)) return 0;
+      position_ = startFrame;
+    }
+    buffer_.resize(count * channels());
+    const size_t n = size_t(drwav_read_pcm_frames_s32(&wav_, count, buffer_.data()));
+    position_ += n;
+    s32ToFloat(buffer_.data(), n * channels(), out);
+    return n;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     if (startFrame >= frameCount()) return 0;
     if (startFrame != position_) {
       if (!drwav_seek_to_pcm_frame(&wav_, startFrame)) return 0;
@@ -246,7 +307,7 @@ private:
   std::vector<int32_t> buffer_;
 };
 
-class Mp3Source final : public NetPcmSource {
+class Mp3Source final : public FrameSource {
 public:
   ~Mp3Source() override {
     if (open_) drmp3_uninit(&mp3_);
@@ -265,7 +326,18 @@ public:
   uint64_t frameCount() const override { return frames_; }
   uint16_t bitsPerSample() const override { return 24; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    if (startFrame >= frames_) return 0;
+    if (startFrame != position_) {
+      if (!drmp3_seek_to_pcm_frame(&mp3_, startFrame)) return 0;
+      position_ = startFrame;
+    }
+    const size_t n = size_t(drmp3_read_pcm_frames_f32(&mp3_, count, out));
+    position_ += n;
+    return n;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     if (startFrame >= frames_) return 0;
     if (startFrame != position_) {
       if (!drmp3_seek_to_pcm_frame(&mp3_, startFrame)) return 0;
@@ -287,7 +359,7 @@ private:
 };
 
 /** AIFF and uncompressed AIFC (big-endian, 'sowt' little-endian, 'fl32' float). */
-class AiffSource final : public NetPcmSource {
+class AiffSource final : public FrameSource {
 public:
   ~AiffSource() override {
     if (file_) std::fclose(file_);
@@ -349,7 +421,34 @@ public:
   uint64_t frameCount() const override { return frames_; }
   uint16_t bitsPerSample() const override { return bits_; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    if (startFrame >= frames_) return 0;
+    count = size_t(std::min<uint64_t>(count, frames_ - startFrame));
+    if (!seek(dataStart_ + startFrame * blockAlign_)) return 0;
+    raw_.resize(count * blockAlign_);
+    const size_t n = std::fread(raw_.data(), 1, raw_.size(), file_) / blockAlign_;
+    const size_t bytes = blockAlign_ / channels_;
+    const size_t samples = n * channels_;
+    if (float_) {
+      for (size_t i = 0; i < samples; ++i) {
+        const uint32_t bitsValue = be32(raw_.data() + i * 4);
+        std::memcpy(out + i, &bitsValue, 4);
+      }
+      return n;
+    }
+    for (size_t i = 0; i < samples; ++i) {
+      const uint8_t* p = raw_.data() + i * bytes;
+      uint32_t v = 0;
+      for (size_t b = 0; b < bytes; ++b) {
+        const uint8_t byte = littleEndian_ ? p[bytes - 1 - b] : p[b];
+        v |= uint32_t(byte) << (24 - 8 * b);
+      }
+      out[i] = float(int32_t(v)) * (1.0f / 2147483648.0f);
+    }
+    return n;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     if (startFrame >= frames_) return 0;
     count = size_t(std::min<uint64_t>(count, frames_ - startFrame));
     if (!seek(dataStart_ + startFrame * blockAlign_)) return 0;
@@ -417,7 +516,7 @@ private:
 
 #if defined(__APPLE__)
 /** ALAC, AAC and anything else Core Audio reads, decoded to float with sample-exact seeks. */
-class AppleFileSource final : public NetPcmSource {
+class AppleFileSource final : public FrameSource {
 public:
   ~AppleFileSource() override {
     if (file_) ExtAudioFileDispose(file_);
@@ -475,7 +574,28 @@ public:
   uint64_t frameCount() const override { return frames_; }
   uint16_t bitsPerSample() const override { return bits_; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    if (startFrame >= frames_) return 0;
+    if (startFrame != position_) {
+      if (ExtAudioFileSeek(file_, SInt64(startFrame)) != noErr) return 0;
+      position_ = startFrame;
+    }
+    size_t done = 0;
+    while (done < count) {
+      AudioBufferList list {};
+      list.mNumberBuffers = 1;
+      list.mBuffers[0].mNumberChannels = channels_;
+      list.mBuffers[0].mDataByteSize = UInt32((count - done) * channels_ * sizeof(float));
+      list.mBuffers[0].mData = out + done * channels_;
+      UInt32 frames = UInt32(count - done);
+      if (ExtAudioFileRead(file_, &frames, &list) != noErr || frames == 0) break;
+      done += frames;
+    }
+    position_ += done;
+    return done;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     if (startFrame >= frames_) return 0;
     if (startFrame != position_) {
       if (ExtAudioFileSeek(file_, SInt64(startFrame)) != noErr) return 0;
@@ -510,7 +630,7 @@ private:
 #endif
 
 /** Whole file decoded up front (ALAC / AAC through ffmpeg off the Mac). */
-class MemorySource final : public NetPcmSource {
+class MemorySource final : public FrameSource {
 public:
   bool open(const std::string& path, std::string& error) {
     if (!decodePcmFile(path, pcm_, error)) return false;
@@ -525,7 +645,14 @@ public:
   uint64_t frameCount() const override { return pcm_.interleaved.size() / pcm_.channels; }
   uint16_t bitsPerSample() const override { return 24; }
 
-  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    if (startFrame >= frameCount()) return 0;
+    const size_t n = size_t(std::min<uint64_t>(count, frameCount() - startFrame));
+    std::memcpy(out, pcm_.interleaved.data() + startFrame * pcm_.channels, n * pcm_.channels * sizeof(float));
+    return n;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
     if (startFrame >= frameCount()) return 0;
     const size_t n = size_t(std::min<uint64_t>(count, frameCount() - startFrame));
     packFloat(pcm_.interleaved.data() + startFrame * pcm_.channels, n, pcm_.channels, 24, false,
@@ -538,7 +665,7 @@ private:
 };
 
 template <typename Source>
-std::unique_ptr<NetPcmSource> tryOpen(const std::string& path, std::string& error) {
+std::unique_ptr<FrameSource> tryOpen(const std::string& path, std::string& error) {
   auto source = std::make_unique<Source>();
   if (source->open(path, error)) return source;
   return nullptr;
@@ -546,8 +673,8 @@ std::unique_ptr<NetPcmSource> tryOpen(const std::string& path, std::string& erro
 
 } // namespace
 
-std::unique_ptr<NetPcmSource> openNetPcmSource(
-    const std::string& path, const NetPcmOptions& options, std::string& error) {
+std::unique_ptr<FrameSource> openFrameSource(
+    const std::string& path, const FrameSourceOptions& options, std::string& error) {
   if (endsWithCi(path, ".dsf") || endsWithCi(path, ".dff")) {
     if (options.dop) {
       auto source = std::make_unique<DopSource>();
@@ -559,7 +686,7 @@ std::unique_ptr<NetPcmSource> openNetPcmSource(
     return nullptr;
   }
 
-  std::unique_ptr<NetPcmSource> source;
+  std::unique_ptr<FrameSource> source;
   if (endsWithCi(path, ".flac")) source = tryOpen<FlacSource>(path, error);
   else if (endsWithCi(path, ".wav") || endsWithCi(path, ".wave")) source = tryOpen<WavSource>(path, error);
   else if (endsWithCi(path, ".mp3")) source = tryOpen<Mp3Source>(path, error);

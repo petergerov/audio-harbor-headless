@@ -12,6 +12,7 @@ import {
   engineEvents,
 } from '../engine/bridge.js';
 import type { Catalogue } from '../library/catalogue.js';
+import { resolveDstDffPlaybackPath } from '../library/dstDff.js';
 import {
   listSacdTracks,
   parseSacdPath,
@@ -56,8 +57,21 @@ function rendererDevice(r: UpnpRenderer): OutputDevice {
   };
 }
 
+/** Fisher–Yates; leaves `items` unchanged. */
+function shuffledCopy<T>(items: T[]): T[] {
+  const out = items.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
 export class PlaybackService extends EventEmitter {
+  /** Play order (shuffled when shuffle is on). */
   private queue: Track[] = [];
+  /** Album / selection order; used to restore when shuffle turns off. */
+  private ordered: Track[] = [];
   private index: number | null = null;
   private shuffle = false;
   private repeat: RepeatMode = 'off';
@@ -207,9 +221,44 @@ export class PlaybackService extends EventEmitter {
 
   async playTracks(tracks: Track[], startIndex = 0): Promise<void> {
     if (!tracks.length) return;
-    this.queue = tracks;
-    this.index = Math.min(Math.max(0, startIndex), tracks.length - 1);
-    await this.loadAndPlay(tracks[this.index]!);
+    this.ordered = tracks.slice();
+    const start = Math.min(Math.max(0, startIndex), tracks.length - 1);
+    if (this.shuffle && tracks.length > 1) {
+      const rest = shuffledCopy(tracks.filter((_, i) => i !== start));
+      this.queue = [tracks[start]!, ...rest];
+      this.index = 0;
+    } else {
+      this.queue = tracks.slice();
+      this.index = start;
+    }
+    await this.loadAndPlay(this.queue[this.index]!);
+  }
+
+  /** Rebuild play order from `ordered`, keeping the current track under the playhead. */
+  private applyShuffle(enabled: boolean): void {
+    if (enabled === this.shuffle) return;
+    this.shuffle = enabled;
+    if (!this.ordered.length) {
+      void this.prepareFollowingTrack();
+      return;
+    }
+    const currentPath = this.current?.cataloguePath ?? this.queue[this.index ?? 0]?.cataloguePath;
+    if (enabled && this.ordered.length > 1) {
+      const current =
+        this.ordered.find((t) => t.cataloguePath === currentPath) ?? this.ordered[0]!;
+      const rest = shuffledCopy(
+        this.ordered.filter((t) => t.cataloguePath !== current.cataloguePath)
+      );
+      this.queue = [current, ...rest];
+      this.index = 0;
+    } else {
+      this.queue = this.ordered.slice();
+      const idx = currentPath
+        ? this.queue.findIndex((t) => t.cataloguePath === currentPath)
+        : 0;
+      this.index = idx >= 0 ? idx : 0;
+    }
+    void this.prepareFollowingTrack();
   }
 
   async transport(cmd: TransportCommand): Promise<void> {
@@ -251,7 +300,7 @@ export class PlaybackService extends EventEmitter {
         else engineSetVolume(cmd.level);
         break;
       case 'setShuffle':
-        this.shuffle = cmd.enabled;
+        this.applyShuffle(cmd.enabled);
         break;
       case 'setRepeat':
         this.repeat = cmd.mode;
@@ -403,7 +452,7 @@ export class PlaybackService extends EventEmitter {
 
     const playPath = track.cataloguePath.includes(SACD_MARKER)
       ? await resolveSacdPlaybackPath(track.cataloguePath)
-      : track.cataloguePath;
+      : await resolveDstDffPlaybackPath(track.cataloguePath);
     if (seq !== this.loadSeq) return;
     await engineLoad(playPath);
     if (seq !== this.loadSeq) return;

@@ -1,13 +1,13 @@
 #if defined(__linux__)
 
-#include "DsdPipeline.h"
-#include "PcmDecoder.h"
+#include "PlaybackFeed.h"
 #include "Player.h"
 
 #include <alsa/asoundlib.h>
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -16,14 +16,23 @@
 
 namespace {
 
-bool endsWith(const std::string& s, const char* ext) {
+bool endsWithCi(const std::string& s, const char* ext) {
   const size_t n = std::strlen(ext);
-  return s.size() >= n && s.compare(s.size() - n, n, ext) == 0;
+  if (s.size() < n) return false;
+  for (size_t i = 0; i < n; ++i) {
+    const char a = s[s.size() - n + i];
+    const char b = ext[i];
+    if ((a | 32) != (b | 32)) return false;
+  }
+  return true;
 }
 
 class LinuxPlayer final : public IPlayer {
 public:
-  ~LinuxPlayer() override { stop(); }
+  ~LinuxPlayer() override {
+    cancelDecode_();
+    stop();
+  }
 
   std::vector<PlayerDevice> listDevices() override {
     std::vector<PlayerDevice> devices;
@@ -73,6 +82,7 @@ public:
   }
 
   bool load(const std::string& path) override {
+    cancelDecode_();
     stopUnlocked_();
     std::lock_guard lock(mutex_);
     path_ = path;
@@ -80,46 +90,60 @@ public:
     error_.clear();
     pcm_.clear();
     dop_.clear();
+    readyFrames_.store(0);
+    totalFrames_.store(0);
     isDop_ = false;
+    sampleRate_ = 44100;
+    channels_ = 2;
     frameIndex_ = 0;
 
+    const bool isDsd = endsWithCi(path, ".dsf") || endsWithCi(path, ".dff");
     refreshEffective_();
-    if (endsWith(path, ".dsf") || endsWith(path, ".DSF") || endsWith(path, ".dff") || endsWith(path, ".DFF")) {
-      DsdStream dsd;
-      if (!loadDsdFile(path, dsd, error_)) {
-        state_ = HARBOR_STATE_FAILED;
-        emit_("state", nullptr);
-        return false;
-      }
-      channels_ = dsd.channels;
-      if (effectiveMode_ == HARBOR_MODE_DOP) {
-        packDop(dsd, dop_, sampleRate_);
-        isDop_ = true;
-        badge_ = "DoP";
-        duration_ = double(dop_.size() / channels_) / double(sampleRate_);
-      } else {
-        dsdToPcm(dsd, pcm_, sampleRate_, float(dsdLevel_));
-        badge_ = effectiveMode_ == HARBOR_MODE_EXCLUSIVE ? "Exclusive · DSD→PCM" : "Shared · DSD→PCM";
-        duration_ = double(pcm_.size() / channels_) / double(sampleRate_);
-      }
+    if (!isDsd && effectiveMode_ == HARBOR_MODE_DOP) {
+      effectiveMode_ = HARBOR_MODE_EXCLUSIVE;
+      badge_ = "Exclusive (PCM, DoP N/A)";
+    }
+
+    FrameSourceOptions options;
+    options.dsdLevelDb = dsdLevel_;
+    options.dop = isDsd && effectiveMode_ == HARBOR_MODE_DOP;
+    if (!feed_.open(path, options, error_)) {
+      state_ = HARBOR_STATE_FAILED;
+      emit_("state", nullptr);
+      return false;
+    }
+    sampleRate_ = feed_.sampleRate();
+    channels_ = feed_.channels();
+    isDop_ = feed_.isDop();
+    totalFrames_.store(size_t(feed_.frameCount()));
+    duration_ = double(feed_.frameCount()) / double(sampleRate_ ? sampleRate_ : 1);
+
+    if (isDop_) {
+      badge_ = "DoP";
+      cancelDecodeFlag_.store(false);
+      feed_.startDopFill(dop_, readyFrames_, cancelDecodeFlag_);
     } else {
-      DecodedPcm decoded;
-      if (!decodePcmFile(path, decoded, error_)) {
-        state_ = HARBOR_STATE_FAILED;
-        emit_("state", nullptr);
-        return false;
+      if (isDsd) {
+        badge_ = effectiveMode_ == HARBOR_MODE_EXCLUSIVE
+                   ? "Exclusive · DSD→PCM"
+                   : "Shared · DSD→PCM";
+      } else if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) {
+        badge_ = "Exclusive";
       }
-      pcm_ = std::move(decoded.interleaved);
-      sampleRate_ = decoded.sampleRate;
-      channels_ = decoded.channels;
-      duration_ = double(pcm_.size() / channels_) / double(sampleRate_);
-      isDop_ = false;
-      if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) badge_ = "Exclusive";
-      else badge_.clear();
+      cancelDecodeFlag_.store(false);
+      feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
+    }
+
+    const size_t want = std::min<size_t>(4096, totalFrames_.load());
+    for (int i = 0; i < 20000; ++i) {
+      if (readyFrames_.load(std::memory_order_acquire) >= want) break;
+      if (cancelDecodeFlag_.load()) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     if (!openAlsa_()) {
-      error_ = "ALSA open failed";
+      cancelDecode_();
+      if (error_.empty()) error_ = "ALSA open failed";
       state_ = HARBOR_STATE_FAILED;
       emit_("state", nullptr);
       return false;
@@ -233,12 +257,22 @@ private:
     pcmHandle_ = nullptr;
   }
 
+  void cancelDecode_() {
+    cancelDecodeFlag_.store(true);
+    feed_.join();
+    cancelDecodeFlag_.store(false);
+  }
+
   void stopUnlocked_() {
     state_ = HARBOR_STATE_IDLE;
+    cancelDecode_();
+    feed_.close();
     closeAlsa_();
     path_.clear();
     pcm_.clear();
     dop_.clear();
+    readyFrames_.store(0);
+    totalFrames_.store(0);
     frameIndex_ = 0;
     duration_ = -1;
   }
@@ -259,37 +293,29 @@ private:
           }
         }
         size_t idx = frameIndex_.load();
+        const size_t ready = readyFrames_.load(std::memory_order_acquire);
+        const size_t total = totalFrames_.load(std::memory_order_acquire);
+        if (total > 0 && idx >= total) {
+          std::lock_guard lock(mutex_);
+          state_ = HARBOR_STATE_IDLE;
+          emit_("ended", "{}");
+          emit_("state", nullptr);
+          threadRunning_ = false;
+          break;
+        }
+        if (idx >= ready) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+          continue;
+        }
+        const size_t n = std::min(block, ready - idx);
         if (isDop_) {
-          const size_t total = dop_.size() / channels_;
-          if (idx >= total) {
-            std::lock_guard lock(mutex_);
-            state_ = HARBOR_STATE_IDLE;
-            emit_("ended", "{}");
-            emit_("state", nullptr);
-            threadRunning_ = false;
-            break;
-          }
-          const size_t n = std::min(block, total - idx);
           snd_pcm_writei(pcmHandle_, dop_.data() + idx * channels_, n);
-          frameIndex_.store(idx + n);
         } else {
-          const size_t total = pcm_.size() / channels_;
-          if (idx >= total) {
-            std::lock_guard lock(mutex_);
-            state_ = HARBOR_STATE_IDLE;
-            emit_("ended", "{}");
-            emit_("state", nullptr);
-            threadRunning_ = false;
-            break;
-          }
-          const size_t n = std::min(block, total - idx);
-          // apply soft volume only on shared path when no HW mixer bound
           std::vector<float> tmp(n * channels_);
-          for (size_t i = 0; i < tmp.size(); ++i) tmp[i] = pcm_[idx * channels_ + (i % (n * channels_) < tmp.size() ? i : 0)];
           for (size_t i = 0; i < n * channels_; ++i) tmp[i] = pcm_[idx * channels_ + i] * volume_;
           snd_pcm_writei(pcmHandle_, tmp.data(), n);
-          frameIndex_.store(idx + n);
         }
+        frameIndex_.store(idx + n);
       }
     }).detach();
   }
@@ -315,7 +341,11 @@ private:
   bool isDop_ = false;
   std::vector<float> pcm_;
   std::vector<int32_t> dop_;
+  PlaybackFeed feed_;
   std::atomic<size_t> frameIndex_ { 0 };
+  std::atomic<size_t> readyFrames_ { 0 };
+  std::atomic<size_t> totalFrames_ { 0 };
+  std::atomic<bool> cancelDecodeFlag_ { false };
   snd_pcm_t* pcmHandle_ = nullptr;
   bool threadRunning_ = false;
 };

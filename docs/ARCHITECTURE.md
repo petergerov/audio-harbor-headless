@@ -38,7 +38,7 @@ flowchart TB
 
   subgraph engine["engine — harbor_engine.node"]
     players["HarborEngine C API to IPlayer<br/>Mac, Linux, Windows, JUCE"]
-    netpcm["NetPcmSource<br/>PCM or DoP for network WAV"]
+    framesrc["FrameSource<br/>PCM or DoP for network WAV"]
     dst["AHDST<br/>DST decoder"]
     dsd["DsdPipeline, PcmDecoder"]
   end
@@ -65,10 +65,10 @@ flowchart TB
   sacd --> bridge
   mediahttp --> bridge
   bridge --> players
-  bridge --> netpcm
+  bridge --> framesrc
   bridge --> dst
   players --> dsd
-  netpcm --> dsd
+  framesrc --> dsd
   players --> dac
   netplayer -->|SOAP AVTransport| renderer
   renderer -->|HTTP GET with Range| mediahttp
@@ -86,7 +86,8 @@ engine/            C++ addon (harbor_engine.node)
   src/MacPlayer, LinuxPlayer, WinPlayer, JucePlayer, StubPlayer
   src/DsdPipeline.*  DSF / DFF parsing, DoP packing, DSD→PCM FIR, chunked readers
   src/PcmDecoder.*   WAV / FLAC / MP3 (dr_libs), ALAC / AAC via ffmpeg (Linux, Windows)
-  src/NetPcmSource.* random-access PCM or DoP for network players
+  src/FrameSource.*  random-access PCM or DoP (network WAV + local PlaybackFeed)
+  src/PlaybackFeed.* progressive fill from FrameSource for local players
   src/AHDSTDecoder.* MPEG-4 DST decoder (SACD)
   third_party/       dr_flac, dr_mp3, dr_wav
 host/src/
@@ -130,6 +131,7 @@ All state is under `~/.audio-harbor-headless/`. The music folders are only read.
 | `artwork/<hash>.jpg` | embedded cover art, by content hash | catalogue scan |
 | `pairing.json` | pairing PIN, paired tokens, server id | `pairing.ts` |
 | `cache/sacd/*.dff` | SACD tracks extracted as plain DSD (DST decoded) | `library/sacd.ts` |
+| `cache/dst-dff/*.dff` | DST-compressed `.dff` decoded to plain DSD | `library/dstDff.ts` |
 
 ## Engine
 
@@ -140,7 +142,7 @@ binding.cpp (N-API)  →  HarborEngine C API (harbor_engine_*)  →  IPlayer
                                                                   ├─ WinPlayer   WASAPI
                                                                   ├─ JucePlayer  JUCE AudioDeviceManager
                                                                   └─ StubPlayer  no audio
-binding.cpp (N-API)  →  NetPcmSource, AHDST (no player involved)
+binding.cpp (N-API)  →  FrameSource, AHDST (no player involved)
 ```
 
 - **`IPlayer`** (`Player.h`) is the backend contract: devices, output mode, DSD level, load / play / pause / stop / seek, volume, state, events. `HarborEngine.cpp` holds the one player behind a mutex. Switching `output.backend` recreates it and applies device, mode and DSD level again.
@@ -154,10 +156,10 @@ binding.cpp (N-API)  →  NetPcmSource, AHDST (no player involved)
   | DoP | DoP on an external DAC | DoP on a `hw:` device | DoP over exclusive | DSD→PCM, badged |
 
   When the device cannot do the mode, the player falls back and says so in `conversion_badge` (e.g. `Shared (pick hw: device for Exclusive/DoP)`).
-- **Local decoding**: `load` decodes the whole file into memory. MacPlayer reads PCM with ExtAudioFile, JucePlayer with JUCE's format readers, LinuxPlayer and WinPlayer with dr_libs (WAV / FLAC / MP3) and ffmpeg for ALAC / AAC. DSD (`loadDsdFile`) is packed as DoP or converted to ~88.2 kHz PCM with `dsd_pcm_level` (0 / +3 / +6 dB). MacPlayer converts on a worker thread and starts playing once the first PCM is ready.
+- **Local decoding**: MacPlayer, LinuxPlayer and WinPlayer open a `FrameSource` through `PlaybackFeed` and fill PCM / DoP on a worker; playback starts after the first quantum (the buffer still grows to the full track). JucePlayer uses JUCE's format readers. DSD becomes DoP or ~88.2 kHz PCM with `dsd_pcm_level` (0 / +3 / +6 dB).
 - **DSD→PCM**: multi-stage linear-phase FIR (`DsdPipeline.cpp`), DSD rate / 32, / 64 or / 128 → 88.2 kHz, one more 2:1 stage for 44.1 kHz (Wi‑Fi).
-- **Network streams** (`NetPcmSource`): random access by frame, so the host can answer any `Range` request. Sources: `DsdSource` (DSD→PCM through `DsdPcmReader`), `DopSource` (DoP at DSD rate / 16), FLAC, WAV, MP3, AIFF, ExtAudioFile on macOS, and a decode-to-memory fallback. `DsdByteReader` reads DSF / DFF in 64 KiB chunks per channel for both DSD sources. `DsdPcmReader` pre-rolls after a jump, so a seek gives the same samples as playing through.
-- **DST**: the host feeds DST frames from an SACD ISO through `dstBegin` / `dstDecodeFrame` / `dstEnd` and writes plain DSD into the DFF cache.
+- **FrameSource**: random access by frame (`readFloat` / `readDop` / `readPacked`), so the host can answer any `Range` request for network WAV and (soon) feed local playback without loading the whole file. Sources: `DsdSource` (DSD→PCM through `DsdPcmReader`), `DopSource` (DoP at DSD rate / 16), FLAC, WAV, MP3, AIFF, ExtAudioFile on macOS, and a decode-to-memory fallback. `DsdByteReader` reads DSF / DFF in 64 KiB chunks per channel for both DSD sources. `DsdPcmReader` pre-rolls after a jump, so a seek gives the same samples as playing through.
+- **DST**: the host feeds DST frames from an SACD ISO or a DST-compressed `.dff` through `dstBegin` / `dstDecodeFrame` / `dstEnd` and writes plain DSD into the DFF cache (`cache/sacd`, `cache/dst-dff`).
 - **Threads and events**: players run their own audio threads and report `state` and `ended` through an N-API ThreadSafeFunction; `bridge.ts` re-emits them as `engineEvents`. Network stream open and read run as AsyncWorkers, so a renderer's read never blocks the event loop. `load` itself runs on the calling thread.
 
 ## Host
@@ -171,7 +173,7 @@ binding.cpp (N-API)  →  NetPcmSource, AHDST (no player involved)
 | `library/catalogue.ts` | SQLite catalogue: `tracks`, `labels`, `playlists`, `tracks_fts`. A scan walks the roots, skips unchanged files by mtime, reads tags with music-metadata and stores cover art by hash. A track's identity is its absolute path; an SACD track is `disc.iso#sacd/N`. Playlists and labels are sets of paths. |
 | `library/sacd.ts` | Scarlet Book: reads the TOC into catalogue tracks; extracts a track to an uncompressed DFF on first play (DST decoded by the engine), asynchronously with yields, one extraction per file; prefetches the next tracks. |
 | `upnp/*` (network players) | SSDP discovery, SOAP control, media HTTP, the media planner and `NetworkPlayer` — see below. |
-| `upnp/mediaServer.ts` | DLNA MediaServer: device description, ContentDirectory Browse (albums, artists, folders), files under the library roots by `Range`, SSDP announcements. |
+| `upnp/mediaServer.ts` | DLNA MediaServer: device description, ContentDirectory Browse / Search, WAV transcoding for DSD, files under the library roots by `Range`, SSDP announcements. |
 | `remote/bonjour.ts` | The Audio Harbor iOS app's protocol: `[u32 length][kind][payload]` frames, JSON envelopes v2 (hello / pair, subscribe, transport, playSelection, browse, search, trackOptions, editTrack) and binary artwork. `wire.ts` maps snapshots to its DTOs. |
 | `remote/mdns.ts` | One mDNS responder (bonjour-service): probes and claims `audioharbor.local`, publishes `_http._tcp` and `_audioharbor._tcp`, answers AAAA with NSEC (IPv4 only), follows address changes, says goodbye on exit. |
 | `pairing.ts` | Six-digit PIN → random token (`POST /api/v1/pair` or the Bonjour hello). The PIN changes after each pairing. Web and iOS share the tokens. |
@@ -197,7 +199,7 @@ sequenceDiagram
   participant N as NetworkPlayer
   participant R as Network player
   participant M as MediaHttpServer
-  participant E as Engine NetPcmSource
+  participant E as Engine FrameSource
   W->>P: POST /api/v1/play (album)
   P->>N: load(track)
   N->>R: GetProtocolInfo (once per player)
@@ -256,21 +258,13 @@ There is no automated test suite yet. Changes are checked by hand:
 - **Engine streams**: small Node scripts that open `netStreamOpen` / `netStreamRead` and compare jumps against continuous reads, or DoP bytes against the file.
 - **Web remote**: in a browser at phone and desktop widths.
 
-## Known gaps
-
-- Shuffle is stored and reported, but the play order does not use it yet.
-- A rescan adds and updates tracks but never removes them: files deleted from disk, or under a removed source, stay in the catalogue.
-- Local `load` decodes the whole file into memory on the calling thread; long DSD files cost memory and block the event loop while they load (MacPlayer's DSD→PCM conversion runs on a worker).
-- DST is decoded only from SACD ISOs. A DST-compressed `.dff` file does not play locally or as PCM / DoP; it reaches a network player only untouched (DSD Auto, Full stream, the player lists DFF).
-- The DLNA server is minimal: browse and serve files as they are, no transcoding, no search.
-
 ## Where to change what
 
 | To … | Change |
 |---|---|
 | add an API route | `host/src/api/server.ts`, its client in `web/src/api/*Api.ts`, types in both `types.ts` |
 | add a config key | `HarborConfig` in `host/src/types.ts`, load / save in `config.ts`, `config.example.toml`, README |
-| support a format on network players | `PASSTHROUGH` / planner in `host/src/upnp/networkMedia.ts`; a decoder in `engine/src/NetPcmSource.cpp` when it must become WAV |
+| support a format on network players | `PASSTHROUGH` / planner in `host/src/upnp/networkMedia.ts`; a decoder in `engine/src/FrameSource.cpp` when it must become WAV |
 | add an output backend | an `IPlayer` in `engine/src/`, `PlayerFactory.cpp`, `CMakeLists.txt` |
 | add a web tab or settings pane | the view plus one entry in `web/src/ui/views/registry.ts` or `PANES` in `settingsView.ts` |
 | speak a new iOS remote command | `host/src/remote/bonjour.ts` (and `wire.ts` for DTOs) |

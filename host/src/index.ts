@@ -102,6 +102,7 @@ async function main(): Promise<void> {
       friendlyName: cfg.sharing.friendly_name,
       catalogue,
       roots: cfg.library.roots,
+      dsdLevel: cfg.output.dsd_pcm_level,
     });
     console.log(`DLNA music server on port ${cfg.sharing.port}`);
   }
