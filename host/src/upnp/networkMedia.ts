@@ -1,6 +1,6 @@
 import { engineNetStreamClose, engineNetStreamOpen, engineNetStreamRead } from '../engine/bridge.js';
 import { SACD_MARKER } from '../library/sacd.js';
-import type { AudioFormat, NetworkStreamQuality, Track } from '../types.js';
+import type { AudioFormat, NetworkDsdMode, NetworkStreamQuality, Track } from '../types.js';
 import { formatTime } from './controlPoint.js';
 import { DLNA_FEATURES } from './mediaHttp.js';
 import { escapeXml } from './xml.js';
@@ -24,14 +24,51 @@ const ALIASES: Record<string, string[]> = {
   'audio/mpeg': ['audio/mpeg', 'audio/mp3'],
 };
 
-/** DSD and SACD tracks always go out as PCM WAV. */
-export function needsTranscode(track: Track): boolean {
+type DsdContainer = 'dsf' | 'dff';
+
+/**
+ * DSD types a player may list, best first: the container by name, then the generic DSD types.
+ * An SACD track goes out as its cached DFF.
+ */
+const DSD_TYPES: Record<DsdContainer, string[]> = {
+  dsf: ['audio/x-dsf', 'audio/dsf', 'audio/x-dsd', 'audio/dsd'],
+  dff: ['audio/x-dff', 'audio/dff', 'audio/x-dsd', 'audio/dsd'],
+};
+const ALL_DSD_TYPES = new Set([...DSD_TYPES.dsf, ...DSD_TYPES.dff]);
+
+/** DSF, DFF and SACD tracks: what goes out depends on the player's DSD mode. */
+export function isDsdTrack(track: Track): boolean {
   return (
     track.format === 'dsf' ||
     track.format === 'dff' ||
     track.format === 'sacd' ||
     track.cataloguePath.includes(SACD_MARKER)
   );
+}
+
+/** The DSD types in a sink list, spelled as the player lists them. */
+export function sinkDsdTypes(sink: string): string[] {
+  const found: string[] = [];
+  for (const entry of sink.split(',')) {
+    const listed = entry.split(':')[2]?.trim();
+    if (listed && ALL_DSD_TYPES.has(listed.toLowerCase()) && !found.includes(listed)) found.push(listed);
+  }
+  return found;
+}
+
+/** The type to send a DSF / DFF untouched under; null when the player lists none for it. */
+function nativeDsdType(container: DsdContainer, sink: string): string | null {
+  const listed = sinkDsdTypes(sink);
+  for (const wanted of DSD_TYPES[container]) {
+    const hit = listed.find((t) => t.toLowerCase() === wanted);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** The DSD containers that go to the player untouched in auto mode (SACD goes as DFF). */
+export function nativeDsdContainers(sink: string): DsdContainer[] {
+  return (['dsf', 'dff'] as const).filter((container) => nativeDsdType(container, sink) !== null);
 }
 
 /** Whether `http-get:*:audio/flac:…` style sink entries name `mime`. */
@@ -47,22 +84,59 @@ export function sinkAccepts(mime: string, sink: string): boolean {
 }
 
 export type NetworkMediaPlan =
-  | { kind: 'file'; mime: string }
-  | { kind: 'wav'; dsd: boolean; wifi: boolean };
+  /** The file untouched; dsd = a DSF / DFF (an SACD track as its cached DFF). */
+  | { kind: 'file'; mime: string; dsd: boolean }
+  /** PCM WAV: DSD converted (~88.2 kHz, or 44.1 kHz on Wi‑Fi), else decoded at the file's rate. */
+  | { kind: 'wav'; dsd: boolean; wifi: boolean }
+  /** DSD as DoP in a 24-bit WAV at DSD rate / 16. */
+  | { kind: 'dop' };
 
-/** File untouched when the renderer lists its type; else WAV (DSD always, ~88.2 kHz or Wi‑Fi 44.1 kHz). */
-export function planNetworkMedia(track: Track, sink: string, quality: NetworkStreamQuality): NetworkMediaPlan {
-  if (needsTranscode(track)) return { kind: 'wav', dsd: true, wifi: quality === 'wifi' };
+/**
+ * File untouched when the player lists its type; else WAV. DSD by the player's mode: auto sends
+ * the DSD file when the player lists DSD, else PCM; dop sends DoP. Wi‑Fi makes DSD 44.1 kHz PCM
+ * in every mode — DSD and DoP need 4–6× its bandwidth.
+ */
+export function planNetworkMedia(
+  track: Track,
+  sink: string,
+  quality: NetworkStreamQuality,
+  dsdMode: NetworkDsdMode = 'auto'
+): NetworkMediaPlan {
+  if (isDsdTrack(track)) {
+    if (quality === 'wifi') return { kind: 'wav', dsd: true, wifi: true };
+    if (dsdMode === 'dop') return { kind: 'dop' };
+    const native = dsdMode === 'auto' ? nativeDsdType(track.format === 'dsf' ? 'dsf' : 'dff', sink) : null;
+    return native ? { kind: 'file', mime: native, dsd: true } : { kind: 'wav', dsd: true, wifi: false };
+  }
   const mime = PASSTHROUGH[track.format];
-  if (mime && sinkAccepts(mime, sink)) return { kind: 'file', mime };
+  if (mime && sinkAccepts(mime, sink)) return { kind: 'file', mime, dsd: false };
   return { kind: 'wav', dsd: false, wifi: false };
 }
 
 /** What the Deck and the remote show as the path. */
 export function networkPathLabel(plan: NetworkMediaPlan): string {
-  if (plan.kind === 'file') return 'Network';
+  if (plan.kind === 'dop') return 'DoP · Network';
+  if (plan.kind === 'file') return plan.dsd ? 'DSD · Network' : 'Network';
   if (plan.dsd) return plan.wifi ? 'Wi‑Fi PCM · Network' : 'DSD→PCM · Network';
   return 'PCM · Network';
+}
+
+/**
+ * DSD rate, channels and length of a DSF / DFF from its header — what the player is told when it
+ * gets the file untouched. The engine's DoP reader parses the header; null when it cannot
+ * (DST-compressed DFF).
+ */
+export async function dsdFileInfo(
+  file: string
+): Promise<{ sampleRate: number; channels: number; durationSecs: number } | null> {
+  try {
+    const info = await engineNetStreamOpen(file, { dop: true });
+    engineNetStreamClose(info.handle);
+    // DoP carries 16 DSD samples per frame.
+    return { sampleRate: info.sampleRate * 16, channels: info.channels, durationSecs: info.frameCount / info.sampleRate };
+  } catch {
+    return null;
+  }
 }
 
 const WAV_HEADER = 44;
@@ -107,7 +181,10 @@ export class WavStream {
     this.header = h;
   }
 
-  static async open(file: string, options: { wifi: boolean; dsdLevel: 0 | 3 | 6 }): Promise<WavStream> {
+  static async open(
+    file: string,
+    options: { wifi: boolean; dsdLevel: 0 | 3 | 6; dop?: boolean }
+  ): Promise<WavStream> {
     const info = await engineNetStreamOpen(file, options);
     return new WavStream(info.handle, info.sampleRate, info.channels, info.bitsPerSample, info.frameCount);
   }

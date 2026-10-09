@@ -10,12 +10,14 @@ struct NetPcmOptions {
   bool wifi = false;
   /** Gain on DSD converted to PCM: 0, 3 or 6 dB. */
   int dsdLevelDb = 3;
+  /** DSD only: the DSD bits untouched as DoP in 24-bit PCM at DSD rate / 16 (DSD64 → 176.4 kHz). */
+  bool dop = false;
 };
 
 /**
  * PCM a network player pulls as WAV: random access by frame, little-endian, interleaved.
- * DSD (DSF / DFF) is converted; every other format is decoded at its own rate. Integer
- * sources up to 16 bits stay 16-bit, everything else is 24-bit. Not thread-safe.
+ * DSD (DSF / DFF) is converted, or packed as DoP; every other format is decoded at its own
+ * rate. Integer sources up to 16 bits stay 16-bit, everything else is 24-bit. Not thread-safe.
  */
 class NetPcmSource {
 public:

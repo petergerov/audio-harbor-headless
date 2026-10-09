@@ -119,13 +119,22 @@ A UPnP / DLNA renderer on the home network — a streamer, an amp such as a Devi
   |---|---|
   | FLAC, WAV, AIFF, ALAC / AAC (M4A), MP3 the player lists (`GetProtocolInfo`) | the file itself, untouched |
   | a format the player does not list | WAV at the file's rate (16-bit sources stay 16-bit, else 24-bit) |
-  | DSF, DFF, SACD ISO (also DST) | PCM WAV, ~88.2 kHz / 24-bit, with `dsd_pcm_level` applied |
+  | DSF, DFF, SACD ISO (also DST) | by the player's **DSD** setting, below |
 
   WAV is made on the fly with a computed `Content-Length`, so `Range` requests map to frames and seeking works.
-- **Network stream** (`output.network_stream`, shown under Output once a network player is picked): `full` sends the best the player takes; `wifi` turns only DSD / SACD into 44.1 kHz / 16-bit (about 1.4 instead of 4.2 Mbit/s). Use it when DSD drops out over Wi‑Fi.
+- **Network stream** (`output.network_stream`, shown under Output once a network player is picked): `full` sends the best the player takes; `wifi` turns only DSD / SACD into 44.1 kHz / 16-bit PCM (about 1.4 instead of 4.2 Mbit/s), whatever DSD is set to. Use it when DSD drops out over Wi‑Fi.
+- **DSD** (Settings → Output → DSD for a network player, stored per player in `network.dsd_modes`):
+
+  | DSD | DSF, DFF and SACD go to the player as |
+  |---|---|
+  | **Auto** (default) | the DSD file untouched (`audio/x-dsf`, `audio/x-dff`; an SACD track as its extracted DFF) when the player lists DSD in `GetProtocolInfo`; else PCM |
+  | **PCM** | PCM WAV, ~88.2 kHz / 24-bit, with `dsd_pcm_level` applied |
+  | **DoP** | DoP in a 24-bit WAV at DSD rate / 16 (DSD64 → 176.4 kHz, about 8.5 Mbit/s; DSD128 → 352.8 kHz) — the DSD bits untouched, for a DAC behind the player that plays DoP |
+
+  Output shows which DSD types the picked player lists. **DoP works only when the player hands PCM through bit-perfect:** volume at 100 % or fixed, no resampling, no EQ or room correction. Otherwise the DAC gets PCM and plays loud noise — try it with the amp turned down. While DoP is on (with Full), the host leaves the player's volume alone: no `SetVolume`, and the remotes show no volume. The web remote asks before it turns DoP on.
 - **Gapless** with `SetNextAVTransportURI` when the player has it; otherwise tracks change with a short gap.
-- **Volume** from the web remote and the iPhone remote sets the player's volume (RenderingControl); a knob on the device shows up in the remote.
-- Exclusive and DoP are for DACs on this host and are greyed out for a network player. Moving between this host and a network player carries the current track over at the same position.
+- **Volume** from the web remote and the iPhone remote sets the player's volume (RenderingControl); a knob on the device shows up in the remote. Not with DSD set to DoP (above).
+- Exclusive and DoP under Mode are for DACs on this host and are greyed out for a network player (DSD to a network player: see DSD above). Moving between this host and a network player carries the current track over at the same position; changing Network stream or DSD reloads a DSD track at the same position.
 - **Player gone** (off, Wi‑Fi drop): playback stops with a message; once it is back, Play loads the track again where it was.
 - The host is kept from idle sleep while a player streams (`caffeinate` on macOS, `systemd-inhibit` on Linux).
 - **Firewall:** players connect *in* to `network.media_port` (default 49153, any free port when taken). On macOS 15+ allow **Local Network** access for the terminal / Node when asked, or players are not found.
@@ -137,7 +146,12 @@ network_stream = "full"      # full | wifi
 
 [network]
 media_port = 49153
+
+[network.dsd_modes]          # per player: auto | pcm | dop (missing = auto)
+"upnp:uuid:…" = "dop"
 ```
+
+API: `PUT /api/v1/output` takes `networkStream` and `networkDsd` (stored for the picked player); `GET /api/v1/output/formats?uid=upnp:uuid:…` tells which DSD types a player lists, its volume and its DSD mode.
 
 ## Layout
 

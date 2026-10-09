@@ -54,8 +54,13 @@ export function ssdpUdn(usn: string): string {
 
 /** Whether a renderer is the one a stored pick names (case and USN suffixes ignored). */
 export function rendererMatches(renderer: UpnpRenderer, uid: string): boolean {
-  const bare = uid.startsWith('upnp:') ? uid.slice('upnp:'.length) : uid;
-  return ssdpUdn(renderer.udn).toLowerCase() === ssdpUdn(bare).toLowerCase();
+  return sameRendererUid(renderer.udn, uid);
+}
+
+/** Whether two picks (`upnp:<UDN>` or a bare UDN / USN) name the same renderer. */
+export function sameRendererUid(a: string, b: string): boolean {
+  const key = (uid: string) => ssdpUdn(uid.startsWith('upnp:') ? uid.slice('upnp:'.length) : uid).toLowerCase();
+  return key(a) === key(b);
 }
 
 function headers(message: string): Map<string, string> {

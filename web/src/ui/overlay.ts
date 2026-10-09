@@ -133,6 +133,8 @@ function reportError(err: unknown): void {
 export function openActionMenu(opts: {
   title: string;
   subtitle?: string;
+  /** The subtitle is a sentence to read in full (a confirm message), not a one-line caption. */
+  wrapSubtitle?: boolean;
   groups: MenuItem[][];
 }): void {
   const { panel } = mountShell(opts.title);
@@ -157,7 +159,7 @@ export function openActionMenu(opts: {
   panel.innerHTML = `
     <header class="ah-head">
       <p class="ah-kicker">${escapeHtml(opts.title)}</p>
-      ${opts.subtitle ? `<p class="ah-sub">${escapeHtml(opts.subtitle)}</p>` : ''}
+      ${opts.subtitle ? `<p class="ah-sub${opts.wrapSubtitle ? ' wrap' : ''}">${escapeHtml(opts.subtitle)}</p>` : ''}
     </header>
     ${groups}
     <button type="button" class="ah-cancel">Cancel</button>
@@ -276,6 +278,7 @@ export function openConfirmDialog(opts: {
   openActionMenu({
     title: opts.title,
     subtitle: opts.message,
+    wrapSubtitle: true,
     groups: [
       [
         {

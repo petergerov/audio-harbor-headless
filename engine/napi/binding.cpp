@@ -345,6 +345,7 @@ Napi::Value NetStreamOpen(const Napi::CallbackInfo& info) {
   if (info.Length() > 1 && info[1].IsObject()) {
     auto o = info[1].As<Napi::Object>();
     if (o.Has("wifi")) options.wifi = o.Get("wifi").ToBoolean().Value();
+    if (o.Has("dop")) options.dop = o.Get("dop").ToBoolean().Value();
     if (o.Has("dsdLevel") && o.Get("dsdLevel").IsNumber()) {
       const int db = o.Get("dsdLevel").As<Napi::Number>().Int32Value();
       options.dsdLevelDb = (db == 0 || db == 3 || db == 6) ? db : 3;

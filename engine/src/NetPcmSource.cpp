@@ -112,6 +112,61 @@ private:
   std::vector<float> floats_;
 };
 
+/**
+ * DSD as DoP: per channel and frame, two DSD bytes under a marker that alternates 0x05 / 0xFA
+ * frame by frame. The marker follows the absolute frame, so a seek continues the sequence.
+ */
+class DopSource final : public NetPcmSource {
+public:
+  bool open(const std::string& path, std::string& error) {
+    if (!bytes_.open(path, error)) return false;
+    frames_ = bytes_.layout().bytesPerChannel / 2;
+    if (frames_ == 0 || bytes_.layout().sampleRate < 16) {
+      error = "DSD file has no audio";
+      return false;
+    }
+    return true;
+  }
+  uint32_t sampleRate() const override { return bytes_.layout().sampleRate / 16; }
+  uint16_t channels() const override { return bytes_.layout().channels; }
+  uint64_t frameCount() const override { return frames_; }
+  uint16_t bitsPerSample() const override { return 24; }
+
+  size_t read(uint64_t startFrame, size_t count, uint8_t* out) override {
+    if (startFrame >= frames_) return 0;
+    count = size_t(std::min<uint64_t>(count, frames_ - startFrame));
+    const uint16_t channels = this->channels();
+    size_t written = 0;
+    while (written < count) {
+      const uint64_t frame = startFrame + written;
+      // The byte reader holds one chunk at a time: pack what it has, then load the next.
+      const size_t readable = bytes_.ensure(frame * 2, 2);
+      if (readable < 2) break;
+      const size_t run = std::min(count - written, readable / 2);
+      packFrames(frame, run, channels, out + written * size_t(channels) * 3);
+      written += run;
+    }
+    return written;
+  }
+
+private:
+  void packFrames(uint64_t frame, size_t count, uint16_t channels, uint8_t* out) const {
+    for (size_t f = 0; f < count; ++f) {
+      const uint8_t marker = ((frame + f) & 1) ? 0xFA : 0x05;
+      for (uint16_t c = 0; c < channels; ++c) {
+        const uint8_t* dsd = bytes_.at(c, (frame + f) * 2);
+        // 24-bit little-endian: newer byte, older byte, marker.
+        *out++ = dsd[1];
+        *out++ = dsd[0];
+        *out++ = marker;
+      }
+    }
+  }
+
+  DsdByteReader bytes_;
+  uint64_t frames_ = 0;
+};
+
 class FlacSource final : public NetPcmSource {
 public:
   ~FlacSource() override {
@@ -494,6 +549,11 @@ std::unique_ptr<NetPcmSource> tryOpen(const std::string& path, std::string& erro
 std::unique_ptr<NetPcmSource> openNetPcmSource(
     const std::string& path, const NetPcmOptions& options, std::string& error) {
   if (endsWithCi(path, ".dsf") || endsWithCi(path, ".dff")) {
+    if (options.dop) {
+      auto source = std::make_unique<DopSource>();
+      if (source->open(path, error)) return source;
+      return nullptr;
+    }
     auto source = std::make_unique<DsdSource>();
     if (source->open(path, options, error)) return source;
     return nullptr;

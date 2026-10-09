@@ -19,13 +19,22 @@ dsd_pcm_level = 3        # 0 | 3 | 6
 #   native → Mac Core Audio | Linux ALSA hw: | Windows WASAPI Exclusive/DoP
 backend = "auto"
 # Network players (UPnP / DLNA): full | wifi
-#   full → the file untouched when the player takes it; DSD as 88.2 kHz / 24-bit
-#   wifi → DSD / SACD as 44.1 kHz / 16-bit (~1.4 Mbit/s); other files untouched
+#   full → the file untouched when the player takes it; DSD by [network.dsd_modes]
+#   wifi → DSD / SACD as 44.1 kHz / 16-bit PCM (~1.4 Mbit/s); other files untouched
 network_stream = "full"
 
 [network]
 # Network players pull audio from this HTTP port (any free port when taken).
 media_port = 49153
+
+# How each network player gets DSF / DFF / SACD with network_stream = "full":
+#   auto → the DSD file untouched when the player lists DSD, else PCM 88.2 kHz / 24-bit
+#   pcm  → PCM 88.2 kHz / 24-bit
+#   dop  → DoP in a 24-bit WAV (DSD64 → 176.4 kHz) for a DoP DAC behind the player. The player
+#          must not change the samples (volume 100 % or fixed, no resampling, no EQ), or it
+#          plays loud noise. The host leaves its volume alone.
+[network.dsd_modes]
+# "upnp:uuid:…" = "dop"
 
 [sharing]
 enabled = false

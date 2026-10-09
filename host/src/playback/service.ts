@@ -19,12 +19,20 @@ import {
   resolveSacdPlaybackPath,
   SACD_MARKER,
 } from '../library/sacd.js';
-import { needsTranscode } from '../upnp/networkMedia.js';
+import { isDsdTrack, nativeDsdContainers, sinkDsdTypes } from '../upnp/networkMedia.js';
 import { LoadSuperseded, type NetworkPlayer } from '../upnp/networkPlayer.js';
-import { isNetworkUid, rendererUid, type RendererBrowser, type UpnpRenderer } from '../upnp/ssdp.js';
+import {
+  isNetworkUid,
+  rendererUid,
+  sameRendererUid,
+  type RendererBrowser,
+  type UpnpRenderer,
+} from '../upnp/ssdp.js';
 import type {
   AudioBackend,
   HarborConfig,
+  NetworkDsdMode,
+  NetworkPlayerFormats,
   NetworkStreamQuality,
   NowPlayingSnapshot,
   OutputDevice,
@@ -103,7 +111,22 @@ export class PlaybackService extends EventEmitter {
       volume: network ? this.network.volume : base.volume,
       conversionBadge: network ? (this.current ? this.network.pathLabel : null) : base.conversionBadge,
       networkStream: cfg.output.network_stream,
+      networkDsd: network ? this.dsdModeFor(uid) : 'auto',
       discoveryError: this.browser.lastError,
+    };
+  }
+
+  /** What a network player lists and its volume, with the DSD mode stored for it. */
+  async networkFormats(uid: string): Promise<NetworkPlayerFormats> {
+    const found = await this.network.capabilities(uid);
+    return {
+      uid,
+      online: found !== null,
+      listed: Boolean(found?.sink.trim()),
+      dsd: found ? sinkDsdTypes(found.sink) : [],
+      nativeDsd: found ? nativeDsdContainers(found.sink) : [],
+      volume: found?.volume ?? null,
+      dsdMode: this.dsdModeFor(uid),
     };
   }
 
@@ -240,36 +263,35 @@ export class PlaybackService extends EventEmitter {
   }
 
   /**
-   * Picks the output (`upnp:<UDN>` = network player) and how to play to it. Moving between
-   * this host and a network player carries the current track over at the same position.
+   * Picks the output (`upnp:<UDN>` = network player) and how to play to it; `networkDsd` is
+   * stored for that player. Moving between this host and a network player carries the current
+   * track over at the same position.
    */
   async setOutput(
     deviceUid: string | null,
     mode: OutputMode,
     backend?: AudioBackend,
-    networkStream?: NetworkStreamQuality
+    networkStream?: NetworkStreamQuality,
+    networkDsd?: NetworkDsdMode
   ): Promise<void> {
     const cfg = this.getConfig();
     const previousUid = cfg.output.device_uid ?? null;
-    const previousStream = cfg.output.network_stream;
+    const previousDsdPath = this.dsdPath();
     // Read from the output that plays now, before the pick changes.
     const was = { at: this.positionNow(), playing: this.isPlaying() };
     cfg.output.device_uid = deviceUid;
     cfg.output.mode = mode;
     if (backend) cfg.output.backend = backend;
     if (networkStream) cfg.output.network_stream = networkStream;
+    if (networkDsd && isNetworkUid(deviceUid)) this.storeDsdMode(deviceUid, networkDsd);
     if (deviceUid !== previousUid) cfg.output.device_name = this.deviceName(deviceUid);
     this.saveConfig(cfg);
 
     const toNetwork = isNetworkUid(deviceUid);
     const moves = deviceUid !== previousUid && (toNetwork || isNetworkUid(previousUid));
-    // Wi‑Fi vs Full only changes what DSD becomes.
-    const restream =
-      toNetwork &&
-      deviceUid === previousUid &&
-      cfg.output.network_stream !== previousStream &&
-      this.current !== null &&
-      needsTranscode(this.current);
+    // Same player, other stream or DSD mode: only what DSD becomes changes.
+    const dsdChanged = toNetwork && deviceUid === previousUid && this.dsdPath() !== previousDsdPath;
+    const restream = dsdChanged && this.current !== null && isDsdTrack(this.current);
     const carry = this.current && (moves || restream) ? { track: this.current, ...was } : null;
 
     if (toNetwork) {
@@ -278,9 +300,13 @@ export class PlaybackService extends EventEmitter {
     }
     applyOutput(toNetwork ? null : deviceUid, mode, cfg.output.dsd_pcm_level, cfg.output.backend);
     this.network.setStreamQuality(cfg.output.network_stream);
+    this.network.setDsdMode(toNetwork ? this.dsdModeFor(deviceUid) : 'auto');
     this.network.setOutputDevice(toNetwork ? deviceUid : null);
     if (carry) {
       await this.loadAndPlay(carry.track, carry.at, carry.playing);
+    } else if (dsdChanged) {
+      // The armed next track may be DSD made the old way.
+      void this.prepareFollowingTrack();
     }
     this.emitUpdate();
   }
@@ -291,7 +317,34 @@ export class PlaybackService extends EventEmitter {
     applyOutput(isNetworkUid(uid) ? null : uid, cfg.output.mode, cfg.output.dsd_pcm_level, cfg.output.backend);
     this.network.setStreamQuality(cfg.output.network_stream);
     this.network.setDsdLevel(cfg.output.dsd_pcm_level);
+    this.network.setDsdMode(isNetworkUid(uid) ? this.dsdModeFor(uid) : 'auto');
     this.network.setOutputDevice(uid);
+  }
+
+  /** DSD mode stored for a network player; auto when none is. */
+  private dsdModeFor(uid: string): NetworkDsdMode {
+    const modes = this.getConfig().network.dsd_modes;
+    for (const [key, mode] of Object.entries(modes)) {
+      if (sameRendererUid(key, uid)) return mode;
+    }
+    return 'auto';
+  }
+
+  /** Stores the mode under `uid` (auto is the default and is dropped). The caller saves. */
+  private storeDsdMode(uid: string, mode: NetworkDsdMode): void {
+    const modes = this.getConfig().network.dsd_modes;
+    for (const key of Object.keys(modes)) {
+      if (sameRendererUid(key, uid)) delete modes[key];
+    }
+    if (mode !== 'auto') modes[uid] = mode;
+  }
+
+  /** What DSD becomes on the picked network player: Wi‑Fi PCM, or its DSD mode. */
+  private dsdPath(): string {
+    const cfg = this.getConfig();
+    const uid = cfg.output.device_uid ?? null;
+    if (!isNetworkUid(uid)) return 'local';
+    return cfg.output.network_stream === 'wifi' ? 'wifi' : this.dsdModeFor(uid);
   }
 
   private isPlaying(): boolean {

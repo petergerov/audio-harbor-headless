@@ -41,6 +41,8 @@ export interface NetStreamOptions {
   wifi?: boolean;
   /** Gain on DSD converted to PCM. */
   dsdLevel?: 0 | 3 | 6;
+  /** DSD only: the DSD bits untouched as DoP — 24-bit at DSD rate / 16 (DSD64 → 176.4 kHz). */
+  dop?: boolean;
 }
 
 export interface HarborEngine {

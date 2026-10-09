@@ -5,6 +5,11 @@ export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'failed'
 export type RepeatMode = 'off' | 'all' | 'one';
 /** UPnP network players: full = best the player takes; wifi = DSD as 44.1 kHz / 16-bit PCM. */
 export type NetworkStreamQuality = 'full' | 'wifi';
+/**
+ * How a network player gets DSF / DFF / SACD: auto = the DSD file untouched when the player
+ * lists DSD, else PCM; pcm = always PCM; dop = DoP in a 24-bit WAV, volume left alone.
+ */
+export type NetworkDsdMode = 'auto' | 'pcm' | 'dop';
 export type BrowseScope = 'folders' | 'albums' | 'artists' | 'playlists' | 'labels';
 
 export type AudioFormat =
@@ -89,8 +94,27 @@ export interface OutputStatus {
   effectiveAudioBackend: string;
   availableAudioBackends: string[];
   networkStream: NetworkStreamQuality;
+  /** DSD mode of the picked network player ('auto' for anything else). */
+  networkDsd: NetworkDsdMode;
   /** Why no network players can be found (no network, no Local Network access). */
   discoveryError: string | null;
+}
+
+/** What a network player says it plays (ConnectionManager GetProtocolInfo), for the picker. */
+export interface NetworkPlayerFormats {
+  uid: string;
+  /** On the network now. */
+  online: boolean;
+  /** It answered GetProtocolInfo with a list of types. */
+  listed: boolean;
+  /** DSD types it lists, as it spells them (audio/x-dsf, audio/x-dff, …); empty when none. */
+  dsd: string[];
+  /** What goes to it untouched in auto mode: DSF, DFF (SACD too). */
+  nativeDsd: Array<'dsf' | 'dff'>;
+  /** Its volume now, 0…1; null when unknown. DoP needs it at full or fixed volume. */
+  volume: number | null;
+  /** DSD mode stored for it. */
+  dsdMode: NetworkDsdMode;
 }
 
 export interface NowPlayingSnapshot {
@@ -136,6 +160,8 @@ export interface HarborConfig {
   network: {
     /** HTTP port network players pull audio from (any free port when taken). */
     media_port: number;
+    /** DSD mode per network player (`upnp:uuid:…`); missing = auto. */
+    dsd_modes: Record<string, NetworkDsdMode>;
   };
   sharing: {
     enabled: boolean;

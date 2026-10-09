@@ -5,6 +5,8 @@ export type RepeatMode = 'off' | 'all' | 'one';
 export type LibraryScope = 'albums' | 'artists' | 'folders';
 export type CollectionKind = 'playlist' | 'label';
 export type NetworkStream = 'full' | 'wifi';
+/** How a network player gets DSD: the DSD file when it lists DSD (auto), PCM, or DoP. */
+export type NetworkDsd = 'auto' | 'pcm' | 'dop';
 export type TransportCommand = 'play' | 'pause' | 'toggle' | 'stop' | 'next' | 'previous';
 
 export interface Track {
@@ -71,7 +73,24 @@ export interface OutputStatus {
   effectiveMode: string;
   conversionBadge: string | null;
   networkStream: NetworkStream;
+  /** DSD mode of the picked network player. */
+  networkDsd: NetworkDsd;
   discoveryError: string | null;
+}
+
+/** What a network player lists (GetProtocolInfo), its volume and its stored DSD mode. */
+export interface NetworkPlayerFormats {
+  uid: string;
+  online: boolean;
+  /** It answered with a list of types. */
+  listed: boolean;
+  /** DSD types it lists (audio/x-dsf, audio/x-dff, …). */
+  dsd: string[];
+  /** What goes to it untouched in Auto: DSF, DFF (SACD too). */
+  nativeDsd: Array<'dsf' | 'dff'>;
+  /** 0…1; null when unknown. */
+  volume: number | null;
+  dsdMode: NetworkDsd;
 }
 
 export interface NowPlaying {
@@ -133,4 +152,6 @@ export interface OutputChange {
   deviceUid: string | null;
   mode: string;
   networkStream: NetworkStream;
+  /** Stored for the picked network player. */
+  networkDsd?: NetworkDsd;
 }

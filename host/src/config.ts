@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import TOML from '@iarna/toml';
-import type { AudioBackend, HarborConfig, NetworkStreamQuality, OutputMode } from './types.js';
+import type { AudioBackend, HarborConfig, NetworkDsdMode, NetworkStreamQuality, OutputMode } from './types.js';
 import { configPath, exampleConfigPath } from './paths.js';
 
 const DEFAULTS: HarborConfig = {
@@ -21,6 +21,7 @@ const DEFAULTS: HarborConfig = {
   },
   network: {
     media_port: 49153,
+    dsd_modes: {},
   },
   sharing: {
     enabled: false,
@@ -50,6 +51,21 @@ function normalizeBackend(backend: unknown): AudioBackend {
 
 export function normalizeNetworkStream(value: unknown): NetworkStreamQuality {
   return value === 'wifi' ? 'wifi' : 'full';
+}
+
+export function normalizeNetworkDsd(value: unknown): NetworkDsdMode {
+  return value === 'pcm' || value === 'dop' ? value : 'auto';
+}
+
+/** Player uid → mode; auto is the default and is not stored. */
+function normalizeDsdModes(value: unknown): Record<string, NetworkDsdMode> {
+  const modes: Record<string, NetworkDsdMode> = {};
+  if (!value || typeof value !== 'object') return modes;
+  for (const [uid, mode] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = normalizeNetworkDsd(mode);
+    if (uid.startsWith('upnp:') && normalized !== 'auto') modes[uid] = normalized;
+  }
+  return modes;
 }
 
 function normalizePort(value: unknown, fallback: number): number {
@@ -98,6 +114,7 @@ export function loadConfig(): HarborConfig {
     },
     network: {
       media_port: normalizePort(network.media_port, DEFAULTS.network.media_port),
+      dsd_modes: normalizeDsdModes(network.dsd_modes),
     },
     sharing: {
       enabled: Boolean(sharing.enabled ?? DEFAULTS.sharing.enabled),

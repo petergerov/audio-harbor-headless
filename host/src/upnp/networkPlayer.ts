@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import type { Catalogue } from '../library/catalogue.js';
 import { resolveSacdPlaybackPath, SACD_MARKER } from '../library/sacd.js';
 import type { KeepAwake } from '../power.js';
-import type { NetworkStreamQuality, PlaybackState, Track } from '../types.js';
+import type { NetworkDsdMode, NetworkStreamQuality, PlaybackState, Track } from '../types.js';
 import * as upnp from './controlPoint.js';
 import type { MediaHandle, MediaHttpServer } from './mediaHttp.js';
 import {
   didlMusicTrack,
+  dsdFileInfo,
   networkPathLabel,
   planNetworkMedia,
   WavStream,
@@ -61,9 +62,9 @@ export class NetworkPlayer extends EventEmitter {
   state: PlaybackState = 'idle';
   error: string | null = null;
   durationSecs = 0;
-  /** Network · PCM · Network · DSD→PCM · Network · Wi‑Fi PCM · Network */
+  /** Network · PCM · Network · DSD · Network · DoP · Network · DSD→PCM · Network · Wi‑Fi PCM · Network */
   pathLabel = 'Network';
-  /** Renderer volume 0…1; null while unknown or without RenderingControl volume. */
+  /** Renderer volume 0…1; null while unknown, without RenderingControl volume, or locked for DoP. */
   volume: number | null = null;
 
   private preferredUid: string | null = null;
@@ -98,6 +99,8 @@ export class NetworkPlayer extends EventEmitter {
   private setNextByUdn = new Map<string, boolean>();
   private quality: NetworkStreamQuality = 'full';
   private dsdLevel: 0 | 3 | 6 = 3;
+  /** DSD mode of the pick; dop also locks the volume. */
+  private dsdMode: NetworkDsdMode = 'auto';
   /** The failure is the renderer going away — cleared when it is back. */
   private rendererLost = false;
 
@@ -137,11 +140,39 @@ export class NetworkPlayer extends EventEmitter {
   }
 
   setStreamQuality(quality: NetworkStreamQuality): void {
+    const locked = this.volumeLocked;
     this.quality = quality;
+    this.volumeLockChanged(locked);
   }
 
   setDsdLevel(level: 0 | 3 | 6): void {
     this.dsdLevel = level;
+  }
+
+  /** How the pick gets DSD. */
+  setDsdMode(mode: NetworkDsdMode): void {
+    const locked = this.volumeLocked;
+    this.dsdMode = mode;
+    this.volumeLockChanged(locked);
+  }
+
+  /**
+   * DoP passes only when nothing scales the samples: while DSD goes out as DoP (dop mode, Full
+   * stream) the volume stays where it is — no SetVolume, and the remote shows none.
+   */
+  private get volumeLocked(): boolean {
+    return this.dsdMode === 'dop' && this.quality === 'full';
+  }
+
+  private volumeLockChanged(wasLocked: boolean): void {
+    if (this.volumeLocked === wasLocked) return;
+    if (this.volumeLocked) {
+      this.volumeWanted = null;
+      this.volume = null;
+    } else {
+      void this.refreshVolume();
+    }
+    this.emitChange();
   }
 
   /** Points at a network pick (`upnp:<UDN>`), or at nothing. Stops on the previous renderer. */
@@ -305,9 +336,9 @@ export class NetworkPlayer extends EventEmitter {
     void upnp.seek(renderer, target).catch((err) => console.warn(`Network seek: ${message(err)}`));
   }
 
-  /** 0…1. Coalesced: a slider sends many; the renderer gets the latest. */
+  /** 0…1. Coalesced: a slider sends many; the renderer gets the latest. Ignored for DoP. */
   setVolume(level: number): void {
-    if (!this.renderer || !Number.isFinite(level)) return;
+    if (!this.renderer || !Number.isFinite(level) || this.volumeLocked) return;
     const percent = Math.round(Math.min(1, Math.max(0, level)) * 100);
     this.volume = percent / 100;
     this.volumeWanted = percent;
@@ -362,11 +393,33 @@ export class NetworkPlayer extends EventEmitter {
     return track;
   }
 
+  /**
+   * What a player on the network lists (GetProtocolInfo sink, '' when it gives none) and its
+   * volume 0…1 — for the output picker. null when it is not on the network.
+   */
+  async capabilities(uid: string): Promise<{ sink: string; volume: number | null } | null> {
+    const renderer =
+      this.browser.find(uid) ?? (this.pinned && rendererMatches(this.pinned, uid) ? this.pinned : null);
+    if (!renderer) return null;
+    const [sink, volume] = await Promise.all([
+      this.protocolSink(renderer),
+      upnp.getVolume(renderer).then(
+        (percent) => Math.min(100, Math.max(0, percent)) / 100,
+        () => null
+      ),
+    ]);
+    return { sink, volume };
+  }
+
   // Media
 
   private async prepareMedia(track: Track, renderer: UpnpRenderer): Promise<PreparedMedia> {
     const sink = await this.protocolSink(renderer);
-    const plan = planNetworkMedia(track, sink, this.quality);
+    const plan = planNetworkMedia(track, sink, this.quality, this.dsdMode);
+    // An SACD track plays from its extracted DFF.
+    const source = track.cataloguePath.includes(SACD_MARKER)
+      ? await resolveSacdPlaybackPath(track.cataloguePath)
+      : track.cataloguePath;
     let stream: MediaHandle;
     let mime: string;
     let durationSecs = track.durationSecs;
@@ -376,15 +429,24 @@ export class NetworkPlayer extends EventEmitter {
     let channels = track.channels;
     let via: string;
     if (plan.kind === 'file') {
-      size = (await fs.promises.stat(track.cataloguePath)).size;
-      stream = this.media.registerFile(track.cataloguePath, plan.mime);
+      size = (await fs.promises.stat(source)).size;
+      const dsd = plan.dsd ? await dsdFileInfo(source) : null;
+      if (dsd) {
+        durationSecs = dsd.durationSecs;
+        sampleRate = dsd.sampleRate;
+        bitsPerSample = 1;
+        channels = dsd.channels;
+      }
+      stream = this.media.registerFile(source, plan.mime);
       mime = plan.mime;
       via = plan.mime;
     } else {
-      const source = track.cataloguePath.includes(SACD_MARKER)
-        ? await resolveSacdPlaybackPath(track.cataloguePath)
-        : track.cataloguePath;
-      const wav = await WavStream.open(source, { wifi: plan.wifi, dsdLevel: this.dsdLevel });
+      const dop = plan.kind === 'dop';
+      const wav = await WavStream.open(source, {
+        wifi: !dop && plan.wifi,
+        dsdLevel: this.dsdLevel,
+        dop,
+      });
       stream = this.media.registerWav(wav);
       mime = 'audio/wav';
       durationSecs = wav.durationSecs;
@@ -392,7 +454,8 @@ export class NetworkPlayer extends EventEmitter {
       sampleRate = wav.sampleRate;
       bitsPerSample = wav.bitsPerSample;
       channels = wav.channels;
-      via = `${plan.dsd ? (plan.wifi ? 'Wi‑Fi PCM' : 'DSD→WAV') : 'WAV'} ${wav.sampleRate} Hz / ${wav.bitsPerSample}-bit`;
+      const kind = dop ? 'DoP' : plan.dsd ? (plan.wifi ? 'Wi‑Fi PCM' : 'DSD→WAV') : 'WAV';
+      via = `${kind} ${wav.sampleRate} Hz / ${wav.bitsPerSample}-bit`;
     }
 
     let artwork: MediaHandle | null = null;
@@ -654,7 +717,7 @@ export class NetworkPlayer extends EventEmitter {
         const renderer = this.renderer;
         const percent = this.volumeWanted;
         this.volumeWanted = null;
-        if (!renderer) break;
+        if (!renderer || this.volumeLocked) break;
         await upnp.setVolume(renderer, percent).catch((err) => console.warn(`Network volume: ${message(err)}`));
       }
     } finally {
@@ -664,17 +727,18 @@ export class NetworkPlayer extends EventEmitter {
 
   private async refreshVolume(): Promise<void> {
     const renderer = this.renderer;
-    if (!renderer) return;
+    if (!renderer || this.volumeLocked) return;
     try {
       const percent = await upnp.getVolume(renderer);
       if (this.volumeSending || this.volumeWanted !== null || renderer !== this.renderer) return;
+      if (this.volumeLocked) return;
       const level = Math.min(100, Math.max(0, percent)) / 100;
       if (level !== this.volume) {
         this.volume = level;
         this.emitChange();
       }
     } catch {
-      if (this.volume !== null && renderer === this.renderer) {
+      if (this.volume !== null && renderer === this.renderer && !this.volumeLocked) {
         this.volume = null;
         this.emitChange();
       }

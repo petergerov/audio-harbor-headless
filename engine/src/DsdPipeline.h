@@ -53,6 +53,33 @@ struct DsdFileLayout {
 bool readDsdLayout(const std::string& path, DsdFileLayout& out, std::string& error);
 
 /**
+ * The DSD bytes of a DSF / DFF file by channel, MSB-first (oldest sample in bit 7), read in
+ * chunks on demand instead of loading the file. Not thread-safe.
+ */
+class DsdByteReader {
+public:
+  DsdByteReader();
+  ~DsdByteReader();
+  DsdByteReader(const DsdByteReader&) = delete;
+  DsdByteReader& operator=(const DsdByteReader&) = delete;
+
+  bool open(const std::string& path, std::string& error);
+  const DsdFileLayout& layout() const;
+  /**
+   * Makes at least bytes [index, index + count) of every channel readable through at(), loading
+   * them when needed. Returns how many bytes from `index` are readable now (at least count), or 0
+   * when the data ends first. count must stay small against a chunk (64 KiB or one DSF block).
+   */
+  size_t ensure(uint64_t index, size_t count);
+  /** Byte `index` of `channel`, valid after ensure() covered it and until the next ensure(). */
+  const uint8_t* at(uint16_t channel, uint64_t index) const;
+
+private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
+/**
  * DSD → PCM with random access, for streaming to a network player. Reads the file in chunks
  * instead of loading it, uses the same FIR design as dsdToPcm, and pre-rolls after a jump so
  * a seek yields the same samples as continuous conversion. Not thread-safe.

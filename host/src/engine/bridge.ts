@@ -160,7 +160,7 @@ export function engineNetStreamClose(handle: unknown): void {
 /** What the engine knows; the playback service adds the pick and the network side. */
 export type EngineOutputStatus = Omit<
   OutputStatus,
-  'selectedName' | 'selectedKind' | 'selectedAvailable' | 'networkStream' | 'discoveryError'
+  'selectedName' | 'selectedKind' | 'selectedAvailable' | 'networkStream' | 'networkDsd' | 'discoveryError'
 >;
 
 export function buildOutputStatus(

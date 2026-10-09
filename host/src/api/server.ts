@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import { loadConfig, normalizeNetworkStream, saveConfig } from '../config.js';
+import { loadConfig, normalizeNetworkDsd, normalizeNetworkStream, saveConfig } from '../config.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
 import { isAuthorized, loadPairing, pairWithPin, rotatePin } from '../pairing.js';
@@ -124,12 +124,20 @@ export async function buildServer(ctx: AppContext) {
     return ctx.playback.outputStatus();
   });
 
+  // What a network player lists (DSD types), its volume and its DSD mode.
+  app.get<{ Querystring: { uid?: string } }>('/api/v1/output/formats', async (req, reply) => {
+    const uid = req.query.uid ?? '';
+    if (!uid.startsWith('upnp:')) return reply.code(400).send({ error: 'uid of a network player required' });
+    return ctx.playback.networkFormats(uid);
+  });
+
   app.put<{
     Body: {
       deviceUid?: string | null;
       mode?: OutputMode;
       backend?: 'auto' | 'juce' | 'native';
       networkStream?: string;
+      networkDsd?: string;
     };
   }>('/api/v1/output', async (req) => {
     const body = req.body ?? {};
@@ -138,7 +146,8 @@ export async function buildServer(ctx: AppContext) {
       body.deviceUid === undefined ? (cfg.output.device_uid ?? null) : body.deviceUid,
       body.mode ?? cfg.output.mode,
       body.backend ?? cfg.output.backend,
-      body.networkStream === undefined ? undefined : normalizeNetworkStream(body.networkStream)
+      body.networkStream === undefined ? undefined : normalizeNetworkStream(body.networkStream),
+      body.networkDsd === undefined ? undefined : normalizeNetworkDsd(body.networkDsd)
     );
     return ctx.playback.outputStatus();
   });

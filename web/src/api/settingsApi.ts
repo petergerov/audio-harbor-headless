@@ -1,5 +1,5 @@
 import type { HttpClient } from './http';
-import type { Mount, OutputChange, OutputStatus } from './types';
+import type { Mount, NetworkPlayerFormats, OutputChange, OutputStatus } from './types';
 
 export interface SettingsApi {
   mounts(): Promise<Mount[]>;
@@ -9,6 +9,8 @@ export interface SettingsApi {
   output(): Promise<OutputStatus>;
   /** Asks the host to search for network players now, and returns the output as it is. */
   discoverOutput(): Promise<OutputStatus>;
+  /** What a network player lists (DSD types), its volume and its DSD mode. */
+  networkFormats(uid: string): Promise<NetworkPlayerFormats>;
   setOutput(change: OutputChange): Promise<void>;
 }
 
@@ -37,6 +39,10 @@ export class HttpSettingsApi implements SettingsApi {
 
   discoverOutput(): Promise<OutputStatus> {
     return this.http.post('/api/v1/output/discover');
+  }
+
+  networkFormats(uid: string): Promise<NetworkPlayerFormats> {
+    return this.http.get(`/api/v1/output/formats?uid=${encodeURIComponent(uid)}`);
   }
 
   async setOutput(change: OutputChange): Promise<void> {

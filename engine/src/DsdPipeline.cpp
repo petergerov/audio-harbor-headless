@@ -531,18 +531,10 @@ bool readDsdLayout(const std::string& path, DsdFileLayout& out, std::string& err
   return false;
 }
 
-struct DsdPcmReader::Impl {
+struct DsdByteReader::Impl {
   std::FILE* file = nullptr;
   DsdFileLayout layout;
-  FirDesign design;
-  int bytesPerFrame = 4; // DSD bytes per channel for one output frame
-  uint32_t outRate = 88200;
-  uint64_t frames = 0;
-  uint64_t settleFrames = 0;
-  float gain = 1.0f;
-  std::vector<ChannelDecim> chans;
-  uint64_t nextFrame = UINT64_MAX; // where the filter state stands
-  uint64_t cursor = 0;             // next DSD byte per channel
+  size_t chunkBytes = 64 * 1024;
   std::vector<std::vector<uint8_t>> chunk; // per channel, MSB-first
   uint64_t chunkStart = 0;
   size_t chunkLength = 0;
@@ -551,17 +543,6 @@ struct DsdPcmReader::Impl {
 
   ~Impl() {
     if (file) std::fclose(file);
-  }
-
-  void reset(uint64_t frame) {
-    for (auto& ch : chans) {
-      ch.ring.assign(size_t(design.stage1Bytes) * 2, 256);
-      ch.byteWrite = 0;
-      ch.stages.clear();
-      for (const auto& taps : design.halfStageTaps) ch.stages.emplace_back(taps);
-    }
-    cursor = frame * uint64_t(bytesPerFrame);
-    nextFrame = frame;
   }
 
   bool seekFile(uint64_t offset) {
@@ -577,7 +558,6 @@ struct DsdPcmReader::Impl {
     const size_t channels = layout.channels;
     if (index >= layout.bytesPerChannel) return false;
     uint64_t start = index;
-    size_t length = 64 * 1024;
     uint64_t offset = 0;
     if (layout.dsfBlockSize > 0) {
       const uint64_t block = index / layout.dsfBlockSize;
@@ -586,7 +566,7 @@ struct DsdPcmReader::Impl {
     } else {
       offset = layout.dataStart + start * channels;
     }
-    length = size_t(std::min<uint64_t>(length, layout.bytesPerChannel - start));
+    const size_t length = size_t(std::min<uint64_t>(chunkBytes, layout.bytesPerChannel - start));
     if (layout.dsfBlockSize > 0) {
       // Whole blocks: the file has channel 0's block, then channel 1's, …
       const size_t bs = layout.dsfBlockSize;
@@ -620,6 +600,62 @@ struct DsdPcmReader::Impl {
     chunkLength = length;
     return true;
   }
+};
+
+DsdByteReader::DsdByteReader() : impl_(std::make_unique<Impl>()) {}
+DsdByteReader::~DsdByteReader() = default;
+
+bool DsdByteReader::open(const std::string& path, std::string& error) {
+  auto& s = *impl_;
+  if (!readDsdLayout(path, s.layout, error)) return false;
+  s.file = std::fopen(path.c_str(), "rb");
+  if (!s.file) {
+    error = "Cannot open DSD file";
+    return false;
+  }
+  for (int b = 0; b < 256; ++b) s.reverse[b] = bitReverse(uint8_t(b));
+  s.chunkBytes = std::max<size_t>(64 * 1024, s.layout.dsfBlockSize);
+  s.chunk.assign(s.layout.channels, std::vector<uint8_t>(s.chunkBytes));
+  s.chunkLength = 0;
+  return true;
+}
+
+const DsdFileLayout& DsdByteReader::layout() const { return impl_->layout; }
+
+size_t DsdByteReader::ensure(uint64_t index, size_t count) {
+  auto& s = *impl_;
+  if (!s.file || count == 0 || index + count > s.layout.bytesPerChannel) return 0;
+  const auto inChunk = [&] { return index >= s.chunkStart && index + count <= s.chunkStart + s.chunkLength; };
+  if (!inChunk() && !(s.load(index) && inChunk())) return 0;
+  return size_t(s.chunkStart + s.chunkLength - index);
+}
+
+const uint8_t* DsdByteReader::at(uint16_t channel, uint64_t index) const {
+  return impl_->chunk[channel].data() + (index - impl_->chunkStart);
+}
+
+struct DsdPcmReader::Impl {
+  DsdByteReader bytes;
+  FirDesign design;
+  int bytesPerFrame = 4; // DSD bytes per channel for one output frame
+  uint32_t outRate = 88200;
+  uint64_t frames = 0;
+  uint64_t settleFrames = 0;
+  float gain = 1.0f;
+  std::vector<ChannelDecim> chans;
+  uint64_t nextFrame = UINT64_MAX; // where the filter state stands
+  uint64_t cursor = 0;             // next DSD byte per channel
+
+  void reset(uint64_t frame) {
+    for (auto& ch : chans) {
+      ch.ring.assign(size_t(design.stage1Bytes) * 2, 256);
+      ch.byteWrite = 0;
+      ch.stages.clear();
+      for (const auto& taps : design.halfStageTaps) ch.stages.emplace_back(taps);
+    }
+    cursor = frame * uint64_t(bytesPerFrame);
+    nextFrame = frame;
+  }
 
   static float push(ChannelDecim& ch, const FirDesign& design, uint8_t b, bool& have) {
     const int length = design.stage1Bytes;
@@ -644,16 +680,12 @@ struct DsdPcmReader::Impl {
 
   /** One output frame into out (nullptr = discard). False at the end of the data. */
   bool produce(float* out) {
-    if (nextFrame >= frames) return false;
-    if (cursor < chunkStart || cursor + uint64_t(bytesPerFrame) > chunkStart + chunkLength) {
-      if (!load(cursor)) return false;
-    }
-    const size_t base = size_t(cursor - chunkStart);
+    if (nextFrame >= frames || bytes.ensure(cursor, size_t(bytesPerFrame)) == 0) return false;
     for (size_t c = 0; c < chans.size(); ++c) {
-      const uint8_t* bytes = chunk[c].data() + base;
+      const uint8_t* data = bytes.at(uint16_t(c), cursor);
       float value = 0.0f;
       bool have = false;
-      for (int k = 0; k < bytesPerFrame; ++k) value = push(chans[c], design, bytes[k], have);
+      for (int k = 0; k < bytesPerFrame; ++k) value = push(chans[c], design, data[k], have);
       if (out) {
         value *= gain;
         if (value > 1.0f) value = 1.0f;
@@ -672,20 +704,16 @@ DsdPcmReader::~DsdPcmReader() = default;
 
 bool DsdPcmReader::open(const std::string& path, float gainDb, bool halfRate, std::string& error) {
   auto& s = *impl_;
-  if (!readDsdLayout(path, s.layout, error)) return false;
-  s.file = std::fopen(path.c_str(), "rb");
-  if (!s.file) {
-    error = "Cannot open DSD file";
-    return false;
-  }
+  if (!s.bytes.open(path, error)) return false;
+  const DsdFileLayout& layout = s.bytes.layout();
   int decimation = 32;
-  if (s.layout.sampleRate >= 11289600) decimation = 128; // DSD256 → ~88.2
-  else if (s.layout.sampleRate >= 5644800) decimation = 64; // DSD128 → ~88.2
+  if (layout.sampleRate >= 11289600) decimation = 128; // DSD256 → ~88.2
+  else if (layout.sampleRate >= 5644800) decimation = 64; // DSD128 → ~88.2
   if (halfRate) decimation *= 2;
-  s.design = makeDesign(s.layout.sampleRate, decimation, halfRate ? 20000.0 : 0.0);
+  s.design = makeDesign(layout.sampleRate, decimation, halfRate ? 20000.0 : 0.0);
   s.bytesPerFrame = decimation / 8;
-  s.outRate = s.layout.sampleRate / uint32_t(decimation);
-  s.frames = s.layout.bytesPerChannel / uint64_t(s.bytesPerFrame);
+  s.outRate = layout.sampleRate / uint32_t(decimation);
+  s.frames = layout.bytesPerChannel / uint64_t(s.bytesPerFrame);
   s.gain = std::pow(10.0f, gainDb / 20.0f);
 
   // Frames until fresh filter state matches continuous play: every stage's length in output
@@ -698,21 +726,18 @@ bool DsdPcmReader::open(const std::string& path, float gainDb, bool halfRate, st
   }
   s.settleFrames = settle + 8;
 
-  for (int b = 0; b < 256; ++b) s.reverse[b] = bitReverse(uint8_t(b));
-  s.chans.assign(s.layout.channels, ChannelDecim {});
-  s.chunk.assign(s.layout.channels, std::vector<uint8_t>(64 * 1024));
-  s.chunkLength = 0;
+  s.chans.assign(layout.channels, ChannelDecim {});
   s.reset(0);
   return s.frames > 0;
 }
 
 uint32_t DsdPcmReader::sampleRate() const { return impl_->outRate; }
-uint16_t DsdPcmReader::channels() const { return impl_->layout.channels; }
+uint16_t DsdPcmReader::channels() const { return impl_->bytes.layout().channels; }
 uint64_t DsdPcmReader::frameCount() const { return impl_->frames; }
 
 size_t DsdPcmReader::read(uint64_t startFrame, size_t count, float* out) {
   auto& s = *impl_;
-  if (!s.file || startFrame >= s.frames) return 0;
+  if (startFrame >= s.frames) return 0;
   count = size_t(std::min<uint64_t>(count, s.frames - startFrame));
   if (startFrame != s.nextFrame) {
     s.reset(startFrame > s.settleFrames ? startFrame - s.settleFrames : 0);
@@ -720,7 +745,7 @@ size_t DsdPcmReader::read(uint64_t startFrame, size_t count, float* out) {
       if (!s.produce(nullptr)) return 0;
     }
   }
-  const size_t channels = s.layout.channels;
+  const size_t channels = s.chans.size();
   size_t written = 0;
   while (written < count && s.produce(out + written * channels)) ++written;
   return written;
