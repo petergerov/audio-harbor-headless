@@ -16,3 +16,4 @@ data/
 .cache/
 JUCE/
 .idea/
+.gstack/
