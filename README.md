@@ -112,7 +112,7 @@ Same idea as Audio Harbor: playlists and labels are sets of catalogue paths.
 
 A UPnP / DLNA renderer on the home network — a streamer, an amp such as a Devialet Expert, some TVs and soundbars — is an output like a DAC. The host stays the player with library and queue; the renderer pulls the audio over HTTP. Same behaviour as [Audio Harbor](https://github.com/petergerov/audio-harbor/blob/main/docs/UPNP.md).
 
-- **Pick it** under Settings → Output → Device (listed under *Network Players*, marked `Network`), or `PUT /api/v1/output` with `{ "deviceUid": "upnp:uuid:…" }`. The host searches all the time (SSDP M-SEARCH every 30 s, NOTIFY alive / byebye); a new player shows up within seconds. The pick is stored by UDN and comes back after the player's power cycle; while it is off, its name stays in the list.
+- **Pick it** under Settings → Output → Device (listed under *Network Players*, marked `(Network player)`), or `PUT /api/v1/output` with `{ "deviceUid": "upnp:uuid:…" }`. The host searches all the time (SSDP M-SEARCH every 30 s, NOTIFY alive / byebye); a new player shows up within seconds. The pick is stored by UDN and comes back after the player's power cycle; while it is off, its name stays in the list.
 - **What is sent:**
 
   | File | Goes to the player as |

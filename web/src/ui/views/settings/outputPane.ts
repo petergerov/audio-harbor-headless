@@ -10,6 +10,9 @@ const REFRESH_MS = 4000;
 
 const isNetworkUid = (uid: string | null | undefined) => Boolean(uid?.startsWith('upnp:'));
 
+/** How a network player reads in the device list. */
+const networkPlayer = (name: string) => `${name} (Network player)`;
+
 /** Local devices, then network players; a pick that is gone right now stays listed. */
 function deviceOptions(output: OutputStatus, value: string): string {
   const option = (uid: string, label: string) =>
@@ -24,12 +27,15 @@ function deviceOptions(output: OutputStatus, value: string): string {
   }
   if (network.length) {
     html += `<optgroup label="Network Players">${network
-      .map((d) => option(d.uid, `${d.name} · Network`))
+      .map((d) => option(d.uid, networkPlayer(d.name)))
       .join('')}</optgroup>`;
   }
   if (value && !output.devices.some((d) => d.uid === value)) {
     const name = value === output.selectedUid ? (output.selectedName ?? 'Unknown device') : value;
-    html += option(value, `${name} · ${isNetworkUid(value) ? 'not on the network' : 'not connected'}`);
+    html += option(
+      value,
+      isNetworkUid(value) ? `${networkPlayer(name)} · not on the network` : `${name} · not connected`
+    );
   }
   return html;
 }
