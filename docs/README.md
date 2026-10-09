@@ -9,4 +9,4 @@ open docs/index.html
 # or: python3 -m http.server -d docs 8080
 ```
 
-Technical install and config notes live in the root [README](../README.md).
+Technical install and config notes live in the root [README](../README.md). How engine, host and web remote fit together: [ARCHITECTURE.md](ARCHITECTURE.md).

@@ -161,4 +161,6 @@ engine/   C++ + N-API — JucePlayer + Mac/Linux/Win native (runtime switch)
 web/      Mobile web remote
 ```
 
+How the parts fit together — ports, data on disk, the engine's backends, network players, flows: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 Check [JUCE licensing](https://juce.com/legal/juce-8-licence/) before distributing or selling.
