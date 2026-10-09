@@ -246,6 +246,17 @@ svg {
   margin-top: 40px;
 }
 
+/* An album, artist or folder opened in Library (h3): a name below the screen, not its title. */
+.drill-title {
+  margin: 0;
+  min-width: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .nav-row {
   display: flex;
   align-items: center;
@@ -2156,6 +2167,10 @@ body.overlay-open .ah-toast {
 .app-shell.wide .large-title {
   font-size: 30px;
   margin-bottom: 18px;
+}
+
+.app-shell.wide .drill-title {
+  font-size: 22px;
 }
 
 .app-shell.wide .segmented {

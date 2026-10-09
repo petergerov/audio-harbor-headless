@@ -61,7 +61,11 @@ export class LibraryView implements View {
           : ''
       }
       <div class="page-header">
-        <h1 class="large-title">${escapeHtml(drill?.title ?? 'Library')}</h1>
+        ${
+          drill
+            ? `<h3 class="drill-title">${escapeHtml(drill.title)}</h3>`
+            : `<h1 class="large-title">Library</h1>`
+        }
         ${host.headerPlayerSlot()}
       </div>
       ${drill?.subtitle ? `<p class="drill-sub">${escapeHtml(drill.subtitle)}</p>` : ''}

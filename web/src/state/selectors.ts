@@ -40,7 +40,7 @@ export interface Chrome {
   wide: boolean;
   /** Phone: mini player above the tab bar — not on the full Now Playing screen. */
   mini: boolean;
-  /** Phone: compact player in the page header of Library and Playlists. */
+  /** Phone: compact player in the page header of Library and Playlists (off for now). */
   header: boolean;
   /** Desktop: bottom bar, whenever a track is loaded. */
   bar: boolean;
@@ -51,7 +51,10 @@ export function chromeFor(state: AppState, desktop: boolean): Chrome {
   return {
     wide: desktop,
     mini: loaded && !desktop && state.tab !== 'now',
-    header: loaded && !desktop && (state.tab === 'library' || state.tab === 'collections'),
+    // Compact header player: not needed for now. HeaderPlayer stays wired up; restore the line
+    // below to bring it back.
+    // header: loaded && !desktop && (state.tab === 'library' || state.tab === 'collections'),
+    header: false,
     bar: loaded && desktop,
   };
 }
