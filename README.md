@@ -71,7 +71,7 @@ Prebuilt archives **bundle Node.js 22** under `runtime/` — you do not need a s
 
 ```bash
 # Example Raspberry Pi
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.0-linux-arm64.tar.gz
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.1.2-linux-arm64.tar.gz
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
 sudo apt install -y libasound2   # JUCE uses ALSA on Linux
@@ -85,7 +85,7 @@ Publish a release (manual only):
 
 1. Push `main` with the commits you want
 2. GitHub → **Actions** → **Release packages** → **Run workflow**
-3. Enter tag (e.g. `v1.0.1`) — optional: draft
+3. Enter tag (e.g. `v1.1.2`) — optional: draft
 
 Or locally:
 
@@ -94,11 +94,15 @@ npm run package:prebuilt                 # → dist/packages/*-<platform>.tar.gz
 ./create-package.sh                      # source-only (compile on device via install.sh)
 ```
 
+### Web remote (Deck · Catalogue · Settings)
+
+The Vite remote matches the Harbor look of the iOS / macOS app: Deck (Turntable or Reel-to-Reel stage), Catalogue (Dirs · Albums · Artists · Lists), and Settings. On a phone the Deck fits above the tab bar without scrolling; on a wide desktop the content sits beside the sidebar, Up Next is a right rail on Deck, and the bottom player stays off while you are on Deck. Details: [web/README.md](web/README.md).
+
 ### Playlists & labels
 
 Same idea as Audio Harbor: playlists and labels are sets of catalogue paths.
 
-- Web remote: **Playlists** / **Labels** tabs; **···** on album, artist, folder, or track → add to playlist or label (albums/artists/folders expand to their tracks).
+- Web remote: Catalogue → **Lists** (playlists); labels open as a drill-in. **···** on album, artist, folder, or track → add to playlist or label (albums/artists/folders expand to their tracks).
 - API: `GET/POST /api/v1/playlists`, `POST /api/v1/playlists/:id/items`, `POST /api/v1/labels/items`, `POST /api/v1/play` with `playlistId` or `label`.
 - Bonjour: browse `playlists` / `labels`, `playSelection.playlist` / `.label`, existing `trackOptions` / `editTrack`.
 

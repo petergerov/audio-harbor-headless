@@ -223,7 +223,7 @@ sequenceDiagram
 
 ## Web remote
 
-A single-page app served by the host, mobile first, desktop layout on wide screens. Layers depend inward only — `ui` → `services` → `state` / `api` → `core` — and nothing below `ui` touches the DOM. `main.ts` is the composition root; views get an `AppContext` of interfaces; state is one `Store<AppState>`; live player state follows the `PlayerMarkup` contract, so lists keep their scroll position while tracks change. The rules and the folder map are in [web/README.md](../web/README.md).
+A single-page app served by the host, mobile first, desktop layout on wide screens (`min-width: 700px`). Tabs are **Deck · Catalogue · Settings**. Deck is a Harbor stage (Turntable / Reel-to-Reel) with cover chip; on desktop, Up Next sits in a right rail like the macOS app, and the bottom player is hidden while Deck is open. Phone and desktop Deck are sized to fit the viewport without scrolling. Layers depend inward only — `ui` → `services` → `state` / `api` → `core` — and nothing below `ui` touches the DOM. `main.ts` is the composition root; views get an `AppContext` of interfaces; state is one `Store<AppState>`; `chromeFor` in `selectors.ts` decides mini player / now-bar; live player state follows the `PlayerMarkup` contract, so lists keep their scroll position while tracks change. The rules and the folder map are in [web/README.md](../web/README.md).
 
 The web remote talks only to the REST API and the WebSocket. Pairing stores the token in `localStorage` (`harbor.token`).
 
