@@ -34,10 +34,11 @@ export class SharingPane implements Pane {
     const paint = () => {
       const sharing = this.store.get().settings?.sharing;
       toggle.checked = Boolean(sharing?.enabled);
-      toggle.disabled = busy || !sharing;
+      toggle.disabled = busy;
       streams.textContent = String(sharing?.activeStreams ?? 0);
+      const status = sharing?.statusText ?? (sharing ? '' : 'Loading…');
       note.innerHTML = [
-        sharing?.statusText ?? '',
+        status,
         'Players and apps on the network can browse the library and play the files themselves (DLNA).',
       ]
         .filter(Boolean)
@@ -45,11 +46,13 @@ export class SharingPane implements Pane {
         .join('<br><br>');
     };
     toggle.addEventListener('change', async () => {
+      const want = toggle.checked;
       busy = true;
       paint();
       try {
-        await this.settings.apply({ sharingEnabled: { value: toggle.checked } });
+        await this.settings.apply({ sharingEnabled: { value: want } });
       } catch (err) {
+        toggle.checked = !want;
         showToast(errorMessage(err, 'Could not change sharing'), { error: true });
       }
       busy = false;
@@ -59,7 +62,12 @@ export class SharingPane implements Pane {
       if (state.settings !== previous.settings && !busy) paint();
     });
     paint();
-    await this.settings.refresh().catch(() => undefined);
+    try {
+      await this.settings.refresh();
+    } catch (err) {
+      showToast(errorMessage(err, 'Could not load sharing status'), { error: true });
+    }
+    paint();
   }
 
   dispose(): void {

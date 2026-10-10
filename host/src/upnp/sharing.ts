@@ -38,14 +38,23 @@ export class Sharing extends EventEmitter {
     return this.serially(() => this.open());
   }
 
-  /** Stores the choice and starts or stops the server. */
+  /**
+   * Stores the choice and starts or stops the server. Throws when turning on fails
+   * (port taken, …) so the remote can keep the switch off.
+   */
   setEnabled(on: boolean): Promise<void> {
     const cfg = this.getConfig();
     if (cfg.sharing.enabled !== on) {
       cfg.sharing.enabled = on;
       this.saveConfig(cfg);
     }
-    return this.serially(() => (on ? this.open() : this.close()));
+    return this.serially(async () => {
+      if (on) await this.open();
+      else await this.close();
+      if (on && !this.server) {
+        throw new Error(this.statusText.replace(/^Failed:\s*/, '') || 'Could not start sharing');
+      }
+    });
   }
 
   /** Starts again, e.g. with another port or name. */
@@ -77,6 +86,12 @@ export class Sharing extends EventEmitter {
       console.log(`DLNA music server on port ${port}`);
       this.setStatus(`Sharing as “${name}” on port ${port}`);
     } catch (err) {
+      // Leave the switch off when the server could not start (e.g. port taken).
+      const cfg = this.getConfig();
+      if (cfg.sharing.enabled) {
+        cfg.sharing.enabled = false;
+        this.saveConfig(cfg);
+      }
       this.setStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }

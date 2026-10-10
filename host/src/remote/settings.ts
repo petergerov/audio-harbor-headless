@@ -210,7 +210,11 @@ export class RemoteSettings {
       }
       case 'sharingEnabled':
         if (typeof arg.value !== 'boolean') return 'Sharing needs on or off';
-        await sharing.setEnabled(arg.value);
+        try {
+          await sharing.setEnabled(arg.value);
+        } catch (err) {
+          return err instanceof Error ? err.message : 'Could not change sharing';
+        }
         return null;
       case 'rebuildIndex':
         if (catalogue.isScanning) return 'Catalogue is already rebuilding';

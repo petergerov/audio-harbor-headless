@@ -43,7 +43,7 @@ npm run harbor -- rescan   # re-index library roots
 
 Config lives at `~/.audio-harbor-headless/config.toml` (created from `config.example.toml` on first run).
 
-Enable DLNA sharing with `sharing.enabled = true` (restart `harbor serve`). Bonjour remote (`_audioharbor._tcp`) starts when `remote.bonjour_enabled = true`.
+DLNA sharing (`Share Library on the Network` in Settings, or `sharing.enabled` in the config) starts and stops while the host runs — no restart. Bonjour remote (`_audioharbor._tcp`) starts when `remote.bonjour_enabled = true`.
 
 ### Name on the network
 

@@ -13,10 +13,10 @@ interface Destination {
 }
 
 const DESTINATIONS: Destination[] = [
-  { tab: 'library', short: 'Library', long: 'Library', icon: icons.browse },
+  { tab: 'now', short: 'Deck', long: 'Deck', icon: icons.now },
+  { tab: 'library', short: 'Catalogue', long: 'Catalogue', icon: icons.browse },
   { tab: 'collections', short: 'Playlists', long: 'Playlists &amp; Labels', icon: icons.library },
-  { tab: 'now', short: 'Playing', long: 'Now Playing', icon: icons.now },
-  { tab: 'settings', short: 'Settings', long: 'Settings', icon: icons.output },
+  { tab: 'settings', short: 'Settings', long: 'Settings', icon: icons.settings },
 ];
 
 const destination = (tab: Tab) => DESTINATIONS.find((d) => d.tab === tab)!;
@@ -50,9 +50,9 @@ export function sidebarHtml(state: AppState): string {
   return `
     <aside class="sidebar" aria-label="Navigation">
       <div class="side-brand">Audio Harbor</div>
+      ${sideRow(destination('now'), tab === 'now')}
       ${sideRow(destination('library'), tab === 'library')}
       ${sideRow(destination('collections'), tab === 'collections' && !open)}
-      ${sideRow(destination('now'), tab === 'now')}
       <div class="side-heading">
         <p class="side-label">Playlists</p>
         <button type="button" class="side-plus" data-new-playlist aria-label="New playlist" title="New playlist">+</button>

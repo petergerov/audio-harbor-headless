@@ -66,7 +66,10 @@ export class App {
     }
     clock.start();
     await collections.refresh();
-    await library.load().catch((err) => showToast(errorMessage(err, 'Could not load the library'), { error: true }));
+    await Promise.all([
+      library.load().catch((err) => showToast(errorMessage(err, 'Could not load the library'), { error: true })),
+      settings.refresh().catch((err) => showToast(errorMessage(err, 'Could not load settings'), { error: true })),
+    ]);
     this.ready = true;
     shell.render();
   }

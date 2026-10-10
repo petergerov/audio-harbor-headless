@@ -57,7 +57,7 @@ export interface AppState {
 }
 
 export const initialState: AppState = {
-  tab: 'library',
+  tab: 'now',
   library: {
     scope: 'albums',
     folderPath: null,
