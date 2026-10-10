@@ -4,18 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Audio Harbor Headless — Audiophile host for Mac, Linux &amp; Windows</title>
-  <meta name="description" content="GUI-less audiophile media host. Native Exclusive / DoP on Mac, Linux, and Windows. Plays to UPnP / DLNA network players. Control from iPhone via web remote or Bonjour. DLNA music server. Open source." />
+  <meta name="description" content="GUI-less audiophile media host. Harbor web remote (Deck · Catalogue · Settings), native Exclusive / DoP on Mac, Linux, and Windows. UPnP / DLNA network players. Bonjour for the iOS app. Open source." />
   <meta name="keywords" content="audiophile, headless, bit-perfect, DSD, FLAC, Exclusive, DoP, WASAPI, ALSA, Core Audio, Raspberry Pi, DLNA, Bonjour" />
   <link rel="icon" type="image/png" sizes="32x32" href="images/web/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="64x64" href="images/web/favicon-64.png" />
   <link rel="apple-touch-icon" href="images/web/icon-180.png" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Audio Harbor Headless — Local. Bit-perfect. No GUI." />
-  <meta property="og:description" content="Run the host on Mac, Linux, or Windows. Steer from your phone. Exclusive, DoP, and honest conversion badges." />
+  <meta property="og:description" content="Run the host on Mac, Linux, or Windows. Harbor Deck remote on phone or desktop. Exclusive, DoP, and honest conversion badges." />
   <meta property="og:image" content="https://petergerov.github.io/audio-harbor-headless/images/web/icon-180.png" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Audio Harbor Headless" />
-  <meta name="twitter:description" content="Audiophile media host without a desktop UI. Mac · Linux · Windows · iPhone remote." />
+  <meta name="twitter:description" content="Audiophile media host without a desktop UI. Mac · Linux · Windows · Harbor Deck remote." />
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -23,7 +23,7 @@
     "name": "Audio Harbor Headless",
     "applicationCategory": "MusicApplication",
     "operatingSystem": "macOS, Linux, Windows",
-    "description": "GUI-less audiophile media host with Exclusive, DoP, web remote, Bonjour, and DLNA.",
+    "description": "GUI-less audiophile media host with Exclusive, DoP, Harbor Deck web remote, Bonjour, and DLNA.",
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -34,7 +34,8 @@
       "Runtime choice: JUCE or native Core Audio / ALSA / WASAPI",
       "Shared, Exclusive, and DoP output modes",
       "FLAC, ALAC, WAV, AIFF, AAC, MP3, DSF, DFF, SACD ISO",
-      "Mobile web remote and Bonjour pairing",
+      "Harbor web remote: Deck · Catalogue · Settings",
+      "Bonjour remote for the Audio Harbor iOS app",
       "UPnP / DLNA network players as an output",
       "Optional DLNA / UPnP music server",
       "Prebuilt packages including Raspberry Pi ARM64"
@@ -526,6 +527,21 @@
     .code-block .c { color: #8a8276; }
     .code-block .k { color: #dcaa4e; }
 
+    .remote-tabs {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      justify-content: center;
+      margin: 28px 0 8px;
+    }
+    .remote-tab {
+      font-size: 0.78rem; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent2);
+      background: #fbf3e4;
+      border: 1px solid rgba(201,154,69,0.45);
+      padding: 10px 18px; border-radius: 4px;
+    }
+    .remote-tab strong { color: var(--text); font-weight: 700; }
+
   </style>
 </head>
 <body>
@@ -542,6 +558,7 @@
   <div class="nav-links">
     <a href="#listening" class="nav-link">Listening</a>
     <a href="#backends" class="nav-link">Backends</a>
+    <a href="#remote" class="nav-link">Remote</a>
     <a href="#how-it-works" class="nav-link">How it works</a>
     <a href="#what-it-does" class="nav-link">What it does</a>
     <a href="#platforms" class="nav-link">Platforms</a>
@@ -577,27 +594,28 @@
     <div class="hero-copy">
       <span class="hero-eyebrow">Mac · Linux · Windows · Headless</span>
       <h1>No desktop UI.<br>Still hear the <em>file</em>.</h1>
-      <p>A quiet audiophile <strong>host</strong> for folders you already own. Exclusive and DoP on native stacks — Core Audio, ALSA, WASAPI — or portable JUCE. Steer from Safari on your iPhone.</p>
+      <p>A quiet audiophile <strong>host</strong> for folders you already own. Exclusive and DoP on native stacks — Core Audio, ALSA, WASAPI — or portable JUCE. Steer with the Harbor remote: <strong>Deck · Catalogue · Settings</strong>.</p>
       <div class="hero-actions">
         <a href="https://github.com/petergerov/audio-harbor-headless" class="btn-primary">
           View on GitHub
         </a>
         <a href="#get" class="btn-secondary">Install package</a>
       </div>
-      <p class="hero-trust">No streaming · No account &nbsp;·&nbsp; Web remote + Bonjour &nbsp;·&nbsp; Shared by default · Exclusive when the DAC is ready</p>
+      <p class="hero-trust">No streaming · No account &nbsp;·&nbsp; Harbor web + Bonjour &nbsp;·&nbsp; Shared by default · Exclusive when the DAC is ready</p>
     </div>
     <div class="device">
       <div class="device-screen">
         <div class="term" aria-label="Example host startup">
           <p class="line"><span class="prompt">$</span> ./start.sh</p>
-          <p class="line muted">Audio Harbor Headless 1.0.0</p>
+          <p class="line muted">Audio Harbor Headless 1.1.2</p>
           <p class="line">engine   <span class="ok">macos-juce+coreaudio</span></p>
           <p class="line">backend  <span class="ok">native</span> <span class="muted">(auto)</span></p>
           <p class="line">output   Shared · USB DAC ready for Exclusive</p>
           <div class="blank"></div>
           <p class="line">LAN      <span class="ok">http://audioharbor.local:8787</span></p>
+          <p class="line">remote   <span class="ok">Deck · Catalogue · Settings</span></p>
           <p class="line">Bonjour  <span class="ok">_audioharbor._tcp</span></p>
-          <p class="line muted">Open the URL on your iPhone — or scan the QR.</p>
+          <p class="line muted">Open the URL on your phone — or scan the QR.</p>
           <div class="pill-row">
             <span class="pill">FLAC</span>
             <span class="pill">DSD</span>
@@ -681,6 +699,40 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
 
 <hr class="divider" />
 
+<section class="hosts-section" id="remote">
+  <div class="container">
+    <div class="features-header">
+      <div class="section-eyebrow">The remote</div>
+      <h2 class="section-title">Harbor on the glass. Host on the machine.</h2>
+      <p class="section-sub">Same chassis / ivory / amber language as Audio Harbor. Phone and desktop share one web app — no separate desktop UI on the host.</p>
+    </div>
+    <div class="remote-tabs" aria-label="Primary remote tabs">
+      <span class="remote-tab"><strong>Deck</strong> · turntable or reel stage</span>
+      <span class="remote-tab"><strong>Catalogue</strong> · dirs, albums, artists, lists</span>
+      <span class="remote-tab"><strong>Settings</strong> · output, sharing, sources</span>
+    </div>
+    <div class="hosts-grid" style="margin-top: 36px;">
+      <div class="host-card">
+        <div class="lead">Phone</div>
+        <h3>Fits the hand</h3>
+        <p>Deck sized above the tab bar without scrolling. Up Next opens as a sheet. Mini player only when you leave Deck.</p>
+      </div>
+      <div class="host-card">
+        <div class="lead">Desktop</div>
+        <h3>Sidebar + queue rail</h3>
+        <p>Content beside the nav. On Deck, Up Next sits on the right like the macOS app; the bottom bar stays off while you listen there.</p>
+      </div>
+      <div class="host-card">
+        <div class="lead">iOS app</div>
+        <h3>Bonjour frames</h3>
+        <p>Pair once with a PIN over <code>_audioharbor._tcp</code>. Same settings and queue the web remote sees — local network only.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
 <section class="steps-section" id="how-it-works">
   <div class="steps-inner">
     <div class="steps-header">
@@ -693,7 +745,7 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
         <div class="step-num">01</div>
         <span class="step-icon">⬇</span>
         <h3>Install the host</h3>
-        <p>Prebuilt archives for Apple Silicon and Intel Mac, Linux x64/ARM64 (Pi), and Windows — or build from source with Node 20 and CMake.</p>
+        <p>Prebuilt archives for Apple Silicon and Intel Mac, Linux x64/ARM64 (Pi), and Windows — or build from source with Node 22 and CMake.</p>
       </div>
       <div class="step">
         <div class="step-num">02</div>
@@ -704,8 +756,8 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
       <div class="step">
         <div class="step-num">03</div>
         <span class="step-icon">▶</span>
-        <h3>Steer from the phone</h3>
-        <p>Safari on the printed URL, or pair over Bonjour (<code>_audioharbor._tcp</code>). Queue, browse, Exclusive when the DAC is ready.</p>
+        <h3>Open Deck</h3>
+        <p>Safari on <code>audioharbor.local:8787</code>, or pair over Bonjour. Browse Catalogue, queue from Lists, Exclusive when the DAC is ready.</p>
       </div>
     </div>
   </div>
@@ -738,8 +790,8 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
       </div>
       <div class="feature">
         <span class="feature-icon">⌁</span>
-        <h3>Web remote + Bonjour</h3>
-        <p>Mobile web first. Bonjour frames for the Harbor iOS remote. Pair once with a PIN — local network only.</p>
+        <h3>Harbor Deck remote</h3>
+        <p>Deck · Catalogue · Settings in the browser — Turntable or Reel-to-Reel stage, queue rail on desktop. Bonjour for the iOS app. Pair once with a PIN.</p>
       </div>
       <div class="feature">
         <span class="feature-icon">≡</span>
@@ -789,12 +841,12 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
   <div class="container">
     <div class="section-eyebrow">One host</div>
     <h2 class="section-title">Wherever the library lives.</h2>
-    <p class="section-sub">Same product language as Audio Harbor — without the SwiftUI shell. The phone is the remote; the machine is the DAC host.</p>
+    <p class="section-sub">Same Harbor language as Audio Harbor — without a SwiftUI shell on the host. The browser (or iOS app) is the remote; the machine is the DAC host.</p>
     <div class="hosts-grid">
       <div class="host-card">
         <div class="lead">Apple Silicon &amp; Intel</div>
         <h3>macOS</h3>
-        <p>Native Core Audio Exclusive / DoP, or JUCE. Separate prebuilts: <code>darwin-arm64</code> and <code>darwin-x64</code>. Node 20 typically needs macOS 11+.</p>
+        <p>Native Core Audio Exclusive / DoP, or JUCE. Separate prebuilts: <code>darwin-arm64</code> and <code>darwin-x64</code>. Bundled Node 22; typically macOS 11+.</p>
       </div>
       <div class="host-card">
         <div class="lead">x64 &amp; ARM64</div>

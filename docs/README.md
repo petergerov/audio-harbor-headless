@@ -2,7 +2,7 @@
 
 Product homepage (same visual system as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs)):
 
-- **[index.html](index.html)** — open locally or via GitHub Pages
+- **[index.html](index.html)** — open locally or via GitHub Pages (Harbor Deck · Catalogue · Settings remote, platforms, releases)
 
 ```bash
 open docs/index.html
