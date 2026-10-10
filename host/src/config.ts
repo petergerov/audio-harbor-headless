@@ -26,7 +26,7 @@ const DEFAULTS: HarborConfig = {
   sharing: {
     enabled: false,
     port: 8200,
-    friendly_name: 'Audio Harbor',
+    friendly_name: 'Audio Harbor Headless',
   },
   remote: {
     bonjour_enabled: true,

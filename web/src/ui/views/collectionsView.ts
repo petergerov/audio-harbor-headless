@@ -88,7 +88,7 @@ export class CollectionsView implements View {
     const isPlaylist = open.kind === 'playlist';
     root.innerHTML = `
       <div class="nav-row">
-        <button type="button" class="nav-link" data-back>‹ Playlists</button>
+        <button type="button" class="nav-link" data-back>‹ Catalogue</button>
         ${host.headerPlayerSlot()}
         <button type="button" class="nav-link" data-manage aria-label="Options">Edit</button>
       </div>

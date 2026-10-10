@@ -14,10 +14,11 @@ export class PairingView {
   render(root: HTMLElement): void {
     root.innerHTML = `
       <main class="pair-screen">
-        <div class="pair-card">
+        <div class="pair-card faceplate">
           <div class="pair-mark">AH</div>
           <h1>Audio Harbor</h1>
-          <p>Enter the 6-digit PIN from the host to pair this device.</p>
+          <p class="engraved" style="margin-bottom:12px">Remote</p>
+          <p>Music plays on the host. Enter the 6-digit PIN to steer it.</p>
           <input id="pin" class="pin-input" inputmode="numeric" maxlength="6"
             placeholder="••••••" autocomplete="one-time-code" enterkeyhint="done" />
           <button data-pair class="btn-fill">Continue</button>

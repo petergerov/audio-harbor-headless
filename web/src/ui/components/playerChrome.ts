@@ -41,7 +41,7 @@ export class MiniPlayer implements PlayerChrome {
     if (!track) return;
     el.innerHTML = `
       <div class="mini-art" data-art>${icons.musicSm}</div>
-      <button type="button" class="mini-text" data-open aria-label="Open Now Playing">
+      <button type="button" class="mini-text" data-open aria-label="Open Deck">
         <strong>${escapeHtml(track.title)}</strong>
         <span>${escapeHtml(track.artist)}</span>
       </button>

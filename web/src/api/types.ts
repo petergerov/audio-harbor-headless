@@ -2,7 +2,7 @@
 
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'failed';
 export type RepeatMode = 'off' | 'all' | 'one';
-export type LibraryScope = 'albums' | 'artists' | 'folders';
+export type LibraryScope = 'folders' | 'albums' | 'artists' | 'playlists';
 export type CollectionKind = 'playlist' | 'label';
 export type NetworkStream = 'full' | 'wifi';
 /** How a network player gets DSD: the DSD file when it lists DSD (auto), PCM, or DoP. */

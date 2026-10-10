@@ -19,6 +19,7 @@ export class AboutPane implements Pane {
       return;
     }
     root.innerHTML = `
+      <p class="group-label">About</p>
       <div class="group">
         <div class="cell"><span>App</span><span class="value">${escapeHtml(about.appName)}</span></div>
         <div class="cell"><span>Version</span><span class="value">${escapeHtml(about.versionLabel)}</span></div>

@@ -27,6 +27,8 @@ export interface LibraryState {
   album: AlbumRef | null;
   /** Artist drilled into (artists scope). */
   artist: string | null;
+  /** Playlist drilled into (playlists / Lists scope). */
+  playlist: { id: string; name: string } | null;
   query: string;
   items: BrowseItem[];
 }
@@ -59,11 +61,12 @@ export interface AppState {
 export const initialState: AppState = {
   tab: 'now',
   library: {
-    scope: 'albums',
+    scope: 'folders',
     folderPath: null,
     folderStack: [],
     album: null,
     artist: null,
+    playlist: null,
     query: '',
     items: [],
   },

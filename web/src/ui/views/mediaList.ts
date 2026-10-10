@@ -24,11 +24,12 @@ interface PresentedRow {
 
 type Presenter = (item: BrowseItem, scope: ListScope, ctx: AppContext) => PresentedRow | null;
 
-/** The library's top level of `scope`, no search: albums and artists list as entries. */
-function listing(scope: ListScope, of: 'albums' | 'artists'): boolean {
+/** The library's top level of `scope`, no search: albums, artists or playlists list as entries. */
+function listing(scope: ListScope, of: 'albums' | 'artists' | 'playlists'): boolean {
   if (scope.kind !== 'library') return false;
   const library = scope.library;
-  const drilled = of === 'albums' ? library.album : library.artist;
+  const drilled =
+    of === 'albums' ? library.album : of === 'artists' ? library.artist : library.playlist;
   return library.scope === of && !drilled && !library.query.trim();
 }
 
@@ -57,6 +58,22 @@ const artistEntry: Presenter = (item, scope, ctx) => {
     row: { kind: 'artist', title: name, subtitle: songs(Number(item.trackCount ?? 0)), chevron: true },
     selection: { artist: name, title: name },
     open: () => void ctx.nav.openArtist(name),
+  };
+};
+
+const playlistEntry: Presenter = (item, scope, ctx) => {
+  if (!listing(scope, 'playlists') || !item.id || item.cataloguePath) return null;
+  const name = String(item.name ?? item.title ?? 'Playlist');
+  const id = item.id;
+  return {
+    row: {
+      kind: 'playlist',
+      title: name,
+      subtitle: songs(Number(item.trackCount ?? 0)),
+      chevron: true,
+    },
+    selection: { title: name },
+    open: () => void ctx.nav.openPlaylist(id, name),
   };
 };
 
@@ -123,7 +140,14 @@ const trackEntry: Presenter = (item, scope, ctx) => {
 };
 
 /** First match wins — the order is the precedence. */
-const PRESENTERS: Presenter[] = [albumEntry, artistEntry, albumSearchHit, folderEntry, trackEntry];
+const PRESENTERS: Presenter[] = [
+  albumEntry,
+  artistEntry,
+  playlistEntry,
+  albumSearchHit,
+  folderEntry,
+  trackEntry,
+];
 
 /**
  * What playing a track from this list queues: the open playlist / label, or the album, artist
@@ -138,6 +162,9 @@ function playContextFor(cataloguePath: string, scope: ListScope): PlayContext {
   if (library.scope === 'albums' && library.album) return { cataloguePath, albumId: library.album.id };
   if (library.scope === 'artists' && library.artist) return { cataloguePath, artist: library.artist };
   if (library.scope === 'folders' && library.folderPath) return { cataloguePath, folder: library.folderPath };
+  if (library.scope === 'playlists' && library.playlist) {
+    return { cataloguePath, playlistId: library.playlist.id };
+  }
   return { cataloguePath };
 }
 

@@ -12,10 +12,10 @@ interface Destination {
   icon: string;
 }
 
+/** Primary surfaces — same three as the iOS remote. */
 const DESTINATIONS: Destination[] = [
   { tab: 'now', short: 'Deck', long: 'Deck', icon: icons.now },
   { tab: 'library', short: 'Catalogue', long: 'Catalogue', icon: icons.browse },
-  { tab: 'collections', short: 'Playlists', long: 'Playlists &amp; Labels', icon: icons.library },
   { tab: 'settings', short: 'Settings', long: 'Settings', icon: icons.settings },
 ];
 
@@ -23,9 +23,10 @@ const destination = (tab: Tab) => DESTINATIONS.find((d) => d.tab === tab)!;
 
 /** Phone: the bottom tab bar. */
 export function tabBarHtml(state: AppState): string {
+  const active = state.tab === 'collections' ? 'library' : state.tab;
   return `<nav class="tab-bar" id="tabs">
     ${DESTINATIONS.map(
-      (d) => `<button type="button" data-tab="${d.tab}" class="${state.tab === d.tab ? 'active' : ''}">
+      (d) => `<button type="button" data-tab="${d.tab}" class="${active === d.tab ? 'active' : ''}">
         ${d.icon}<span>${d.short}</span>
       </button>`
     ).join('')}
@@ -36,6 +37,7 @@ export function tabBarHtml(state: AppState): string {
 export function sidebarHtml(state: AppState): string {
   const { tab } = state;
   const open = state.collections.open;
+  const catalogueActive = tab === 'library' || tab === 'collections';
   const sideRow = (d: Destination, active: boolean) =>
     `<button type="button" class="side-row ${active ? 'active' : ''}" data-nav="${d.tab}">${d.icon}<span>${d.long}</span></button>`;
   const collectionRow = (kind: 'playlist' | 'label', id: string, name: string, count: number) => `
@@ -51,8 +53,7 @@ export function sidebarHtml(state: AppState): string {
     <aside class="sidebar" aria-label="Navigation">
       <div class="side-brand">Audio Harbor</div>
       ${sideRow(destination('now'), tab === 'now')}
-      ${sideRow(destination('library'), tab === 'library')}
-      ${sideRow(destination('collections'), tab === 'collections' && !open)}
+      ${sideRow(destination('library'), catalogueActive && !open)}
       <div class="side-heading">
         <p class="side-label">Playlists</p>
         <button type="button" class="side-plus" data-new-playlist aria-label="New playlist" title="New playlist">+</button>

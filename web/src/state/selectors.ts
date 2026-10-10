@@ -29,38 +29,48 @@ export function durationSecs(state: AppState): number {
   return Number(state.nowPlaying?.durationSecs ?? 0) || 0;
 }
 
-/** What the library browses into: folder path, album id or artist name. */
+/** What the library browses into: folder path, album id, artist name or playlist id. */
 export function drillPath(library: LibraryState): string | null {
   if (library.scope === 'folders') return library.folderPath;
   if (library.scope === 'albums') return library.album?.id ?? null;
-  return library.artist;
+  if (library.scope === 'artists') return library.artist;
+  if (library.scope === 'playlists') return library.playlist?.id ?? null;
+  return null;
 }
 
 /** Back to the scope's top level. */
 export function withoutDrill(library: LibraryState): LibraryState {
-  return { ...library, folderPath: null, folderStack: [], album: null, artist: null };
+  return {
+    ...library,
+    folderPath: null,
+    folderStack: [],
+    album: null,
+    artist: null,
+    playlist: null,
+  };
 }
 
 /** Which player chrome the layout shows around the screen. */
 export interface Chrome {
   wide: boolean;
-  /** Phone: mini player above the tab bar — not on the full Now Playing screen. */
+  /** Phone: mini player above the tab bar — not on the Deck screen. */
   mini: boolean;
   /** Phone: compact player in the page header of Library and Playlists (off for now). */
   header: boolean;
-  /** Desktop: bottom bar, whenever a track is loaded. */
+  /** Desktop: bottom bar when a track is loaded — not on the Deck screen. */
   bar: boolean;
 }
 
 export function chromeFor(state: AppState, desktop: boolean): Chrome {
   const loaded = currentTrack(state) !== null;
+  const onDeck = state.tab === 'now';
   return {
     wide: desktop,
-    mini: loaded && !desktop && state.tab !== 'now',
+    mini: loaded && !desktop && !onDeck,
     // Compact header player: not needed for now. HeaderPlayer stays wired up; restore the line
     // below to bring it back.
     // header: loaded && !desktop && (state.tab === 'library' || state.tab === 'collections'),
     header: false,
-    bar: loaded && desktop,
+    bar: loaded && desktop && !onDeck,
   };
 }

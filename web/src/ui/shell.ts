@@ -48,7 +48,7 @@ export class Shell {
           ${chrome.mini ? `<div class="mini-player" id="mini"></div>` : ''}
           ${chrome.wide ? '' : tabBarHtml(state)}
         </div>
-        ${chrome.bar ? `<footer class="now-bar" id="nowBar" aria-label="Now Playing"></footer>` : ''}
+        ${chrome.bar ? `<footer class="now-bar" id="nowBar" aria-label="Deck"></footer>` : ''}
       </div>
     `;
     bindNavigation(this.root, this.ctx.nav, () => this.ctx.actions.createPlaylist());

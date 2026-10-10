@@ -9,7 +9,7 @@ import type { PlaybackClock } from '../services/playbackClock';
 import type { PlaybackService } from '../services/playbackService';
 import type { SettingsService } from '../services/settingsService';
 import type { AppState } from '../state/appState';
-import { currentTrack, playbackError } from '../state/selectors';
+import { currentTrack, durationSecs, playbackError } from '../state/selectors';
 import type { PlayerBindings } from '../ui/components/playerBindings';
 import { showToast } from '../ui/overlay';
 import type { Shell } from '../ui/shell';
@@ -39,7 +39,9 @@ export class App {
     deps.store.subscribe((state, previous) => {
       if (state.nowPlaying !== previous.nowPlaying) this.playbackChanged(state, previous);
     });
-    deps.clock.onChange((position) => deps.bindings.paintPosition(position, deps.clock.scrubbing));
+    deps.clock.onChange((position) =>
+      deps.bindings.paintPosition(position, deps.clock.scrubbing, durationSecs(deps.store.get()))
+    );
     window.addEventListener('resize', () => {
       if (this.ready && !deps.shell.fits()) deps.shell.render();
     });

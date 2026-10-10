@@ -9,6 +9,7 @@ import type { LibraryService } from './libraryService';
 export interface Navigation {
   goTo(tab: Tab): Promise<void>;
   openCollection(kind: CollectionKind, id: string, title: string): Promise<void>;
+  openPlaylist(id: string, name: string): Promise<void>;
   closeCollection(): void;
   setLibraryScope(scope: LibraryScope): Promise<void>;
   /** One level up from the album, artist or folder drilled into. */
@@ -34,17 +35,34 @@ export class Navigator implements Navigation {
   ) {}
 
   async goTo(tab: Tab): Promise<void> {
+    // Playlists / labels are not a primary tab (iOS: Deck · Catalogue · Settings).
+    // A bare "collections" destination opens Catalogue → Lists instead.
+    if (tab === 'collections' && !this.store.get().collections.open) {
+      this.store.update((state) => ({
+        tab: 'library',
+        collections: { ...state.collections, open: null },
+      }));
+      await this.browse((library) => ({ ...withoutDrill(library), scope: 'playlists' }));
+      return;
+    }
     this.store.update((state) => ({
       tab,
       collections: { ...state.collections, open: null },
       library: tab === 'library' ? withoutDrill(state.library) : state.library,
     }));
-    if (tab === 'library') await this.library.load();
-    if (tab === 'collections') await this.collections.refresh();
+    if (tab === 'library') {
+      await this.collections.refresh();
+      await this.library.load();
+    }
     this.render();
   }
 
   async openCollection(kind: CollectionKind, id: string, title: string): Promise<void> {
+    // Playlists stay in Catalogue → Lists; labels still use the collections drill view.
+    if (kind === 'playlist') {
+      await this.openPlaylist(id, title);
+      return;
+    }
     this.store.update((state) => ({
       tab: 'collections',
       collections: { ...state.collections, open: { kind, id, title } },
@@ -53,9 +71,20 @@ export class Navigator implements Navigation {
     this.render();
   }
 
+  async openPlaylist(id: string, name: string): Promise<void> {
+    this.store.update((state) => ({
+      tab: 'library',
+      collections: { ...state.collections, open: null },
+    }));
+    await this.browse((library) => ({
+      ...withoutDrill(library),
+      scope: 'playlists',
+      playlist: { id, name },
+    }));
+  }
+
   closeCollection(): void {
-    this.store.update((state) => ({ collections: { ...state.collections, open: null } }));
-    this.render();
+    void this.goTo('library');
   }
 
   async setLibraryScope(scope: LibraryScope): Promise<void> {
@@ -70,6 +99,7 @@ export class Navigator implements Navigation {
       }
       if (library.scope === 'albums') return { ...library, album: null };
       if (library.scope === 'artists') return { ...library, artist: null };
+      if (library.scope === 'playlists') return { ...library, playlist: null };
       return library;
     });
   }
@@ -107,6 +137,7 @@ export class Navigator implements Navigation {
 
   async refresh(): Promise<void> {
     await this.collections.refresh();
+    if (this.store.get().tab === 'library') await this.library.load();
     this.render();
   }
 

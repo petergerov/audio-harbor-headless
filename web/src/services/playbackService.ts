@@ -43,7 +43,13 @@ export class PlaybackService implements PlaybackActions {
   }
 
   async transport(command: TransportCommand): Promise<void> {
-    this.receive(await this.api.transport(command));
+    if (command === 'toggle') this.optimisticToggle();
+    try {
+      this.receive(await this.api.transport(command));
+    } catch (err) {
+      if (command === 'toggle') await this.refresh().catch(() => undefined);
+      throw err;
+    }
   }
 
   async seek(seconds: number): Promise<void> {
@@ -51,18 +57,35 @@ export class PlaybackService implements PlaybackActions {
   }
 
   async setVolume(level: number): Promise<void> {
+    const current = this.store.get().nowPlaying;
+    if (current) this.receive({ ...current, volume: level });
     this.receive(await this.api.setVolume(level));
   }
 
   async setShuffle(on: boolean): Promise<void> {
+    const current = this.store.get().nowPlaying;
+    if (current) this.receive({ ...current, shuffle: on });
     this.receive(await this.api.setShuffle(on));
   }
 
   async setRepeat(mode: RepeatMode): Promise<void> {
+    const current = this.store.get().nowPlaying;
+    if (current) this.receive({ ...current, repeat: mode });
     this.receive(await this.api.setRepeat(mode));
   }
 
   async playQueueIndex(index: number): Promise<void> {
     this.receive(await this.api.playQueueIndex(index));
+  }
+
+  /** Flip play ↔ pause in the store before the host answers (iOS remote does the same). */
+  private optimisticToggle(): void {
+    const current = this.store.get().nowPlaying;
+    if (!current?.track) return;
+    if (current.state !== 'playing' && current.state !== 'paused' && current.state !== 'loading') return;
+    this.receive({
+      ...current,
+      state: current.state === 'playing' ? 'paused' : 'playing',
+    });
   }
 }

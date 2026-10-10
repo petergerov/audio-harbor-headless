@@ -30,6 +30,7 @@ export class SettingsView implements View {
     const current = this.ctx.store.get().settingsPane;
     root.innerHTML = `
       <h1 class="large-title">Settings</h1>
+      <p class="engraved">This Host</p>
       <div class="segmented">
         ${(Object.keys(PANES) as SettingsPane[])
           .map(

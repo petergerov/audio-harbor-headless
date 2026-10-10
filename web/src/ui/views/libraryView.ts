@@ -3,16 +3,11 @@ import type { LibraryScope, PlayContext } from '../../api/types';
 import { escapeAttr, escapeHtml, required } from '../../core/html';
 import type { LibraryState } from '../../state/appState';
 import { icons } from '../icons';
+import { CATALOGUE_SCOPES } from './catalogueScopes';
 import { paintMediaList } from './mediaList';
 import type { View, ViewHost } from './view';
 
-const SEARCH_DEBOUNCE_MS = 220;
-
-const SCOPES: Array<{ scope: LibraryScope; label: string }> = [
-  { scope: 'albums', label: 'Albums' },
-  { scope: 'artists', label: 'Artists' },
-  { scope: 'folders', label: 'Folders' },
-];
+const SEARCH_DEBOUNCE_MS = 250;
 
 /** Where the library is browsed into: title, back link and what Play queues. */
 interface Drill {
@@ -25,8 +20,8 @@ interface Drill {
 function drillOf(library: LibraryState): Drill | null {
   if (library.scope === 'folders' && library.folderPath) {
     return {
-      title: library.folderPath.split(/[/\\]/).filter(Boolean).pop() ?? 'Folders',
-      back: '‹ Folders',
+      title: library.folderPath.split(/[/\\]/).filter(Boolean).pop() ?? 'Dirs',
+      back: '‹ Dirs',
       play: { folder: library.folderPath },
     };
   }
@@ -41,10 +36,17 @@ function drillOf(library: LibraryState): Drill | null {
   if (library.scope === 'artists' && library.artist) {
     return { title: library.artist, back: '‹ Artists', play: { artist: library.artist } };
   }
+  if (library.scope === 'playlists' && library.playlist) {
+    return {
+      title: library.playlist.name,
+      back: '‹ Lists',
+      play: { playlistId: library.playlist.id },
+    };
+  }
   return null;
 }
 
-/** Albums, artists and folders, drilled into or searched. */
+/** Catalogue: Dirs · Albums · Artists · Lists. */
 export class LibraryView implements View {
   constructor(private readonly ctx: AppContext) {}
 
@@ -56,7 +58,7 @@ export class LibraryView implements View {
         drill
           ? `<div class="nav-row">
               <button type="button" class="nav-link" data-back>${drill.back}</button>
-              <button type="button" class="nav-link accent" data-play-all ${library.items.length ? '' : 'disabled'}>Play</button>
+              <button type="button" class="nav-link accent" data-play-all ${library.items.length ? '' : 'disabled'}>Play all</button>
             </div>`
           : ''
       }
@@ -95,16 +97,17 @@ export class LibraryView implements View {
   }
 
   private browseControls(library: LibraryState): string {
+    const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
     return `
       <div class="segmented">
-        ${SCOPES.map(
+        ${CATALOGUE_SCOPES.map(
           (s) =>
             `<button type="button" data-scope="${s.scope}" class="${library.scope === s.scope ? 'active' : ''}">${s.label}</button>`
         ).join('')}
       </div>
       <div class="search-wrap">
         ${icons.search}
-        <input id="search" type="search" enterkeyhint="search" placeholder="Songs, albums, artists"
+        <input id="search" type="search" enterkeyhint="search" placeholder="${escapeAttr(scope.search)}"
           value="${escapeAttr(library.query)}" />
       </div>`;
   }

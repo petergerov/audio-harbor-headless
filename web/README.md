@@ -1,7 +1,13 @@
 # Web remote
 
-Mobile-first web app (Vite + TypeScript, no framework) served by the host. Layers depend inward only:
+Mobile-first web app (Vite + TypeScript, no framework) served by the host. Visual language matches the
+iOS remote (Harbor chassis / ivory / amber). Layers depend inward only:
 `ui` → `services` → `state` / `api` → `core`. Nothing below `ui` touches the DOM.
+
+Primary tabs: **Deck · Catalogue · Settings**. Catalogue roots: Dirs · Albums · Artists · Lists.
+Labels open as a drill-in (not a primary tab). The Deck stage is Turntable or Reel-to-Reel
+(preference in `localStorage`); photos live in `public/deck/`. Live player markup follows
+`PlayerMarkup` in `components/playerBindings.ts`.
 
 ```
 src/

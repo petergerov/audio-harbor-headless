@@ -18,6 +18,7 @@ export class SharingPane implements Pane {
   async render(root: HTMLElement): Promise<void> {
     this.dispose();
     root.innerHTML = `
+      <p class="group-label">Network</p>
       <div class="group">
         <label class="cell">
           <span>Share Library on the Network</span>
