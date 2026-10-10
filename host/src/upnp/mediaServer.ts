@@ -15,9 +15,20 @@ export interface DlnaOptions {
   port: number;
   friendlyName: string;
   catalogue: Catalogue;
-  roots: string[];
-  /** DSD→PCM gain for WAV transcoding (0 / 3 / 6). */
-  dsdLevel?: 0 | 3 | 6;
+  /** The library roots as they are now. */
+  roots: () => string[];
+  /** DSD→PCM gain for WAV transcoding (0 / 3 / 6), as it is now. */
+  dsdLevel: () => 0 | 3 | 6;
+  /** A media stream started or ended. */
+  onStreams?: () => void;
+}
+
+/** A running DLNA server. */
+export interface DlnaServer {
+  /** Media responses streaming now. */
+  readonly activeStreams: number;
+  /** Says goodbye over SSDP, drops open streams and stops listening. */
+  close(): Promise<void>;
 }
 
 const CHUNK = 256 * 1024;
@@ -28,10 +39,18 @@ const DIDL_NS =
  * DLNA MediaServer: device description, ContentDirectory Browse / Search,
  * HTTP Range file serving, and on-the-fly WAV for DSD (and SACD / DST DFF).
  */
-export async function startDlnaServer(opts: DlnaOptions): Promise<http.Server> {
+export async function startDlnaServer(opts: DlnaOptions): Promise<DlnaServer> {
   const udn = `uuid:harbor-${opts.port}`;
   const base = lanBaseUrl(opts.port);
-  const dsdLevel = opts.dsdLevel ?? 3;
+  let streams = 0;
+  const countStream = (res: http.ServerResponse) => {
+    streams += 1;
+    opts.onStreams?.();
+    res.once('close', () => {
+      streams -= 1;
+      opts.onStreams?.();
+    });
+  };
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', base);
@@ -58,17 +77,18 @@ export async function startDlnaServer(opts: DlnaOptions): Promise<http.Server> {
 
       if (url.pathname.startsWith('/media/wav/')) {
         const cataloguePath = decodeURIComponent(url.pathname.slice('/media/wav/'.length));
-        if (!isPlayablePath(cataloguePath, opts.roots)) {
+        if (!isPlayablePath(cataloguePath, opts.roots())) {
           res.writeHead(404);
           res.end();
           return;
         }
-        return streamWav(req, res, cataloguePath, dsdLevel);
+        countStream(res);
+        return streamWav(req, res, cataloguePath, opts.dsdLevel());
       }
 
       if (url.pathname.startsWith('/media/')) {
         const cataloguePath = decodeURIComponent(url.pathname.slice('/media/'.length));
-        if (!isPlayablePath(cataloguePath, opts.roots)) {
+        if (!isPlayablePath(cataloguePath, opts.roots())) {
           res.writeHead(404);
           res.end();
           return;
@@ -79,6 +99,7 @@ export async function startDlnaServer(opts: DlnaOptions): Promise<http.Server> {
           res.end();
           return;
         }
+        countStream(res);
         return streamFile(req, res, source, mimeForPath(cataloguePath));
       }
 
@@ -90,9 +111,26 @@ export async function startDlnaServer(opts: DlnaOptions): Promise<http.Server> {
     }
   });
 
-  await new Promise<void>((resolve) => server.listen(opts.port, '0.0.0.0', resolve));
-  void advertiseSsdp(opts.port, udn, base);
-  return server;
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(opts.port, '0.0.0.0', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  const stopSsdp = await advertiseSsdp(udn, base);
+  return {
+    get activeStreams() {
+      return streams;
+    },
+    close: async () => {
+      stopSsdp();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    },
+  };
 }
 
 function isPlayablePath(cataloguePath: string, roots: string[]): boolean {
@@ -312,7 +350,7 @@ function folderDidl(
   folderPath: string | null,
   parentId: string
 ): { didl: string; count: number } {
-  const entries = opts.catalogue.browseFolder(opts.roots, folderPath);
+  const entries = opts.catalogue.browseFolder(opts.roots(), folderPath);
   const parts: string[] = [];
   const tracks: Track[] = [];
   for (const e of entries) {
@@ -550,11 +588,30 @@ async function* wavChunks(wav: WavStream, start: number, end: number): AsyncGene
   }
 }
 
-async function advertiseSsdp(port: number, udn: string, base: string): Promise<void> {
+/** Announces the server over SSDP and answers searches; the returned function says goodbye. */
+async function advertiseSsdp(udn: string, base: string): Promise<() => void> {
   try {
     const dgram = await import('node:dgram');
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     const host = lanIp();
+    const notify = (nts: 'ssdp:alive' | 'ssdp:byebye') =>
+      Buffer.from(
+        [
+          'NOTIFY * HTTP/1.1',
+          'HOST: 239.255.255.250:1900',
+          'CACHE-CONTROL: max-age=1800',
+          `LOCATION: ${base}/description.xml`,
+          'NT: upnp:rootdevice',
+          `NTS: ${nts}`,
+          `USN: ${udn}::upnp:rootdevice`,
+          'SERVER: AudioHarbor/0.1 UPnP/1.0',
+          '',
+          '',
+        ].join('\r\n')
+      );
+    const msg = notify('ssdp:alive');
+    // Sends fail while the network is down; announcing is retried by the timer.
+    socket.on('error', () => undefined);
     socket.bind(1900, () => {
       try {
         socket.setMulticastInterface(host);
@@ -562,24 +619,12 @@ async function advertiseSsdp(port: number, udn: string, base: string): Promise<v
       } catch {
         // ignore multicast join failures
       }
-    });
-    const msg = Buffer.from(
-      [
-        'NOTIFY * HTTP/1.1',
-        'HOST: 239.255.255.250:1900',
-        'CACHE-CONTROL: max-age=1800',
-        `LOCATION: ${base}/description.xml`,
-        'NT: upnp:rootdevice',
-        'NTS: ssdp:alive',
-        `USN: ${udn}::upnp:rootdevice`,
-        'SERVER: AudioHarbor/0.1 UPnP/1.0',
-        '',
-        '',
-      ].join('\r\n')
-    );
-    setInterval(() => {
       socket.send(msg, 1900, '239.255.255.250');
-    }, 30000).unref();
+    });
+    const timer = setInterval(() => {
+      socket.send(msg, 1900, '239.255.255.250');
+    }, 30000);
+    timer.unref();
     socket.on('message', (buf, rinfo) => {
       const text = buf.toString('utf8');
       if (!/M-SEARCH/i.test(text)) return;
@@ -599,8 +644,23 @@ async function advertiseSsdp(port: number, udn: string, base: string): Promise<v
       );
       socket.send(reply, rinfo.port, rinfo.address);
     });
-    void port;
+    return () => {
+      clearInterval(timer);
+      const close = () => {
+        try {
+          socket.close();
+        } catch {
+          // already closed
+        }
+      };
+      try {
+        socket.send(notify('ssdp:byebye'), 1900, '239.255.255.250', close);
+      } catch {
+        close();
+      }
+    };
   } catch {
     // SSDP optional
+    return () => undefined;
   }
 }

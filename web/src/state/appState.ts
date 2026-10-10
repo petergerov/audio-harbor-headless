@@ -5,10 +5,12 @@ import type {
   LibraryScope,
   NowPlaying,
   PlaylistSummary,
+  QueueSnapshot,
+  SettingsSnapshot,
 } from '../api/types';
 
 export type Tab = 'library' | 'collections' | 'now' | 'settings';
-export type SettingsPane = 'sources' | 'output';
+export type SettingsPane = 'sources' | 'output' | 'sharing' | 'about';
 
 export interface AlbumRef {
   id: string;
@@ -49,6 +51,9 @@ export interface AppState {
   collections: CollectionsState;
   settingsPane: SettingsPane;
   nowPlaying: NowPlaying | null;
+  queue: QueueSnapshot | null;
+  /** The host's Settings snapshot, as it pushes changes. */
+  settings: SettingsSnapshot | null;
 }
 
 export const initialState: AppState = {
@@ -65,4 +70,6 @@ export const initialState: AppState = {
   collections: { playlists: [], labels: [], open: null, items: [] },
   settingsPane: 'sources',
   nowPlaying: null,
+  queue: null,
+  settings: null,
 };

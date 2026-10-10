@@ -1,7 +1,10 @@
 import type { TokenStore } from './http';
-import type { NowPlaying } from './types';
+import type { NowPlaying, QueueSnapshot, SettingsSnapshot } from './types';
 
-export type LiveMessage = { type: 'nowPlaying'; payload: NowPlaying } | { type: 'queue'; payload: unknown };
+export type LiveMessage =
+  | { type: 'nowPlaying'; payload: NowPlaying }
+  | { type: 'queue'; payload: QueueSnapshot }
+  | { type: 'settings'; payload: SettingsSnapshot };
 
 const RECONNECT_MS = 2000;
 

@@ -8,6 +8,15 @@ export type NetworkStream = 'full' | 'wifi';
 /** How a network player gets DSD: the DSD file when it lists DSD (auto), PCM, or DoP. */
 export type NetworkDsd = 'auto' | 'pcm' | 'dop';
 export type TransportCommand = 'play' | 'pause' | 'toggle' | 'stop' | 'next' | 'previous';
+/** Gain on DSD played as PCM, in dB. */
+export type DsdPcmLevel = 0 | 3 | 6;
+export type QueueSourceKind = 'Album' | 'Artist' | 'Folder' | 'Playlist' | 'Label' | 'Queue';
+
+/** Where the queue came from ("Album", "Kind of Blue"). */
+export interface QueueSource {
+  kind: QueueSourceKind;
+  name: string | null;
+}
 
 export interface Track {
   id: string;
@@ -75,6 +84,7 @@ export interface OutputStatus {
   networkStream: NetworkStream;
   /** DSD mode of the picked network player. */
   networkDsd: NetworkDsd;
+  dsdPcmLevel: DsdPcmLevel;
   discoveryError: string | null;
 }
 
@@ -104,7 +114,72 @@ export interface NowPlaying {
   output: OutputStatus;
   conversionBadge: string | null;
   error: string | null;
+  /** Position in the queue as it plays; null when nothing is queued. */
+  queueIndex: number | null;
+  queueCount: number;
+  queueSource: QueueSource;
 }
+
+/** The queue in play order (shuffled when shuffle is on). */
+export interface QueueSnapshot {
+  tracks: Track[];
+  currentIndex: number | null;
+  source: QueueSource;
+}
+
+export interface RemoteOutputDevice {
+  uid: string;
+  name: string;
+  kind: 'local' | 'network';
+  supportsExclusive: boolean;
+  supportsDoP: boolean;
+}
+
+/** How a network player is fed, as the Mac's three choices. */
+export type NetworkChoice = 'wifiFriendly' | 'full' | 'dsd';
+
+/** The host's Settings, as the iOS app gets them too (Swift SettingsSnapshot). */
+export interface SettingsSnapshot {
+  output: {
+    devices: RemoteOutputDevice[];
+    /** null = system default output. */
+    selectedUID: string | null;
+    selectedName: string | null;
+    isNetworkSelected: boolean;
+    isDeviceMissing: boolean;
+    outputMode: string;
+    effectiveOutputMode: string;
+    canExclusive: boolean;
+    canDoP: boolean;
+    networkChoice: NetworkChoice;
+    supportsNativeDSD: boolean;
+    dsdPCMLevel: DsdPcmLevel;
+  };
+  sharing: {
+    enabled: boolean;
+    statusText: string;
+    blockedByLicense: boolean;
+    activeStreams: number;
+  };
+  directories: Array<{ id: string; name: string; displayPath: string }>;
+  isScanning: boolean;
+  about: {
+    appName: string;
+    versionLabel: string;
+    tagline: string;
+    licenseHeadline: string;
+    licenseDetail: string;
+  };
+}
+
+/** One change to the host's Settings (Swift SettingsPatch). */
+export type SettingsPatch =
+  | { outputDevice: { uid: string | null } }
+  | { outputMode: { value: string } }
+  | { networkChoice: { value: NetworkChoice } }
+  | { dsdPCMLevel: { value: DsdPcmLevel } }
+  | { sharingEnabled: { value: boolean } }
+  | { rebuildIndex: true };
 
 export interface PlaylistSummary {
   id: string;
@@ -154,4 +229,5 @@ export interface OutputChange {
   networkStream: NetworkStream;
   /** Stored for the picked network player. */
   networkDsd?: NetworkDsd;
+  dsdPcmLevel?: DsdPcmLevel;
 }

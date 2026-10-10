@@ -7,6 +7,7 @@ import {
   enginePause,
   enginePlay,
   engineSeek,
+  engineSetDsdPcmLevel,
   engineSetVolume,
   engineStop,
   engineEvents,
@@ -31,6 +32,7 @@ import {
 } from '../upnp/ssdp.js';
 import type {
   AudioBackend,
+  DsdPcmLevel,
   HarborConfig,
   NetworkDsdMode,
   NetworkPlayerFormats,
@@ -39,10 +41,14 @@ import type {
   OutputDevice,
   OutputMode,
   OutputStatus,
+  PlaybackState,
   QueueSnapshot,
+  QueueSource,
   RepeatMode,
   Track,
 } from '../types.js';
+
+const LOOSE_QUEUE: QueueSource = { kind: 'Queue', name: null };
 
 function rendererDevice(r: UpnpRenderer): OutputDevice {
   return {
@@ -67,17 +73,28 @@ function shuffledCopy<T>(items: T[]): T[] {
   return out;
 }
 
+/**
+ * Emits `nowPlaying` and `queue` snapshots, and `settings` when the output Settings show
+ * changes (pick, mode, network stream / DSD, DSD level, the players on the network).
+ */
 export class PlaybackService extends EventEmitter {
   /** Play order (shuffled when shuffle is on). */
   private queue: Track[] = [];
   /** Album / selection order; used to restore when shuffle turns off. */
   private ordered: Track[] = [];
   private index: number | null = null;
+  private source: QueueSource = LOOSE_QUEUE;
   private shuffle = false;
   private repeat: RepeatMode = 'off';
   private current: Track | null = null;
   /** Bumped by every load; an older load that finishes late is dropped. */
   private loadSeq = 0;
+  /** The load still running; a pause meanwhile keeps it from starting. */
+  private loadingSeq: number | null = null;
+  private playWhenLoaded = true;
+  /** What the picked network player lists, for Settings; null for any other pick. */
+  private pickedFormats: NetworkPlayerFormats | null = null;
+  private queueSignature = '';
 
   constructor(
     private catalogue: Catalogue,
@@ -95,7 +112,9 @@ export class PlaybackService extends EventEmitter {
     network.on('trackEnded', (track: Track) => void this.networkTrackEnded(track));
     browser.on('change', () => {
       this.rememberDeviceName();
+      this.refreshPickedFormats();
       this.emitNowPlaying();
+      this.settingsChanged();
     });
   }
 
@@ -126,6 +145,7 @@ export class PlaybackService extends EventEmitter {
       conversionBadge: network ? (this.current ? this.network.pathLabel : null) : base.conversionBadge,
       networkStream: cfg.output.network_stream,
       networkDsd: network ? this.dsdModeFor(uid) : 'auto',
+      dsdPcmLevel: cfg.output.dsd_pcm_level,
       discoveryError: this.browser.lastError,
     };
   }
@@ -133,7 +153,7 @@ export class PlaybackService extends EventEmitter {
   /** What a network player lists and its volume, with the DSD mode stored for it. */
   async networkFormats(uid: string): Promise<NetworkPlayerFormats> {
     const found = await this.network.capabilities(uid);
-    return {
+    const formats: NetworkPlayerFormats = {
       uid,
       online: found !== null,
       listed: Boolean(found?.sink.trim()),
@@ -142,17 +162,33 @@ export class PlaybackService extends EventEmitter {
       volume: found?.volume ?? null,
       dsdMode: this.dsdModeFor(uid),
     };
+    const picked = this.getConfig().output.device_uid;
+    if (picked && sameRendererUid(picked, uid)) {
+      const before = this.pickedFormats;
+      this.pickedFormats = formats;
+      if (before?.online !== formats.online || before?.nativeDsd.join() !== formats.nativeDsd.join()) {
+        this.settingsChanged();
+      }
+    }
+    return formats;
+  }
+
+  /** What the picked network player listed when last asked; null for a pick on this host. */
+  pickedNetworkFormats(): NetworkPlayerFormats | null {
+    return this.pickedFormats;
   }
 
   snapshot(): NowPlayingSnapshot {
     const output = this.outputStatus();
+    const loading = this.loadInFlight();
+    const queue = { queueIndex: this.index, queueCount: this.queue.length, queueSource: this.source };
     if (this.usingNetwork()) {
       const n = this.network;
       const hasTrack = Boolean(this.current);
       return {
-        state: hasTrack ? n.state : 'idle',
+        state: this.playbackState(),
         track: this.current,
-        positionSecs: hasTrack ? n.positionNow() : 0,
+        positionSecs: hasTrack && !loading ? n.positionNow() : 0,
         durationSecs: n.durationSecs || this.current?.durationSecs || null,
         shuffle: this.shuffle,
         repeat: this.repeat,
@@ -160,25 +196,34 @@ export class PlaybackService extends EventEmitter {
         output,
         conversionBadge: hasTrack ? n.pathLabel : null,
         error: n.error,
+        ...queue,
       };
     }
     const eng = engineGetState();
     return {
-      state: eng?.state ?? 'idle',
+      state: this.playbackState(),
       track: this.current,
-      positionSecs: eng?.positionSecs ?? 0,
-      durationSecs: eng?.durationSecs ?? this.current?.durationSecs ?? null,
+      positionSecs: loading ? 0 : (eng?.positionSecs ?? 0),
+      durationSecs: (loading ? null : eng?.durationSecs) ?? this.current?.durationSecs ?? null,
       shuffle: this.shuffle,
       repeat: this.repeat,
       volume: eng?.volume ?? output.volume,
       output,
       conversionBadge: eng?.conversionBadge ?? output.conversionBadge,
       error: eng?.error ?? null,
+      ...queue,
     };
   }
 
   queueSnapshot(): QueueSnapshot {
-    return { tracks: this.queue, currentIndex: this.index };
+    return { tracks: this.queue, currentIndex: this.index, source: this.source };
+  }
+
+  /** Whether `cataloguePath` is loaded and playing, paused or loading — a tap on it then toggles. */
+  isCurrentTrack(cataloguePath: string): boolean {
+    if (this.current?.cataloguePath !== cataloguePath) return false;
+    const state = this.playbackState();
+    return state === 'playing' || state === 'paused' || state === 'loading';
   }
 
   /** One M-SEARCH now — when the output picker opens. */
@@ -186,9 +231,15 @@ export class PlaybackService extends EventEmitter {
     this.browser.searchNow();
   }
 
+  /** Plays the track in its album (an SACD track in its disc); the track playing now pauses or resumes. */
   async playTrack(cataloguePath: string): Promise<void> {
+    if (this.isCurrentTrack(cataloguePath)) {
+      await this.transport({ type: 'toggle' });
+      return;
+    }
     const track = this.catalogue.getTrack(cataloguePath);
     if (!track) throw new Error('Track not found');
+    const source: QueueSource = { kind: 'Album', name: track.album };
 
     // Playing one SACD track queues the whole disc so next/prev + prefetch work.
     const sacd = parseSacdPath(cataloguePath);
@@ -202,7 +253,7 @@ export class PlaybackService extends EventEmitter {
             0,
             disc.findIndex((t) => t.cataloguePath === cataloguePath)
           );
-          await this.playTracks(disc, idx);
+          await this.playTracks(disc, idx, source);
           return;
         }
       } catch {
@@ -216,13 +267,16 @@ export class PlaybackService extends EventEmitter {
       0,
       album.findIndex((t) => t.cataloguePath === cataloguePath)
     );
-    await this.playTracks(album.length ? album : [track], idx);
+    await this.playTracks(album.length ? album : [track], idx, source);
   }
 
-  async playTracks(tracks: Track[], startIndex = 0): Promise<void> {
+  /** Queues `tracks` from `source` (else the start track's album) and plays from `startIndex`. */
+  async playTracks(tracks: Track[], startIndex = 0, source?: QueueSource): Promise<void> {
     if (!tracks.length) return;
     this.ordered = tracks.slice();
     const start = Math.min(Math.max(0, startIndex), tracks.length - 1);
+    const album = tracks[start]!.album;
+    this.source = source?.name ? source : album ? { kind: 'Album', name: album } : LOOSE_QUEUE;
     if (this.shuffle && tracks.length > 1) {
       const rest = shuffledCopy(tracks.filter((_, i) => i !== start));
       this.queue = [tracks[start]!, ...rest];
@@ -232,6 +286,18 @@ export class PlaybackService extends EventEmitter {
       this.index = start;
     }
     await this.loadAndPlay(this.queue[this.index]!);
+  }
+
+  /** Jumps to `index` of the play order without drawing it again; the track playing now toggles. */
+  async playQueueIndex(index: number): Promise<void> {
+    const track = this.queue[index];
+    if (!track) return;
+    this.index = index;
+    if (this.isCurrentTrack(track.cataloguePath)) {
+      await this.transport({ type: 'toggle' });
+      return;
+    }
+    await this.loadAndPlay(track);
   }
 
   /** Rebuild play order from `ordered`, keeping the current track under the playhead. */
@@ -263,16 +329,21 @@ export class PlaybackService extends EventEmitter {
 
   async transport(cmd: TransportCommand): Promise<void> {
     const net = this.usingNetwork();
+    const loading = this.loadInFlight();
     switch (cmd.type) {
       case 'play':
-        await this.resume();
+        if (loading) this.setPlayWhenLoaded(true);
+        else await this.resume();
         break;
       case 'pause':
-        if (net) this.network.pause();
+        if (loading) this.setPlayWhenLoaded(false);
+        else if (net) this.network.pause();
         else enginePause();
         break;
       case 'toggle':
-        if (this.isPlaying()) {
+        if (loading) {
+          this.setPlayWhenLoaded(!this.playWhenLoaded);
+        } else if (this.isPlaying()) {
           if (net) this.network.pause();
           else enginePause();
         } else {
@@ -327,7 +398,10 @@ export class PlaybackService extends EventEmitter {
     const previousUid = cfg.output.device_uid ?? null;
     const previousDsdPath = this.dsdPath();
     // Read from the output that plays now, before the pick changes.
-    const was = { at: this.positionNow(), playing: this.isPlaying() };
+    const was = {
+      at: this.positionNow(),
+      playing: this.loadInFlight() ? this.playWhenLoaded : this.isPlaying(),
+    };
     cfg.output.device_uid = deviceUid;
     cfg.output.mode = mode;
     if (backend) cfg.output.backend = backend;
@@ -351,6 +425,8 @@ export class PlaybackService extends EventEmitter {
     this.network.setStreamQuality(cfg.output.network_stream);
     this.network.setDsdMode(toNetwork ? this.dsdModeFor(deviceUid) : 'auto');
     this.network.setOutputDevice(toNetwork ? deviceUid : null);
+    this.refreshPickedFormats();
+    this.settingsChanged();
     if (carry) {
       await this.loadAndPlay(carry.track, carry.at, carry.playing);
     } else if (dsdChanged) {
@@ -368,6 +444,40 @@ export class PlaybackService extends EventEmitter {
     this.network.setDsdLevel(cfg.output.dsd_pcm_level);
     this.network.setDsdMode(isNetworkUid(uid) ? this.dsdModeFor(uid) : 'auto');
     this.network.setOutputDevice(uid);
+    this.refreshPickedFormats();
+  }
+
+  /** Gain on DSD played as PCM — here and on network players; DoP and native DSD are untouched. */
+  setDsdPcmLevel(level: DsdPcmLevel): void {
+    const cfg = this.getConfig();
+    if (cfg.output.dsd_pcm_level === level) return;
+    cfg.output.dsd_pcm_level = level;
+    this.saveConfig(cfg);
+    engineSetDsdPcmLevel(level);
+    this.network.setDsdLevel(level);
+    this.settingsChanged();
+    this.emitNowPlaying();
+  }
+
+  /** Something the output Settings show changed. */
+  settingsChanged(): void {
+    this.emit('settings');
+  }
+
+  /** Asks the picked network player what it lists when the pick changes or comes and goes. */
+  private refreshPickedFormats(): void {
+    const uid = this.getConfig().output.device_uid ?? null;
+    if (!isNetworkUid(uid)) {
+      if (this.pickedFormats) {
+        this.pickedFormats = null;
+        this.settingsChanged();
+      }
+      return;
+    }
+    const known = this.pickedFormats;
+    if (known && !sameRendererUid(known.uid, uid)) this.pickedFormats = null;
+    else if (known && known.online === Boolean(this.browser.find(uid))) return;
+    void this.networkFormats(uid).catch(() => undefined);
   }
 
   /** DSD mode stored for a network player; auto when none is. */
@@ -401,6 +511,27 @@ export class PlaybackService extends EventEmitter {
     return engineGetState()?.state === 'playing';
   }
 
+  /** A track is still loading (SACD extraction, a network player taking the URL…). */
+  private loadInFlight(): boolean {
+    return this.loadingSeq !== null && this.loadingSeq === this.loadSeq;
+  }
+
+  /** While loading: loading, or paused once a pause came in; else what the output reports. */
+  private playbackState(): PlaybackState {
+    if (this.loadInFlight()) return this.playWhenLoaded ? 'loading' : 'paused';
+    if (this.usingNetwork()) return this.current ? this.network.state : 'idle';
+    return engineGetState()?.state ?? 'idle';
+  }
+
+  /** Play / pause during a load: whether the track starts once it is ready. */
+  private setPlayWhenLoaded(play: boolean): void {
+    this.playWhenLoaded = play;
+    if (play) return;
+    // The previous track may still sound while the next one loads.
+    if (this.usingNetwork()) this.network.pause();
+    else enginePause();
+  }
+
   private positionNow(): number {
     if (this.usingNetwork()) return this.network.positionNow();
     return engineGetState()?.positionSecs ?? 0;
@@ -426,18 +557,24 @@ export class PlaybackService extends EventEmitter {
   private async loadAndPlay(track: Track, at = 0, autoplay = true): Promise<void> {
     const seq = ++this.loadSeq;
     this.current = track;
+    this.loadingSeq = seq;
+    this.playWhenLoaded = autoplay;
     this.emitUpdate();
 
     if (this.usingNetwork()) {
       try {
         await this.network.load(track);
       } catch (err) {
-        if (!(err instanceof LoadSuperseded) && seq === this.loadSeq) this.emitUpdate();
+        if (seq === this.loadSeq) {
+          this.loadingSeq = null;
+          if (!(err instanceof LoadSuperseded)) this.emitUpdate();
+        }
         return;
       }
       if (seq !== this.loadSeq) return;
+      this.loadingSeq = null;
       if (at > 1) this.network.seek(at);
-      if (autoplay) {
+      if (this.playWhenLoaded) {
         // Play may take long (some players buffer before they answer); arm the next track after.
         void this.network.play().then(() => {
           if (seq === this.loadSeq) void this.prepareFollowingTrack();
@@ -450,14 +587,23 @@ export class PlaybackService extends EventEmitter {
       return;
     }
 
-    const playPath = track.cataloguePath.includes(SACD_MARKER)
-      ? await resolveSacdPlaybackPath(track.cataloguePath)
-      : await resolveDstDffPlaybackPath(track.cataloguePath);
-    if (seq !== this.loadSeq) return;
-    await engineLoad(playPath);
-    if (seq !== this.loadSeq) return;
+    try {
+      const playPath = track.cataloguePath.includes(SACD_MARKER)
+        ? await resolveSacdPlaybackPath(track.cataloguePath)
+        : await resolveDstDffPlaybackPath(track.cataloguePath);
+      if (seq !== this.loadSeq) return;
+      await engineLoad(playPath);
+      if (seq !== this.loadSeq) return;
+    } catch (err) {
+      if (seq === this.loadSeq) {
+        this.loadingSeq = null;
+        this.emitUpdate();
+      }
+      throw err;
+    }
+    this.loadingSeq = null;
     if (at > 1) engineSeek(at);
-    if (autoplay) enginePlay();
+    if (this.playWhenLoaded) enginePlay();
     this.emitUpdate();
     // Demux next tracks while the current one plays.
     prefetchSacdNeighbors(track.cataloguePath, 2);
@@ -559,9 +705,19 @@ export class PlaybackService extends EventEmitter {
     this.emit('nowPlaying', this.snapshot());
   }
 
+  /** Now playing always; the queue only when its tracks, position or source changed. */
   private emitUpdate(): void {
     this.emit('nowPlaying', this.snapshot());
-    this.emit('queue', this.queueSnapshot());
+    const queue = this.queueSnapshot();
+    const signature = [
+      queue.currentIndex,
+      queue.source.kind,
+      queue.source.name,
+      ...queue.tracks.map((t) => t.cataloguePath),
+    ].join('\n');
+    if (signature === this.queueSignature) return;
+    this.queueSignature = signature;
+    this.emit('queue', queue);
   }
 }
 
@@ -576,3 +732,7 @@ export type TransportCommand =
   | { type: 'setVolume'; level: number }
   | { type: 'setShuffle'; enabled: boolean }
   | { type: 'setRepeat'; mode: RepeatMode };
+
+export function isRepeatMode(value: unknown): value is RepeatMode {
+  return value === 'off' || value === 'all' || value === 'one';
+}

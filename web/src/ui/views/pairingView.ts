@@ -37,7 +37,13 @@ export class PairingView {
         await this.onPaired();
       } catch (err) {
         error.hidden = false;
-        error.textContent = err instanceof ApiError ? 'Incorrect PIN. Try again.' : errorMessage(err, 'Pairing failed');
+        // 429: too many wrong PINs; the host says when to try again.
+        error.textContent =
+          err instanceof ApiError
+            ? err.status === 429
+              ? err.message
+              : 'Incorrect PIN. Try again.'
+            : errorMessage(err, 'Pairing failed');
         button.disabled = false;
       }
     };

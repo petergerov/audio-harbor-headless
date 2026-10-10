@@ -1,5 +1,5 @@
 import type { PlaybackApi } from '../api/playbackApi';
-import type { NowPlaying, PlayContext, TransportCommand } from '../api/types';
+import type { NowPlaying, PlayContext, QueueSnapshot, RepeatMode, TransportCommand } from '../api/types';
 import type { Store } from '../core/store';
 import type { AppState } from '../state/appState';
 
@@ -9,6 +9,10 @@ export interface PlaybackActions {
   transport(command: TransportCommand): Promise<void>;
   seek(seconds: number): Promise<void>;
   setVolume(level: number): Promise<void>;
+  setShuffle(on: boolean): Promise<void>;
+  setRepeat(mode: RepeatMode): Promise<void>;
+  /** Jumps to a queue position; the track playing now pauses or resumes. */
+  playQueueIndex(index: number): Promise<void>;
 }
 
 /** Playback on the host; every answer lands in the store as the new now-playing snapshot. */
@@ -19,12 +23,18 @@ export class PlaybackService implements PlaybackActions {
   ) {}
 
   async refresh(): Promise<void> {
-    this.receive(await this.api.nowPlaying());
+    const [nowPlaying, queue] = await Promise.all([this.api.nowPlaying(), this.api.queue()]);
+    this.store.update({ nowPlaying, queue });
   }
 
   /** A snapshot pushed by the host. */
   receive(nowPlaying: NowPlaying): void {
     this.store.update({ nowPlaying });
+  }
+
+  /** The queue as the host pushes it. */
+  receiveQueue(queue: QueueSnapshot): void {
+    this.store.update({ queue });
   }
 
   async play(context: PlayContext): Promise<void> {
@@ -42,5 +52,17 @@ export class PlaybackService implements PlaybackActions {
 
   async setVolume(level: number): Promise<void> {
     this.receive(await this.api.setVolume(level));
+  }
+
+  async setShuffle(on: boolean): Promise<void> {
+    this.receive(await this.api.setShuffle(on));
+  }
+
+  async setRepeat(mode: RepeatMode): Promise<void> {
+    this.receive(await this.api.setRepeat(mode));
+  }
+
+  async playQueueIndex(index: number): Promise<void> {
+    this.receive(await this.api.playQueueIndex(index));
   }
 }

@@ -1,7 +1,11 @@
 import type { HttpClient } from './http';
-import type { Mount, NetworkPlayerFormats, OutputChange, OutputStatus } from './types';
+import type { Mount, NetworkPlayerFormats, OutputChange, OutputStatus, SettingsPatch, SettingsSnapshot } from './types';
 
 export interface SettingsApi {
+  /** Output, sharing, directories and about, as the iOS app gets them. */
+  settings(): Promise<SettingsSnapshot>;
+  /** One change; answers with the snapshot after it. */
+  applySettings(patch: SettingsPatch): Promise<SettingsSnapshot>;
   mounts(): Promise<Mount[]>;
   addMount(path: string): Promise<void>;
   removeMount(path: string): Promise<void>;
@@ -16,6 +20,14 @@ export interface SettingsApi {
 
 export class HttpSettingsApi implements SettingsApi {
   constructor(private readonly http: HttpClient) {}
+
+  settings(): Promise<SettingsSnapshot> {
+    return this.http.get('/api/v1/settings');
+  }
+
+  applySettings(patch: SettingsPatch): Promise<SettingsSnapshot> {
+    return this.http.put('/api/v1/settings', patch);
+  }
 
   mounts(): Promise<Mount[]> {
     return this.http.get('/api/v1/mounts');

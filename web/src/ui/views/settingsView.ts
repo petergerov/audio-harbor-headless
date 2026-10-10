@@ -1,7 +1,9 @@
 import type { AppContext } from '../../app/context';
 import { required } from '../../core/html';
 import type { SettingsPane } from '../../state/appState';
+import { AboutPane } from './settings/aboutPane';
 import { OutputPane } from './settings/outputPane';
+import { SharingPane } from './settings/sharingPane';
 import { SourcesPane } from './settings/sourcesPane';
 import type { View } from './view';
 
@@ -13,8 +15,10 @@ export interface Pane {
 
 /** The panes in segment order — a new pane is a new entry. */
 const PANES: Record<SettingsPane, { label: string; create(ctx: AppContext): Pane }> = {
-  sources: { label: 'Sources', create: (ctx) => new SourcesPane(ctx.settings) },
+  sources: { label: 'Sources', create: (ctx) => new SourcesPane(ctx.settings, ctx.store) },
   output: { label: 'Output', create: (ctx) => new OutputPane(ctx.settings) },
+  sharing: { label: 'Sharing', create: (ctx) => new SharingPane(ctx.store, ctx.hostSettings) },
+  about: { label: 'About', create: (ctx) => new AboutPane(ctx.store, ctx.hostSettings) },
 };
 
 export class SettingsView implements View {

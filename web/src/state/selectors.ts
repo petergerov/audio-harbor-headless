@@ -13,6 +13,12 @@ export function nowPlayingPath(state: AppState): string | null {
   return currentTrack(state)?.cataloguePath ?? null;
 }
 
+/** `path` is loaded and playing, paused or loading — a tap on it then pauses or resumes. */
+export function isCurrentTrack(state: AppState, path: string): boolean {
+  const np = state.nowPlaying;
+  return np?.track?.cataloguePath === path && (np.state === 'playing' || np.state === 'paused' || np.state === 'loading');
+}
+
 /** Why playback stopped (e.g. the network player left), while it is in the failed state. */
 export function playbackError(state: AppState): string {
   const np = state.nowPlaying;

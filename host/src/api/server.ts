@@ -7,15 +7,20 @@ import websocket from '@fastify/websocket';
 import { loadConfig, normalizeNetworkDsd, normalizeNetworkStream, saveConfig } from '../config.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
-import { isAuthorized, loadPairing, pairWithPin, rotatePin } from '../pairing.js';
-import { PlaybackService } from '../playback/service.js';
+import { isAuthorized, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
+import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { webDistPath } from '../paths.js';
-import type { BrowseScope, HarborConfig, OutputMode } from '../types.js';
+import type { RemoteSettings } from '../remote/settings.js';
+import type { BrowseScope, HarborConfig, OutputMode, QueueSource, Track } from '../types.js';
+import type { Sharing } from '../upnp/sharing.js';
 
 export interface AppContext {
   catalogue: Catalogue;
   playback: PlaybackService;
   getConfig: () => HarborConfig;
+  /** The Settings snapshot the remotes show, and changes to it. */
+  settings: RemoteSettings;
+  sharing: Sharing;
 }
 
 function authOk(header: string | undefined): boolean {
@@ -45,6 +50,7 @@ export async function buildServer(ctx: AppContext) {
   }));
 
   app.post<{ Body: { pin: string } }>('/api/v1/pair', async (req, reply) => {
+    if (pairingLockedOut()) return reply.code(429).send({ error: 'Too many failed attempts — try again shortly' });
     const token = pairWithPin(String(req.body?.pin ?? ''));
     if (!token) return reply.code(401).send({ error: 'invalid pin' });
     return { token };
@@ -93,6 +99,7 @@ export async function buildServer(ctx: AppContext) {
     const cfg = ctx.getConfig();
     cfg.library.roots = cfg.library.roots.filter((r) => r !== p);
     saveConfig(cfg);
+    ctx.settings.changed();
     return { roots: cfg.library.roots };
   });
 
@@ -114,6 +121,16 @@ export async function buildServer(ctx: AppContext) {
 
   app.get<{ Querystring: { q: string; limit?: string } }>('/api/v1/search', async (req) => {
     return { items: ctx.catalogue.search(req.query.q ?? '', Number(req.query.limit ?? 50)) };
+  });
+
+  // The same snapshot the iOS app gets (Swift SettingsSnapshot).
+  app.get('/api/v1/settings', async () => ctx.settings.snapshot());
+
+  // One Swift SettingsPatch, e.g. { "dsdPCMLevel": { "value": 6 } } or { "rebuildIndex": true }.
+  app.put<{ Body: unknown }>('/api/v1/settings', async (req, reply) => {
+    const failure = await ctx.settings.apply(req.body);
+    if (failure) return reply.code(400).send({ error: failure });
+    return ctx.settings.snapshot();
   });
 
   app.get('/api/v1/output', async () => ctx.playback.outputStatus());
@@ -138,10 +155,16 @@ export async function buildServer(ctx: AppContext) {
       backend?: 'auto' | 'juce' | 'native';
       networkStream?: string;
       networkDsd?: string;
+      dsdPcmLevel?: number;
     };
-  }>('/api/v1/output', async (req) => {
+  }>('/api/v1/output', async (req, reply) => {
     const body = req.body ?? {};
     const cfg = ctx.getConfig();
+    if (body.dsdPcmLevel !== undefined) {
+      const level = body.dsdPcmLevel;
+      if (level !== 0 && level !== 3 && level !== 6) return reply.code(400).send({ error: 'dsdPcmLevel must be 0, 3 or 6' });
+      ctx.playback.setDsdPcmLevel(level);
+    }
     await ctx.playback.setOutput(
       body.deviceUid === undefined ? (cfg.output.device_uid ?? null) : body.deviceUid,
       body.mode ?? cfg.output.mode,
@@ -165,26 +188,36 @@ export async function buildServer(ctx: AppContext) {
     const body = req.body ?? {};
     const roots = ctx.getConfig().library.roots;
 
+    // A tap on the song already loaded pauses or resumes it; the queue stays.
+    if (body.cataloguePath && ctx.playback.isCurrentTrack(body.cataloguePath)) {
+      await ctx.playback.transport({ type: 'toggle' });
+      return ctx.playback.snapshot();
+    }
+
     // Context queues (album / artist / folder / playlist / label), optionally
     // starting at cataloguePath so next/prev walk the same list the user browsed.
-    let tracks:
-      | ReturnType<typeof ctx.catalogue.albumTracks>
-      | null = null;
+    let tracks: Track[] | null = null;
+    let source: QueueSource | undefined;
     if (body.albumId) {
       tracks = ctx.catalogue.albumTracks(body.albumId);
+      source = { kind: 'Album', name: tracks[0]?.album ?? null };
     } else if (body.artist) {
       tracks = ctx.catalogue.artistTracks(body.artist);
+      source = { kind: 'Artist', name: body.artist };
     } else if (body.folder) {
       const paths = ctx.catalogue.resolveSelectionPaths(roots, { folder: body.folder });
       tracks = paths
         .map((p) => ctx.catalogue.getTrack(p))
         .filter((t): t is NonNullable<typeof t> => Boolean(t));
+      source = { kind: 'Folder', name: path.basename(body.folder) };
     } else if (body.playlistId) {
       tracks = ctx.catalogue.playlistTracks(body.playlistId);
       if (!tracks.length) return reply.code(404).send({ error: 'playlist empty or missing' });
+      source = { kind: 'Playlist', name: ctx.catalogue.getPlaylist(body.playlistId)?.name ?? null };
     } else if (body.label) {
       tracks = ctx.catalogue.tracksForLabel(body.label);
       if (!tracks.length) return reply.code(404).send({ error: 'label empty or missing' });
+      source = { kind: 'Label', name: body.label };
     }
 
     if (tracks) {
@@ -199,7 +232,7 @@ export async function buildServer(ctx: AppContext) {
         }
       }
       if (!tracks.length) return reply.code(404).send({ error: 'nothing to play' });
-      await ctx.playback.playTracks(tracks, startIndex);
+      await ctx.playback.playTracks(tracks, startIndex, source);
       return ctx.playback.snapshot();
     }
 
@@ -435,6 +468,7 @@ export async function buildServer(ctx: AppContext) {
       level?: number;
       enabled?: boolean;
       mode?: string;
+      index?: number;
     };
   }>('/api/v1/transport', async (req, reply) => {
     const c = req.body?.command;
@@ -462,8 +496,12 @@ export async function buildServer(ctx: AppContext) {
       case 'setRepeat':
         await ctx.playback.transport({
           type: 'setRepeat',
-          mode: (req.body?.mode as 'off' | 'all' | 'one') ?? 'off',
+          mode: isRepeatMode(req.body?.mode) ? req.body.mode : 'off',
         });
+        break;
+      // Jumps within the queue as it plays (shuffled or not); the current track toggles.
+      case 'playQueueIndex':
+        await ctx.playback.playQueueIndex(Number(req.body?.index));
         break;
       default:
         return reply.code(400).send({ error: 'unknown command' });
@@ -482,19 +520,33 @@ export async function buildServer(ctx: AppContext) {
 
   app.get('/api/v1/devices', async () => ({ devices: listLocalDevices() }));
 
-  app.get('/api/v1/sharing', async () => ctx.getConfig().sharing);
+  const sharingStatus = () => ({
+    ...ctx.getConfig().sharing,
+    statusText: ctx.sharing.statusText,
+    activeStreams: ctx.sharing.activeStreams,
+  });
 
+  app.get('/api/v1/sharing', async () => sharingStatus());
+
+  // Takes effect at once: the DLNA server starts, stops, or starts again on the new port / name.
   app.put<{ Body: { enabled?: boolean; port?: number; friendly_name?: string } }>(
     '/api/v1/sharing',
     async (req) => {
       const cfg = ctx.getConfig();
-      if (req.body?.enabled !== undefined) cfg.sharing.enabled = Boolean(req.body.enabled);
-      if (req.body?.port !== undefined) cfg.sharing.port = Number(req.body.port);
-      if (req.body?.friendly_name !== undefined) {
+      const wasRunning = ctx.sharing.running;
+      let moved = false;
+      if (req.body?.port !== undefined && Number(req.body.port) !== cfg.sharing.port) {
+        cfg.sharing.port = Number(req.body.port);
+        moved = true;
+      }
+      if (req.body?.friendly_name !== undefined && String(req.body.friendly_name) !== cfg.sharing.friendly_name) {
         cfg.sharing.friendly_name = String(req.body.friendly_name);
+        moved = true;
       }
       saveConfig(cfg);
-      return cfg.sharing;
+      if (req.body?.enabled !== undefined) await ctx.sharing.setEnabled(Boolean(req.body.enabled));
+      if (moved && wasRunning && ctx.sharing.running) await ctx.sharing.restart();
+      return sharingStatus();
     }
   );
 
@@ -511,13 +563,16 @@ export async function buildServer(ctx: AppContext) {
       };
       send('nowPlaying', ctx.playback.snapshot());
       send('queue', ctx.playback.queueSnapshot());
+      send('settings', ctx.settings.snapshot());
       const onNp = (p: unknown) => send('nowPlaying', p);
       const onQ = (p: unknown) => send('queue', p);
       ctx.playback.on('nowPlaying', onNp);
       ctx.playback.on('queue', onQ);
+      const unwatch = ctx.settings.watch((p) => send('settings', p));
       socket.on('close', () => {
         ctx.playback.off('nowPlaying', onNp);
         ctx.playback.off('queue', onQ);
+        unwatch();
       });
     });
   });

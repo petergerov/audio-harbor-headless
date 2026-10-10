@@ -4,6 +4,7 @@ import type { CollectionsService } from '../services/collectionsService';
 import type { Navigation } from '../services/navigator';
 import type { PlaybackClock } from '../services/playbackClock';
 import type { PlaybackActions } from '../services/playbackService';
+import type { HostSettings } from '../services/settingsService';
 import type { AppState } from '../state/appState';
 import type { Covers } from '../ui/components/covers';
 import type { PlayerBindings } from '../ui/components/playerBindings';
@@ -17,6 +18,8 @@ export interface AppContext {
   clock: PlaybackClock;
   collections: CollectionsService;
   settings: SettingsApi;
+  /** The Settings snapshot the iOS app shares (sharing, scanning, about), kept in the store. */
+  hostSettings: HostSettings;
   covers: Covers;
   bindings: PlayerBindings;
   actions: ItemActions;

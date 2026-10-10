@@ -1,18 +1,30 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
 import qrcode from 'qrcode-terminal';
 import { buildServer, loadPairing, printPairingInfo, rotatePin } from './api/server.js';
 import { loadConfig, saveConfig } from './config.js';
 import { engineVersion } from './engine/bridge.js';
 import { Catalogue } from './library/catalogue.js';
 import { lanBaseUrl } from './net.js';
+import { hostPackagePath } from './paths.js';
 import { PlaybackService } from './playback/service.js';
 import { KeepAwake } from './power.js';
 import { startBonjourRemote } from './remote/bonjour.js';
 import { Mdns } from './remote/mdns.js';
+import { RemoteSettings } from './remote/settings.js';
 import { MediaHttpServer } from './upnp/mediaHttp.js';
-import { startDlnaServer } from './upnp/mediaServer.js';
 import { NetworkPlayer } from './upnp/networkPlayer.js';
+import { Sharing } from './upnp/sharing.js';
 import { RendererBrowser } from './upnp/ssdp.js';
+
+/** The host's version, from its package.json. */
+function hostVersion(): string {
+  try {
+    return String(JSON.parse(fs.readFileSync(hostPackagePath(), 'utf8')).version ?? '');
+  } catch {
+    return '';
+  }
+}
 
 async function main(): Promise<void> {
   const [cmd = 'serve', ...rest] = process.argv.slice(2);
@@ -63,7 +75,17 @@ async function main(): Promise<void> {
   const playback = new PlaybackService(catalogue, getConfig, persist, browser, network);
   playback.applyConfigOutput();
 
-  const app = await buildServer({ catalogue, playback, getConfig });
+  const sharing = new Sharing(catalogue, getConfig, persist);
+  const settings = new RemoteSettings({
+    playback,
+    catalogue,
+    sharing,
+    getConfig,
+    rescan: () => catalogue.scanRoots(cfg.library.roots),
+    version: hostVersion() || 'unknown',
+  });
+
+  const app = await buildServer({ catalogue, playback, getConfig, settings, sharing });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
   // mDNS: this host as http://audioharbor.local:<port> — nothing to type, and a new DHCP
@@ -96,27 +118,24 @@ async function main(): Promise<void> {
   printPairingInfo();
   qrcode.generate(url, { small: true });
 
-  if (cfg.sharing.enabled) {
-    await startDlnaServer({
-      port: cfg.sharing.port,
-      friendlyName: cfg.sharing.friendly_name,
-      catalogue,
-      roots: cfg.library.roots,
-      dsdLevel: cfg.output.dsd_pcm_level,
-    });
-    console.log(`DLNA music server on port ${cfg.sharing.port}`);
-  }
+  await sharing.start();
+  if (cfg.sharing.enabled && !sharing.running) console.warn(`DLNA music server: ${sharing.statusText}`);
 
   if (mdns && cfg.remote.bonjour_enabled) {
-    await startBonjourRemote({
-      port: cfg.remote.bonjour_port,
-      name: cfg.server.name,
-      playback,
-      catalogue,
-      getConfig,
-      mdns,
-    });
-    console.log(`Bonjour remote _audioharbor._tcp on port ${cfg.remote.bonjour_port}`);
+    try {
+      await startBonjourRemote({
+        port: cfg.remote.bonjour_port,
+        name: cfg.server.name,
+        playback,
+        catalogue,
+        settings,
+        getConfig,
+        mdns,
+      });
+      console.log(`Bonjour remote _audioharbor._tcp on port ${cfg.remote.bonjour_port}`);
+    } catch (err) {
+      console.warn(`Bonjour remote could not start on port ${cfg.remote.bonjour_port}:`, err);
+    }
   }
 }
 

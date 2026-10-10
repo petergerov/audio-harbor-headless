@@ -1,4 +1,4 @@
-import type { TransportCommand } from '../../api/types';
+import type { RepeatMode, TransportCommand } from '../../api/types';
 import { haptic } from '../../core/device';
 import type { PlaybackClock } from '../../services/playbackClock';
 import type { PlaybackActions } from '../../services/playbackService';
@@ -11,7 +11,10 @@ export interface PlayerControlDeps {
   bindings: PlayerBindings;
 }
 
-/** Wires the transport buttons, scrubbers and volume sliders inside `root` to playback. */
+/** Off → queue → track → off, as on the Mac. */
+const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: 'all', all: 'one', one: 'off' };
+
+/** Wires the transport buttons, scrubbers, volume sliders, shuffle and repeat inside `root` to playback. */
 export function bindPlayerControls(root: ParentNode, deps: PlayerControlDeps): void {
   root.querySelectorAll<HTMLElement>('[data-cmd]').forEach((button) => {
     button.addEventListener('click', (event) => {
@@ -37,6 +40,24 @@ export function bindPlayerControls(root: ParentNode, deps: PlayerControlDeps): v
     };
     scrubber.addEventListener('pointerup', commit);
     scrubber.addEventListener('change', commit);
+  });
+
+  // The bindings keep both buttons' state current; a click asks for the next one.
+  root.querySelectorAll<HTMLElement>(PlayerMarkup.shuffle).forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      haptic('light');
+      void deps.playback.setShuffle(button.getAttribute('aria-pressed') !== 'true').catch(report);
+    });
+  });
+
+  root.querySelectorAll<HTMLElement>(PlayerMarkup.repeat).forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      haptic('light');
+      const mode = (button.dataset.repeat ?? 'off') as RepeatMode;
+      void deps.playback.setRepeat(NEXT_REPEAT[mode] ?? 'off').catch(report);
+    });
   });
 }
 

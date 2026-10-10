@@ -34,6 +34,11 @@ export function exampleConfigPath(): string {
   return path.resolve(__dirname, '../../config.example.toml');
 }
 
+export function hostPackagePath(): string {
+  // host/dist/paths.js → host/package.json
+  return path.resolve(__dirname, '../package.json');
+}
+
 export function webDistPath(): string {
   // host/dist/paths.js → web/dist
   return path.resolve(__dirname, '../../web/dist');

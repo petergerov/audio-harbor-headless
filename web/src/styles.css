@@ -855,6 +855,59 @@ button.cell:active {
   opacity: 0.45;
 }
 
+/* On / off switch */
+.switch {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 51px;
+  height: 31px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--fill-strong);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
+  transition: transform 0.2s var(--ease-out);
+}
+
+.switch:checked {
+  background: var(--green);
+}
+
+.switch:checked::after {
+  transform: translateX(20px);
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: 2px;
+}
+
+button.cell:disabled {
+  cursor: default;
+}
+
+button.cell:disabled .value {
+  color: var(--tertiary);
+}
+
 /* —— Collection detail —— */
 .collection-hero {
   display: grid;
@@ -1149,6 +1202,46 @@ button.cell:active {
 
 .volume-row input[type="range"] {
   accent-color: var(--secondary);
+}
+
+/* Shuffle · Up Next · Repeat */
+.now-modes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 14px;
+}
+
+.mode-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--secondary);
+  transition: color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+.mode-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.mode-btn[aria-pressed="true"] {
+  color: var(--tint);
+  background: var(--tint-soft);
+}
+
+.mode-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.mode-btn:disabled {
+  opacity: 0.3;
+}
+
+.queue-list {
+  display: grid;
 }
 
 /* —— Mini player (mobile) —— */
@@ -2453,6 +2546,7 @@ body.overlay-open .ah-toast {
     background: var(--fill-strong);
   }
 
+  .mode-btn:hover:not(:disabled):not([aria-pressed="true"]),
   .mini-actions button:hover,
   .transport button:hover:not(:disabled),
   .now-bar-track:hover,

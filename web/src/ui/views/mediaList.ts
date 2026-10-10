@@ -1,9 +1,12 @@
 import type { AppContext } from '../../app/context';
 import type { BrowseItem, PlayContext, Selection, Track } from '../../api/types';
+import { haptic } from '../../core/device';
+import { errorMessage } from '../../core/errors';
 import { songs } from '../../core/format';
 import type { LibraryState, OpenCollection } from '../../state/appState';
-import { nowPlayingPath } from '../../state/selectors';
+import { isCurrentTrack, nowPlayingPath } from '../../state/selectors';
 import { mediaRow, type RowModel } from '../components/mediaRow';
+import { showToast } from '../overlay';
 
 /** Where a list shows: the library (browse or search), or an open playlist / label. */
 export type ListScope =
@@ -106,7 +109,15 @@ const trackEntry: Presenter = (item, scope, ctx) => {
       playing: path === nowPlayingPath(ctx.store.get()),
     },
     selection: { cataloguePath: path, title: track.title ?? item.name ?? 'Track' },
-    open: () => void ctx.actions.play(playContextFor(path, scope)),
+    open: () => {
+      // The song already loaded pauses or resumes; its queue stays.
+      if (!isCurrentTrack(ctx.store.get(), path)) {
+        void ctx.actions.play(playContextFor(path, scope));
+        return;
+      }
+      haptic('medium');
+      void ctx.playback.transport('toggle').catch((err) => showToast(errorMessage(err, 'Playback failed'), { error: true }));
+    },
     path,
   };
 };

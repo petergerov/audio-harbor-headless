@@ -7,6 +7,7 @@ import type { CollectionsService } from '../services/collectionsService';
 import type { LibraryService } from '../services/libraryService';
 import type { PlaybackClock } from '../services/playbackClock';
 import type { PlaybackService } from '../services/playbackService';
+import type { SettingsService } from '../services/settingsService';
 import type { AppState } from '../state/appState';
 import { currentTrack, playbackError } from '../state/selectors';
 import type { PlayerBindings } from '../ui/components/playerBindings';
@@ -24,6 +25,7 @@ export interface AppDeps {
   clock: PlaybackClock;
   library: LibraryService;
   collections: CollectionsService;
+  settings: SettingsService;
   bindings: PlayerBindings;
   shell: Shell;
 }
@@ -44,13 +46,15 @@ export class App {
   }
 
   async start(): Promise<void> {
-    const { tokens, live, playback, clock, collections, library, shell } = this.deps;
+    const { tokens, live, playback, clock, collections, library, settings, shell } = this.deps;
     if (!tokens.get()) {
       this.showPairing();
       return;
     }
     live.connect((message) => {
       if (message.type === 'nowPlaying') playback.receive(message.payload);
+      else if (message.type === 'queue') playback.receiveQueue(message.payload);
+      else if (message.type === 'settings') settings.receive(message.payload);
     });
     try {
       await playback.refresh();

@@ -90,6 +90,11 @@ export function applyOutput(
   eng.setDsdPcmLevel(dsdLevel);
 }
 
+/** DSD→PCM gain alone — device, mode and backend stay as they are. */
+export function engineSetDsdPcmLevel(dsdLevel: 0 | 3 | 6): void {
+  loadNative()?.setDsdPcmLevel(dsdLevel);
+}
+
 export function engineAudioBackend(): AudioBackendInfo | null {
   return loadNative()?.getAudioBackend?.() ?? null;
 }
@@ -160,7 +165,13 @@ export function engineNetStreamClose(handle: unknown): void {
 /** What the engine knows; the playback service adds the pick and the network side. */
 export type EngineOutputStatus = Omit<
   OutputStatus,
-  'selectedName' | 'selectedKind' | 'selectedAvailable' | 'networkStream' | 'networkDsd' | 'discoveryError'
+  | 'selectedName'
+  | 'selectedKind'
+  | 'selectedAvailable'
+  | 'networkStream'
+  | 'networkDsd'
+  | 'dsdPcmLevel'
+  | 'discoveryError'
 >;
 
 export function buildOutputStatus(

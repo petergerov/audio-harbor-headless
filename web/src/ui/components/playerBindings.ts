@@ -1,8 +1,20 @@
+import type { RepeatMode } from '../../api/types';
 import { formatTime } from '../../core/format';
 import type { AppState } from '../../state/appState';
 import { currentTrack, durationSecs, isPlaying, nowPlayingPath, playbackError } from '../../state/selectors';
 import { icons } from '../icons';
 import { PLAYING_GLYPH } from './mediaRow';
+
+export const REPEAT_LABELS: Record<RepeatMode, string> = {
+  off: 'Repeat off',
+  all: 'Repeat queue',
+  one: 'Repeat track',
+};
+
+/** Glyph and pressed state of a repeat button in `mode`. */
+export function repeatButton(mode: RepeatMode): { glyph: string; pressed: boolean } {
+  return { glyph: mode === 'one' ? icons.repeatOne : icons.repeat, pressed: mode !== 'off' };
+}
 
 /**
  * The markup contract for live player state. Any screen or player chrome may carry these
@@ -19,6 +31,10 @@ export const PlayerMarkup = {
   volume: 'input[data-vol]',
   error: '[data-now-error]',
   badge: '[data-now-badge]',
+  /** `aria-pressed` follows shuffle. */
+  shuffle: '[data-shuffle]',
+  /** `data-repeat` holds the mode; glyph, label and `aria-pressed` follow it. */
+  repeat: '[data-repeat]',
   trackRow: '.row-wrap[data-path]',
 } as const;
 
@@ -52,6 +68,18 @@ export class PlayerBindings {
     });
     this.each(PlayerMarkup.badge, (el) => {
       el.textContent = state.nowPlaying?.conversionBadge ?? '';
+    });
+    this.each(PlayerMarkup.shuffle, (el) => {
+      el.setAttribute('aria-pressed', String(Boolean(state.nowPlaying?.shuffle)));
+    });
+    const repeat = state.nowPlaying?.repeat ?? 'off';
+    this.each(PlayerMarkup.repeat, (el) => {
+      if (el.dataset.repeat === repeat) return;
+      const { glyph, pressed } = repeatButton(repeat);
+      el.dataset.repeat = repeat;
+      el.innerHTML = glyph;
+      el.setAttribute('aria-pressed', String(pressed));
+      el.setAttribute('aria-label', REPEAT_LABELS[repeat]);
     });
     // The output's volume moves on its own too (a network player's knob).
     const volume = state.nowPlaying?.volume;

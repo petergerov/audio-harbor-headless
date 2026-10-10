@@ -96,7 +96,7 @@ host/src/
   playback/service.ts  PlaybackService: queue, output routing, gapless
   library/           Catalogue (SQLite), SACD ISO parsing and extraction
   upnp/              network players (control point, media HTTP, planner) and the DLNA server
-  remote/            Bonjour remote for the iOS app, mDNS responder, wire DTOs
+  remote/            Bonjour remote for the iOS app (browse, settings, artwork), mDNS responder, wire DTOs
   engine/bridge.ts   typed wrapper around the addon; engine events
   config.ts, paths.ts, pairing.ts, power.ts, net.ts, types.ts
 web/src/             web remote (see web/README.md)
@@ -168,15 +168,15 @@ binding.cpp (N-API)  →  FrameSource, AHDST (no player involved)
 
 | Module | Job |
 |---|---|
-| `api/server.ts` | Fastify: REST under `/api/v1`, WebSocket `/api/v1/ws` (pushes `nowPlaying` and `queue`), the web remote from `web/dist`. Every API route except health and pairing needs a token (`Authorization: Bearer` or `?token=`). |
-| `playback/service.ts` | Queue (album, artist, folder, playlist or label), repeat, transport, output pick. Routes to the engine or the `NetworkPlayer`. Moving between this host and a network player, or changing what DSD becomes on one, reloads the current track at the same position. Emits `nowPlaying` and `queue`. |
+| `api/server.ts` | Fastify: REST under `/api/v1`, WebSocket `/api/v1/ws` (pushes `nowPlaying`, `queue` and `settings`), the web remote from `web/dist`. `GET` / `PUT /api/v1/settings` read and change the same Settings snapshot the iOS app gets. Every API route except health and pairing needs a token (`Authorization: Bearer` or `?token=`). |
+| `playback/service.ts` | Queue (album, artist, folder, playlist or label, with that source for the remotes), repeat, transport, output pick, DSD→PCM level. Routes to the engine or the `NetworkPlayer`. A tap on the track already loaded pauses or resumes it; a pause while a track loads keeps it from starting. Moving between this host and a network player, or changing what DSD becomes on one, reloads the current track at the same position. Emits `nowPlaying`, `queue` and `settings`. |
 | `library/catalogue.ts` | SQLite catalogue: `tracks`, `labels`, `playlists`, `tracks_fts`. A scan walks the roots, skips unchanged files by mtime, reads tags with music-metadata and stores cover art by hash. A track's identity is its absolute path; an SACD track is `disc.iso#sacd/N`. Playlists and labels are sets of paths. |
 | `library/sacd.ts` | Scarlet Book: reads the TOC into catalogue tracks; extracts a track to an uncompressed DFF on first play (DST decoded by the engine), asynchronously with yields, one extraction per file; prefetches the next tracks. |
 | `upnp/*` (network players) | SSDP discovery, SOAP control, media HTTP, the media planner and `NetworkPlayer` — see below. |
-| `upnp/mediaServer.ts` | DLNA MediaServer: device description, ContentDirectory Browse / Search, WAV transcoding for DSD, files under the library roots by `Range`, SSDP announcements. |
-| `remote/bonjour.ts` | The Audio Harbor iOS app's protocol: `[u32 length][kind][payload]` frames, JSON envelopes v2 (hello / pair, subscribe, transport, playSelection, browse, search, trackOptions, editTrack) and binary artwork. `wire.ts` maps snapshots to its DTOs. |
+| `upnp/mediaServer.ts`, `upnp/sharing.ts` | DLNA MediaServer: device description, ContentDirectory Browse / Search, WAV transcoding for DSD, files under the library roots by `Range`, SSDP announcements. `Sharing` starts and stops it while the host runs. |
+| `remote/bonjour.ts` | The Audio Harbor iOS app's protocol: `[u32 length][kind][payload]` frames, JSON envelopes v3 (hello / pair, subscribe to `nowPlaying` / `queue` / `settings`, transport, playSelection, browse, search, trackOptions, editTrack, getSettings / setSettings) and binary artwork. `browse.ts` pages and filters the library, `settings.ts` builds and applies the Settings snapshot, `artwork.ts` scales covers, `wire.ts` maps snapshots to its DTOs. Folder IDs are `rootUUID/rel/path`, never host paths. |
 | `remote/mdns.ts` | One mDNS responder (bonjour-service): probes and claims `audioharbor.local`, publishes `_http._tcp` and `_audioharbor._tcp`, answers AAAA with NSEC (IPv4 only), follows address changes, says goodbye on exit. |
-| `pairing.ts` | Six-digit PIN → random token (`POST /api/v1/pair` or the Bonjour hello). The PIN changes after each pairing. Web and iOS share the tokens. |
+| `pairing.ts` | Six-digit PIN → random token (`POST /api/v1/pair` or the Bonjour hello). The PIN changes after each pairing; five wrong PINs in a row pause pairing for a minute. Web and iOS share the tokens. |
 | `config.ts` | Loads `config.toml`, normalizes every value, writes it back on change. |
 | `power.ts` | `KeepAwake`: `caffeinate` (macOS) or `systemd-inhibit` (Linux) while a network player streams. |
 

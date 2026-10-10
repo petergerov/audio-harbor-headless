@@ -1,5 +1,5 @@
 import type { SettingsApi } from '../../../api/settingsApi';
-import type { NetworkDsd, NetworkPlayerFormats, NetworkStream, OutputStatus } from '../../../api/types';
+import type { DsdPcmLevel, NetworkDsd, NetworkPlayerFormats, NetworkStream, OutputStatus } from '../../../api/types';
 import { errorMessage } from '../../../core/errors';
 import { escapeAttr, escapeHtml, required } from '../../../core/html';
 import { openConfirmDialog, showToast } from '../../overlay';
@@ -156,6 +156,18 @@ export class OutputPane implements Pane {
         </div>
       </div>
       <p class="footer-note" data-note></p>
+      <p class="group-label">DSD as PCM</p>
+      <div class="group">
+        <div class="cell">
+          <label for="dsdLevel">Gain</label>
+          <select id="dsdLevel">
+            ${choice('0', '0 dB', String(output.dsdPcmLevel))}
+            ${choice('3', '+3 dB', String(output.dsdPcmLevel))}
+            ${choice('6', '+6 dB', String(output.dsdPcmLevel))}
+          </select>
+        </div>
+      </div>
+      <p class="footer-note">For DSD converted to PCM, here and on network players. +6 dB matches most DACs' DSD level but can clip hot SACD masters. DoP and DSD sent untouched are left alone.</p>
       <p class="group-label">Status</p>
       <div class="group" data-status>${statusCells(output)}</div>
       <div class="group">
@@ -168,6 +180,7 @@ export class OutputPane implements Pane {
     const mode = required<HTMLSelectElement>(root, '#mode');
     const stream = required<HTMLSelectElement>(root, '#stream');
     const dsd = required<HTMLSelectElement>(root, '#dsd');
+    const dsdLevel = required<HTMLSelectElement>(root, '#dsdLevel');
     const streamCell = required(root, '[data-stream-cell]');
     const dsdCell = required(root, '[data-dsd-cell]');
     const note = required(root, '[data-note]');
@@ -252,6 +265,7 @@ export class OutputPane implements Pane {
           mode: mode.value,
           networkStream: stream.value as NetworkStream,
           networkDsd: toNetwork ? (dsd.value as NetworkDsd) : undefined,
+          dsdPcmLevel: Number(dsdLevel.value) as DsdPcmLevel,
         });
         showToast('Output updated');
       } catch (err) {

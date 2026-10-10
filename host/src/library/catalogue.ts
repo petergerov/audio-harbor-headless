@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -54,6 +55,78 @@ function trackId(cataloguePathValue: string): string {
   return crypto.createHash('sha256').update(cataloguePathValue).digest('hex').slice(0, 32);
 }
 
+function albumId(artist: string, title: string): string {
+  return crypto.createHash('sha1').update(`${artist}\0${title}`).digest('hex').slice(0, 16);
+}
+
+/** Stable UUID of a library root, from its path — the remotes' directory and folder IDs. */
+export function rootUuid(root: string): string {
+  const h = crypto.createHash('sha1').update(path.resolve(root)).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Whether `filePath` is one of `roots` or lies below one. */
+export function isUnderRoots(filePath: string, roots: string[]): boolean {
+  const resolved = path.resolve(filePath);
+  return roots.some((r) => {
+    const root = path.resolve(r);
+    return resolved === root || resolved.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+  });
+}
+
+/** Remote folder ID of a directory under `roots`: `rootUUID` or `rootUUID/rel/path`. */
+export function encodeFolderId(roots: string[], folderPath: string): string | null {
+  const resolved = path.resolve(folderPath);
+  for (const root of roots) {
+    const rel = path.relative(path.resolve(root), resolved);
+    if (rel === '') return rootUuid(root);
+    if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue;
+    return `${rootUuid(root)}/${rel.split(path.sep).join('/')}`;
+  }
+  return null;
+}
+
+/** The directory a remote folder ID names; null when it is not under `roots`. */
+export function resolveFolderId(roots: string[], id: string): string | null {
+  if (id.length < 36 || (id.length > 36 && id[36] !== '/')) return null;
+  const uuid = id.slice(0, 36).toLowerCase();
+  const root = roots.find((r) => rootUuid(r) === uuid);
+  if (!root) return null;
+  const parts = id.slice(37).split('/').filter(Boolean);
+  if (parts.some((p) => p === '.' || p === '..' || p.includes(path.sep))) return null;
+  const resolved = path.resolve(root, ...parts);
+  return isUnderRoots(resolved, [root]) ? resolved : null;
+}
+
+/** FTS5 match for free text: each word a quoted prefix, so punctuation cannot break the syntax. */
+function ftsQuery(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `"${word.replaceAll('"', '""')}"*`)
+    .join(' ');
+}
+
+/** `a/b` path under the root that holds `filePath`, for sorting and hints. */
+function relativeUnder(roots: string[], filePath: string): string {
+  const root = roots.find((r) => isUnderRoots(filePath, [r]));
+  return root ? path.relative(path.resolve(root), path.resolve(filePath)).split(path.sep).join('/') : filePath;
+}
+
+/** A track the search matched, with what scope filters need. */
+export interface SearchHit {
+  cataloguePath: string;
+  album: string;
+  albumArtist: string;
+  albumId: string;
+}
+
+/** A hit of the remote's folder search: a directory or a track, under a root. */
+export type FolderHit =
+  | { kind: 'directory'; path: string; relativePath: string }
+  | { kind: 'track'; cataloguePath: string; relativePath: string };
+
 function sacdToTrack(
   sacd: import('./sacd.js').SacdTrackInfo,
   fileSize: number
@@ -79,13 +152,23 @@ function sacdToTrack(
   };
 }
 
-export class Catalogue {
+/** Emits `scanning` (true / false) when a scan of the roots starts and ends. */
+export class Catalogue extends EventEmitter {
   private db: DatabaseSync;
+  private scans = 0;
+  /** Directories holding tracks (and those above them); rebuilt after a scan. */
+  private directories: string[] | null = null;
 
   constructor(dbPath = cataloguePath()) {
+    super();
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA journal_mode = WAL');
     this.migrate();
+  }
+
+  /** A scan of the roots is running. */
+  get isScanning(): boolean {
+    return this.scans > 0;
   }
 
   private migrate(): void {
@@ -131,6 +214,18 @@ export class Catalogue {
   }
 
   async scanRoots(roots: string[]): Promise<{ scanned: number; indexed: number }> {
+    this.scans += 1;
+    if (this.scans === 1) this.emit('scanning', true);
+    try {
+      return await this.scan(roots);
+    } finally {
+      this.scans -= 1;
+      this.directories = null;
+      if (this.scans === 0) this.emit('scanning', false);
+    }
+  }
+
+  private async scan(roots: string[]): Promise<{ scanned: number; indexed: number }> {
     let scanned = 0;
     let indexed = 0;
     const upsert = this.db.prepare(`
@@ -337,8 +432,72 @@ export class Catalogue {
          WHERE tracks_fts MATCH ?
          LIMIT ?`
       )
-      .all(`${q}*`, limit) as Array<Record<string, unknown>>;
+      .all(ftsQuery(q), limit) as Array<Record<string, unknown>>;
     return rows.map((r) => rowToTrack(r, this.labelsFor(String(r.catalogue_path))));
+  }
+
+  /** Every track the search finds for `query` — for filtering albums, artists and lists by it. */
+  searchHits(query: string): SearchHit[] {
+    const q = ftsQuery(query);
+    if (!q) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT t.catalogue_path, t.album, t.album_artist FROM tracks_fts f
+         JOIN tracks t ON t.rowid = f.rowid
+         WHERE tracks_fts MATCH ?`
+      )
+      .all(q) as Array<{ catalogue_path: string; album: string; album_artist: string }>;
+    return rows.map((r) => ({
+      cataloguePath: r.catalogue_path,
+      album: r.album,
+      albumArtist: r.album_artist,
+      albumId: albumId(r.album_artist, r.album),
+    }));
+  }
+
+  /**
+   * Directories (by name) and tracks (by the search) under every root, sorted by their path
+   * under the root — the remote's Folders search.
+   */
+  searchFolders(roots: string[], query: string): FolderHit[] {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const hits: FolderHit[] = [];
+    for (const hit of this.searchHits(query)) {
+      const file = parseSacdPath(hit.cataloguePath)?.filePath ?? hit.cataloguePath;
+      if (!isUnderRoots(file, roots)) continue;
+      hits.push({ kind: 'track', cataloguePath: hit.cataloguePath, relativePath: relativeUnder(roots, hit.cataloguePath) });
+    }
+    const rootSet = new Set(roots.map((r) => path.resolve(r)));
+    for (const dir of this.trackDirectories()) {
+      if (rootSet.has(dir) || !isUnderRoots(dir, roots)) continue;
+      if (!path.basename(dir).toLowerCase().includes(q)) continue;
+      hits.push({ kind: 'directory', path: dir, relativePath: relativeUnder(roots, dir) });
+    }
+    return hits.sort((a, b) =>
+      a.relativePath.localeCompare(b.relativePath, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }
+
+  /** Directories that hold catalogued tracks, and every directory above them. */
+  private trackDirectories(): string[] {
+    if (!this.directories) {
+      const dirs = new Set<string>();
+      const rows = this.db.prepare('SELECT catalogue_path FROM tracks').all() as Array<{
+        catalogue_path: string;
+      }>;
+      for (const { catalogue_path: cp } of rows) {
+        let dir = path.dirname(path.resolve(parseSacdPath(cp)?.filePath ?? cp));
+        while (!dirs.has(dir)) {
+          dirs.add(dir);
+          const up = path.dirname(dir);
+          if (up === dir) break;
+          dir = up;
+        }
+      }
+      this.directories = [...dirs];
+    }
+    return this.directories;
   }
 
   albums(): Album[] {
@@ -356,7 +515,7 @@ export class Catalogue {
       const title = String(r.title);
       const artist = String(r.artist);
       return {
-        id: crypto.createHash('sha1').update(`${artist}\0${title}`).digest('hex').slice(0, 16),
+        id: albumId(artist, title),
         title,
         artist,
         year: r.year == null ? null : Number(r.year),
@@ -437,6 +596,7 @@ export class Catalogue {
           track: null,
         }));
     }
+    if (!isUnderRoots(folderPath, rootPaths)) return [];
 
     // Drill into SACD ISO as a virtual folder of tracks (#sacd/N).
     if (fs.existsSync(folderPath) && fs.statSync(folderPath).isFile()) {
@@ -577,8 +737,10 @@ export class Catalogue {
     }));
   }
 
+  /** By id, in any letter case (the iOS app sends UUIDs upper case). */
   getPlaylist(id: string): { id: string; name: string; paths: string[] } | null {
-    return this.listPlaylists().find((p) => p.id === id) ?? null;
+    const want = id.toLowerCase();
+    return this.listPlaylists().find((p) => p.id.toLowerCase() === want) ?? null;
   }
 
   playlistTracks(id: string): Track[] {
@@ -733,7 +895,7 @@ export class Catalogue {
     if (sel.artist) {
       for (const t of this.artistTracks(sel.artist)) push(t.cataloguePath);
     }
-    if (sel.folder) {
+    if (sel.folder && isUnderRoots(sel.folder, roots)) {
       // Playing an SACD ISO "folder" → all virtual tracks on that disc.
       if (
         fs.existsSync(sel.folder) &&
@@ -798,12 +960,12 @@ export class Catalogue {
     if (!this.getTrack(cataloguePathValue)) throw new Error('track not found');
     if (edit.addToPlaylist && typeof edit.addToPlaylist === 'object') {
       const id = String((edit.addToPlaylist as { id?: string }).id ?? '');
-      this.addPathsToPlaylist(id, [cataloguePathValue]);
+      this.addPathsToPlaylist(this.getPlaylist(id)?.id ?? id, [cataloguePathValue]);
       return;
     }
     if (edit.removeFromPlaylist && typeof edit.removeFromPlaylist === 'object') {
       const id = String((edit.removeFromPlaylist as { id?: string }).id ?? '');
-      this.removePathsFromPlaylist(id, [cataloguePathValue]);
+      this.removePathsFromPlaylist(this.getPlaylist(id)?.id ?? id, [cataloguePathValue]);
       return;
     }
     if (edit.addToNewPlaylist && typeof edit.addToNewPlaylist === 'object') {

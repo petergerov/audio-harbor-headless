@@ -11,6 +11,14 @@ export type NetworkStreamQuality = 'full' | 'wifi';
  */
 export type NetworkDsdMode = 'auto' | 'pcm' | 'dop';
 export type BrowseScope = 'folders' | 'albums' | 'artists' | 'playlists' | 'labels';
+export type DsdPcmLevel = 0 | 3 | 6;
+export type QueueSourceKind = 'Album' | 'Artist' | 'Folder' | 'Playlist' | 'Label' | 'Queue';
+
+/** Where the queue came from, as the remotes show it ("Album", "Kind of Blue"). */
+export interface QueueSource {
+  kind: QueueSourceKind;
+  name: string | null;
+}
 
 export type AudioFormat =
   | 'flac'
@@ -96,6 +104,8 @@ export interface OutputStatus {
   networkStream: NetworkStreamQuality;
   /** DSD mode of the picked network player ('auto' for anything else). */
   networkDsd: NetworkDsdMode;
+  /** Gain on DSD played as PCM, in dB. */
+  dsdPcmLevel: DsdPcmLevel;
   /** Why no network players can be found (no network, no Local Network access). */
   discoveryError: string | null;
 }
@@ -129,11 +139,16 @@ export interface NowPlayingSnapshot {
   conversionBadge: string | null;
   /** Why playback failed (state `failed`), e.g. the network player left. */
   error: string | null;
+  /** Position in the queue (play order); null when nothing is queued. */
+  queueIndex: number | null;
+  queueCount: number;
+  queueSource: QueueSource;
 }
 
 export interface QueueSnapshot {
   tracks: Track[];
   currentIndex: number | null;
+  source: QueueSource;
 }
 
 export interface HarborConfig {
@@ -152,7 +167,7 @@ export interface HarborConfig {
     /** Name of the picked device, shown while it is unplugged / off the network. */
     device_name?: string | null;
     mode: OutputMode;
-    dsd_pcm_level: 0 | 3 | 6;
+    dsd_pcm_level: DsdPcmLevel;
     /** auto = native on Mac/Linux, juce on Windows */
     backend: AudioBackend;
     network_stream: NetworkStreamQuality;

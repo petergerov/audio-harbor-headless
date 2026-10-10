@@ -10,6 +10,13 @@ export interface PairingState {
   serverId: string;
 }
 
+/** Wrong PINs in a row before pairing pauses, and for how long (as on the Mac). */
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MS = 60_000;
+
+let failedAttempts = 0;
+let lockedUntil = 0;
+
 function randomPin(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
@@ -60,9 +67,23 @@ export function rotatePin(): PairingState {
   return state;
 }
 
+/** Too many wrong PINs just now: every PIN is refused until the lockout ends. */
+export function pairingLockedOut(): boolean {
+  return Date.now() < lockedUntil;
+}
+
 export function pairWithPin(pin: string): string | null {
+  if (pairingLockedOut()) return null;
   const state = loadPairing();
-  if (pin !== state.pin) return null;
+  if (pin !== state.pin) {
+    failedAttempts += 1;
+    if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
+      lockedUntil = Date.now() + LOCKOUT_MS;
+      failedAttempts = 0;
+    }
+    return null;
+  }
+  failedAttempts = 0;
   const token = mintTokenBase64();
   state.tokens.push(token);
   state.pin = randomPin();

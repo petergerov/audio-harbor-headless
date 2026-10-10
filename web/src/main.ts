@@ -20,6 +20,7 @@ import { LibraryService } from './services/libraryService';
 import { Navigator } from './services/navigator';
 import { PlaybackClock } from './services/playbackClock';
 import { PlaybackService } from './services/playbackService';
+import { SettingsService } from './services/settingsService';
 import { initialState, type AppState } from './state/appState';
 import { Covers } from './ui/components/covers';
 import { PlayerBindings } from './ui/components/playerBindings';
@@ -33,9 +34,11 @@ const tokens = new LocalTokenStore();
 const http = new HttpClient(tokens);
 const store = new Store<AppState>(initialState);
 
+const settingsApi = new HttpSettingsApi(http);
 const library = new LibraryService(new HttpLibraryApi(http), store);
 const collections = new CollectionsService(new HttpCollectionsApi(http), store);
 const playback = new PlaybackService(new HttpPlaybackApi(http), store);
+const hostSettings = new SettingsService(settingsApi, store);
 const clock = new PlaybackClock(store);
 const bindings = new PlayerBindings();
 const covers = new Covers(new HttpArtworkApi(tokens));
@@ -51,7 +54,8 @@ const ctx: AppContext = {
   playback,
   clock,
   collections,
-  settings: new HttpSettingsApi(http),
+  settings: settingsApi,
+  hostSettings,
   covers,
   bindings,
   actions,
@@ -73,6 +77,7 @@ const app = new App({
   clock,
   library,
   collections,
+  settings: hostSettings,
   bindings,
   shell,
 });

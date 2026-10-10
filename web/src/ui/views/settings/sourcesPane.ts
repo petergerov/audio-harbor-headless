@@ -1,6 +1,8 @@
 import type { SettingsApi } from '../../../api/settingsApi';
 import { errorMessage } from '../../../core/errors';
 import { escapeHtml, required } from '../../../core/html';
+import type { Store } from '../../../core/store';
+import type { AppState } from '../../../state/appState';
 import { showToast } from '../../overlay';
 import type { Pane } from '../settingsView';
 
@@ -8,9 +10,15 @@ const DONE_MS = 1200;
 
 /** The music folders on the host: list, add, remove, rescan. */
 export class SourcesPane implements Pane {
-  constructor(private readonly settings: SettingsApi) {}
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(
+    private readonly settings: SettingsApi,
+    private readonly store: Store<AppState>
+  ) {}
 
   async render(root: HTMLElement): Promise<void> {
+    this.dispose();
     const mounts = await this.settings.mounts();
     root.innerHTML = `
       <p class="group-label">On This Host</p>
@@ -61,15 +69,40 @@ export class SourcesPane implements Pane {
       }
     });
 
-    const rescan = required(root, '[data-rescan]');
+    const rescan = required<HTMLButtonElement>(root, '[data-rescan]');
+    const value = required(rescan, '.value');
+    let done = false;
+    // A scan may also come from the iOS app (Rebuild Index), a new folder or the host's start.
+    const paint = () => {
+      const scanning = Boolean(this.store.get().settings?.isScanning);
+      rescan.disabled = scanning;
+      if (!done) value.textContent = scanning ? 'Rescanning…' : 'Rescan';
+    };
+    this.unsubscribe = this.store.subscribe((state, previous) => {
+      if (state.settings !== previous.settings) paint();
+    });
+    paint();
     rescan.addEventListener('click', async () => {
-      await this.settings.rescan();
-      const value = rescan.querySelector('.value');
-      if (!value) return;
+      rescan.disabled = true;
+      value.textContent = 'Rescanning…';
+      try {
+        await this.settings.rescan();
+      } catch (err) {
+        showToast(errorMessage(err, 'Could not update the library'), { error: true });
+        paint();
+        return;
+      }
+      done = true;
       value.textContent = 'Done';
       window.setTimeout(() => {
-        value.textContent = 'Rescan';
+        done = false;
+        paint();
       }, DONE_MS);
     });
+  }
+
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
   }
 }
