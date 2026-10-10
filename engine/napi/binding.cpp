@@ -110,8 +110,8 @@ Napi::Value SetDsdPcmLevel(const Napi::CallbackInfo& info) {
 }
 
 HarborAudioBackend parseBackend(const std::string& s) {
-  if (s == "juce") return HARBOR_BACKEND_JUCE;
-  if (s == "native") return HARBOR_BACKEND_NATIVE;
+  // Legacy "juce" configs map to native — JUCE was removed.
+  if (s == "native" || s == "juce") return HARBOR_BACKEND_NATIVE;
   return HARBOR_BACKEND_AUTO;
 }
 

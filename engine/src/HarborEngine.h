@@ -13,11 +13,10 @@ typedef enum HarborOutputMode {
   HARBOR_MODE_DOP = 2
 } HarborOutputMode;
 
-/** Audio I/O stack. All platforms can choose juce or native at runtime. */
+/** Audio I/O stack. auto resolves to the platform native player. */
 typedef enum HarborAudioBackend {
-  HARBOR_BACKEND_AUTO = 0,   /* → native (Exclusive/DoP-friendly) */
-  HARBOR_BACKEND_JUCE = 1,
-  HARBOR_BACKEND_NATIVE = 2  /* Core Audio / ALSA / WASAPI */
+  HARBOR_BACKEND_AUTO = 0,   /* → native */
+  HARBOR_BACKEND_NATIVE = 1  /* Core Audio / ALSA / WASAPI */
 } HarborAudioBackend;
 
 typedef enum HarborPlaybackState {
@@ -62,7 +61,7 @@ int harbor_engine_set_dsd_pcm_level(int db /* 0, 3, 6 */);
 int harbor_engine_set_audio_backend(HarborAudioBackend backend);
 HarborAudioBackend harbor_engine_get_audio_backend(void);
 HarborAudioBackend harbor_engine_get_requested_audio_backend(void);
-/** Writes comma-separated names into out, e.g. "auto,juce,native". */
+/** Writes comma-separated names into out, e.g. "auto,native". */
 int harbor_engine_list_audio_backends(char* out, size_t out_len);
 const char* harbor_engine_audio_backend_name(HarborAudioBackend backend);
 

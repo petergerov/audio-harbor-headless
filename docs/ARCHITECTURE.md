@@ -8,10 +8,10 @@ The sound rules come from [Audio Harbor](https://github.com/petergerov/audio-har
 
 | Layer | Tech | Lives in |
 |---|---|---|
-| Audio engine | C++17 Node-API addon `harbor_engine.node`: native Core Audio / ALSA / WASAPI plus JUCE, picked at runtime (`output.backend`) | `engine/` |
+| Audio engine | C++17 Node-API addon `harbor_engine.node`: native Core Audio / ALSA / WASAPI | `engine/` |
 | Host | TypeScript (ES modules) on Node ≥ 22.5: Fastify, `node:sqlite`, music-metadata, bonjour-service, @iarna/toml | `host/` |
 | Web remote | Vite + TypeScript, no framework | `web/` |
-| Build & release | npm workspaces, cmake-js (JUCE via CMake FetchContent), GitHub Actions | root, `.github/` |
+| Build & release | npm workspaces, cmake-js, GitHub Actions | root, `.github/` |
 
 ## Big picture
 
@@ -37,7 +37,7 @@ flowchart TB
   end
 
   subgraph engine["engine — harbor_engine.node"]
-    players["HarborEngine C API to IPlayer<br/>Mac, Linux, Windows, JUCE"]
+    players["HarborEngine C API to IPlayer<br/>Mac, Linux, Windows native"]
     framesrc["FrameSource<br/>PCM or DoP for network WAV"]
     dst["AHDST<br/>DST decoder"]
     dsd["DsdPipeline, PcmDecoder"]
@@ -83,7 +83,7 @@ engine/            C++ addon (harbor_engine.node)
   napi/binding.cpp   N-API surface: transport, devices, DST, network streams
   src/HarborEngine.* C API facade; owns the one IPlayer
   src/PlayerFactory  picks the backend (auto → native)
-  src/MacPlayer, LinuxPlayer, WinPlayer, JucePlayer, StubPlayer
+  src/MacPlayer, LinuxPlayer, WinPlayer, StubPlayer
   src/DsdPipeline.*  DSF / DFF parsing, DoP packing, DSD→PCM FIR, chunked readers
   src/PcmDecoder.*   WAV / FLAC / MP3 (dr_libs), ALAC / AAC via ffmpeg (Linux, Windows)
   src/FrameSource.*  random-access PCM or DoP (network WAV + local PlaybackFeed)
@@ -140,23 +140,22 @@ binding.cpp (N-API)  →  HarborEngine C API (harbor_engine_*)  →  IPlayer
                                                                   ├─ MacPlayer   Core Audio
                                                                   ├─ LinuxPlayer ALSA
                                                                   ├─ WinPlayer   WASAPI
-                                                                  ├─ JucePlayer  JUCE AudioDeviceManager
                                                                   └─ StubPlayer  no audio
 binding.cpp (N-API)  →  FrameSource, AHDST (no player involved)
 ```
 
 - **`IPlayer`** (`Player.h`) is the backend contract: devices, output mode, DSD level, load / play / pause / stop / seek, volume, state, events. `HarborEngine.cpp` holds the one player behind a mutex. Switching `output.backend` recreates it and applies device, mode and DSD level again.
-- **Backend choice** (`PlayerFactory.cpp`): `auto` and `native` take the OS's own stack, `juce` takes JUCE. Builds ship both (`HARBOR_WITH_JUCE`, default on).
-- **Output modes** per backend:
+- **Backend choice** (`PlayerFactory.cpp`): `auto` and `native` both use the OS stack (Core Audio / ALSA / WASAPI).
+- **Output modes** per platform:
 
-  | Mode | Mac (Core Audio) | Linux (ALSA) | Windows (WASAPI) | JUCE |
-  |---|---|---|---|---|
-  | Shared | HAL output on the picked device or the system default | the picked device, or `default` (PipeWire / Pulse) | shared mix format | device graph |
-  | Exclusive | hog mode on an external DAC, rate follows the file | a `hw:` / `plughw:` device | exclusive | ASIO / exclusive device types |
-  | DoP | DoP on an external DAC | DoP on a `hw:` device | DoP over exclusive | DSD→PCM, badged |
+  | Mode | Mac (Core Audio) | Linux (ALSA) | Windows (WASAPI) |
+  |---|---|---|---|
+  | Shared | HAL output on the picked device or the system default | the picked device, or `default` (PipeWire / Pulse) | shared mix format |
+  | Exclusive | hog mode on an external DAC, rate follows the file | a `hw:` / `plughw:` device | exclusive |
+  | DoP | DoP on an external DAC | DoP on a `hw:` device | DoP over exclusive |
 
   When the device cannot do the mode, the player falls back and says so in `conversion_badge` (e.g. `Shared (pick hw: device for Exclusive/DoP)`).
-- **Local decoding**: MacPlayer, LinuxPlayer and WinPlayer open a `FrameSource` through `PlaybackFeed` and fill PCM / DoP on a worker; playback starts after the first quantum (the buffer still grows to the full track). JucePlayer uses JUCE's format readers. DSD becomes DoP or ~88.2 kHz PCM with `dsd_pcm_level` (0 / +3 / +6 dB).
+- **Local decoding**: MacPlayer, LinuxPlayer and WinPlayer open a `FrameSource` through `PlaybackFeed` and fill PCM / DoP on a worker; playback starts after the first quantum (the buffer still grows to the full track). DSD becomes DoP or ~88.2 kHz PCM with `dsd_pcm_level` (0 / +3 / +6 dB).
 - **DSD→PCM**: multi-stage linear-phase FIR (`DsdPipeline.cpp`), DSD rate / 32, / 64 or / 128 → 88.2 kHz, one more 2:1 stage for 44.1 kHz (Wi‑Fi).
 - **FrameSource**: random access by frame (`readFloat` / `readDop` / `readPacked`), so the host can answer any `Range` request for network WAV and (soon) feed local playback without loading the whole file. Sources: `DsdSource` (DSD→PCM through `DsdPcmReader`), `DopSource` (DoP at DSD rate / 16), FLAC, WAV, MP3, AIFF, ExtAudioFile on macOS, and a decode-to-memory fallback. `DsdByteReader` reads DSF / DFF in 64 KiB chunks per channel for both DSD sources. `DsdPcmReader` pre-rolls after a jump, so a seek gives the same samples as playing through.
 - **DST**: the host feeds DST frames from an SACD ISO or a DST-compressed `.dff` through `dstBegin` / `dstDecodeFrame` / `dstEnd` and writes plain DSD into the DFF cache (`cache/sacd`, `cache/dst-dff`).
@@ -241,7 +240,7 @@ The web remote talks only to the REST API and the WebSocket. Pairing stores the 
 
 | Command | Does |
 |---|---|
-| `npm run build:engine` | `engine/scripts/build.js` → cmake-js (or plain CMake): `engine/build/Release/harbor_engine.node`. JUCE is fetched by CMake; `HARBOR_WITH_JUCE=0` builds native-only. |
+| `npm run build:engine` | `engine/scripts/build.js` → cmake-js (or plain CMake): `engine/build/Release/harbor_engine.node` (native Core Audio / ALSA / WASAPI). |
 | `npm run build:web` | Vite → `web/dist` (served by the host; restart the host after a rebuild) |
 | `npm run build:host` | `tsc` → `host/dist` |
 | `npm run serve` | build all, then `harbor serve` |

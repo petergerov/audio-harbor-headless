@@ -13,10 +13,8 @@ roots = []
 # device_uid = ""        # a DAC, or a network player: "upnp:uuid:…"
 mode = "shared"          # shared | exclusive | dop
 dsd_pcm_level = 3        # 0 | 3 | 6
-# Audio stack: auto | juce | native
-#   auto   → native (Core Audio / ALSA / WASAPI Exclusive)
-#   juce   → portable JUCE path on every OS
-#   native → Mac Core Audio | Linux ALSA hw: | Windows WASAPI Exclusive/DoP
+# Audio stack: auto | native
+#   auto / native → Mac Core Audio | Linux ALSA hw: | Windows WASAPI Exclusive/DoP
 backend = "auto"
 # Network players (UPnP / DLNA): full | wifi
 #   full → the file untouched when the player takes it; DSD by [network.dsd_modes]

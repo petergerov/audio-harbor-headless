@@ -1,10 +1,10 @@
 export type OutputMode = 'shared' | 'exclusive' | 'dop';
-export type AudioBackend = 'auto' | 'juce' | 'native';
+export type AudioBackend = 'auto' | 'native';
 
 export interface AudioBackendInfo {
   requested: AudioBackend | string;
   effective: AudioBackend | string;
-  /** Comma-separated, e.g. "auto,juce,native" */
+  /** Comma-separated, e.g. "auto,native" */
   available: string;
 }
 

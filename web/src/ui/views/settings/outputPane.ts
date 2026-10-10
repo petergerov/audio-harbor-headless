@@ -173,7 +173,7 @@ export class OutputPane implements Pane {
       <div class="group">
         <button type="button" class="cell cell-action" data-apply>Apply Changes</button>
       </div>
-      <p class="footer-note">Exclusive and DoP work best with backend native (Core Audio / ALSA / WASAPI).</p>
+      <p class="footer-note">Exclusive and DoP use the native stack (Core Audio / ALSA / WASAPI).</p>
     `;
 
     const device = required<HTMLSelectElement>(root, '#device');

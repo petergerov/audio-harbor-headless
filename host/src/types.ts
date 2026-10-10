@@ -1,6 +1,6 @@
 export type OutputMode = 'shared' | 'exclusive' | 'dop';
-/** juce | native | auto — native = Core Audio / ALSA / WASAPI */
-export type AudioBackend = 'auto' | 'juce' | 'native';
+/** auto | native — native = Core Audio / ALSA / WASAPI */
+export type AudioBackend = 'auto' | 'native';
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'failed';
 export type RepeatMode = 'off' | 'all' | 'one';
 /** UPnP network players: full = best the player takes; wifi = DSD as 44.1 kHz / 16-bit PCM. */
@@ -168,7 +168,7 @@ export interface HarborConfig {
     device_name?: string | null;
     mode: OutputMode;
     dsd_pcm_level: DsdPcmLevel;
-    /** auto = native on Mac/Linux, juce on Windows */
+    /** auto resolves to the platform native player */
     backend: AudioBackend;
     network_stream: NetworkStreamQuality;
   };

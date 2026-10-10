@@ -9,7 +9,7 @@ A music player without a screen: one process on Mac, Linux, or Windows plays you
 
 ## Elevator (30 s)
 
-Audio Harbor Headless is the quiet host for folders you already own. It runs on a Mac, a Raspberry Pi, or a Windows box — no desktop UI. Exclusive and DoP on native Core Audio, ALSA, and WASAPI, or portable JUCE. A network amp or streamer is just another output. SACD ISO (including DST) plays locally and over the network. A badge always says which path the audio took. No streaming, no account, no cloud.
+Audio Harbor Headless is the quiet host for folders you already own. It runs on a Mac, a Raspberry Pi, or a Windows box — no desktop UI. Exclusive and DoP on native Core Audio, ALSA, and WASAPI. A network amp or streamer is just another output. SACD ISO (including DST) plays locally and over the network. A badge always says which path the audio took. No streaming, no account, no cloud.
 
 ## Positioning
 
@@ -180,8 +180,6 @@ Screenshots / clips that sell:
 - [ ] One demo clip: play album on USB DAC, switch to UPnP, badge updates, position retained
 - [ ] Known-good renderer list (community-sourced) before claiming “works with X”
 - [ ] LICENSE decision public if “open source” stays a homepage claim
-- [ ] JUCE licence noted before any paid distribution
-
 ## Out of scope (for now)
 
 Do not market as included until built:

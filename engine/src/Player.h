@@ -33,12 +33,9 @@ public:
   virtual void setEventCallback(EventFn fn) = 0;
 };
 
-/** Factory — picks JUCE or native (Core Audio / ALSA / WASAPI) from requested backend. */
+/** Factory — platform native player (Core Audio / ALSA / WASAPI), or stub. */
 IPlayer* createHarborPlayer();
 
-#if defined(HARBOR_WITH_JUCE)
-IPlayer* createJucePlayer();
-#endif
 #if defined(__APPLE__)
 IPlayer* createMacPlayer();
 #endif

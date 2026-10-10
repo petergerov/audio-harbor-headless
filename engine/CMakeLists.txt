@@ -5,10 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# JUCE is always built in (shared shipping stack). Mac/Linux also compile native
-# players so users can choose at runtime: output.backend = juce | native | auto
-option(HARBOR_WITH_JUCE "Build JUCE audio backend" ON)
-
 add_definitions(-DNAPI_VERSION=8)
 
 # --- Node / N-API ---
@@ -60,7 +56,6 @@ set(ENGINE_SOURCES
   napi/binding.cpp
 )
 
-# Native backends always available (runtime selectable alongside JUCE)
 if(APPLE)
   list(APPEND ENGINE_SOURCES src/MacPlayer.cpp)
 elseif(WIN32)
@@ -68,19 +63,6 @@ elseif(WIN32)
 elseif(UNIX AND NOT APPLE)
   list(APPEND ENGINE_SOURCES src/LinuxPlayer.cpp)
   find_package(ALSA REQUIRED)
-endif()
-
-if(HARBOR_WITH_JUCE)
-  include(FetchContent)
-  FetchContent_Declare(
-    juce
-    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG        8.0.4
-    GIT_SHALLOW    TRUE
-  )
-  FetchContent_MakeAvailable(juce)
-  list(APPEND ENGINE_SOURCES src/JucePlayer.cpp)
-  add_compile_definitions(HARBOR_WITH_JUCE=1)
 endif()
 
 add_library(${PROJECT_NAME} SHARED ${ENGINE_SOURCES})
@@ -110,23 +92,6 @@ elseif(WIN32)
 elseif(UNIX AND NOT APPLE)
   find_package(Threads REQUIRED)
   target_link_libraries(${PROJECT_NAME} PRIVATE ALSA::ALSA Threads::Threads dl)
-endif()
-
-if(HARBOR_WITH_JUCE)
-  target_link_libraries(${PROJECT_NAME} PRIVATE
-    juce::juce_audio_basics
-    juce::juce_audio_devices
-    juce::juce_audio_formats
-    juce::juce_audio_utils
-    juce::juce_core
-    juce::juce_events
-  )
-  target_compile_definitions(${PROJECT_NAME} PRIVATE
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_MODAL_LOOPS_PERMISSION=0
-  )
 endif()
 
 if(MSVC)

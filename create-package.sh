@@ -248,7 +248,7 @@ This package includes Node.js ${BUNDLE_NODE_VER} under runtime/ — no system No
 Also needed:
   - macOS: nothing else
   - Linux: libasound2 (ALSA); Raspberry Pi OS / Debian: sudo apt install libasound2
-  - Prebuilt packages include JUCE + native (Core Audio / ALSA / WASAPI)
+  - Prebuilt packages use native audio (Core Audio / ALSA / WASAPI)
 
 1. Unpack this archive
 2. Optional: copy config.example.toml → ~/.audio-harbor-headless/config.toml

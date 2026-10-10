@@ -45,7 +45,9 @@ function normalizeLevel(level: unknown): 0 | 3 | 6 {
 }
 
 function normalizeBackend(backend: unknown): AudioBackend {
-  if (backend === 'juce' || backend === 'native' || backend === 'auto') return backend;
+  // Legacy "juce" configs keep working as native (JUCE was removed).
+  if (backend === 'native' || backend === 'juce') return 'native';
+  if (backend === 'auto') return 'auto';
   return 'auto';
 }
 

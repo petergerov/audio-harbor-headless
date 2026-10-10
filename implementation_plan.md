@@ -10,7 +10,7 @@ Ein **GUI-loser Media-Host** auf Mac und Linux: Ordner mounten, Output wählen, 
 |---|---|
 | **1C** | Steuerung: **Web-Remote zuerst** (Safari auf dem iPhone); später Bonjour-Kompatibilität mit der Audio-Harbor-iOS-App |
 | **2B** | Qualität: **Audiophile Parität** — Exclusive / DoP / DSD, bit-perfect wo möglich |
-| **Stack** | **C++ Audio-Engine** (JUCE + native Core Audio / ALSA / WASAPI, Runtime-Wahl `output.backend`) + **TypeScript/Node Host** + **Vite Web-UI** |
+| **Stack** | **C++ Audio-Engine** (native Core Audio / ALSA / WASAPI) + **TypeScript/Node Host** + **Vite Web-UI** |
 
 Harbor-Swift bleibt Referenz für Regeln und Remote-Protokoll, nicht Runtime auf Linux.
 
@@ -102,7 +102,6 @@ audio-harbor-headless/
       LinuxPlayer.cpp          # ALSA Exclusive/DoP
       DsdPipeline.cpp          # DSF load, DoP pack, DSD→PCM
       StubPlayer.cpp           # Fallback
-      JucePlayer.cpp           # optional (HARBOR_WITH_JUCE=1)
   web/                         # Vite mobile remote → host serves dist/
     src/main.ts
     src/styles.css
@@ -151,17 +150,12 @@ CLI: `harbor serve` · `harbor pair` · `harbor rescan`.
 - DoP-Packing
 - DSD→PCM Multi-Stage Kaiser/sinc Decimation (~88.2 kHz), Gain 0 / +3 / +6 dB
 
-### Audio-Backends (Runtime)
+### Audio-Backends
 
 ```toml
 [output]
-backend = "auto"   # auto | juce | native
+backend = "auto"   # auto | native → Core Audio / ALSA / WASAPI
 ```
-
-- Build enthält **beide** Player: JUCE + native (Core Audio / ALSA / WASAPI).
-- `auto` → native (Exclusive/DoP-freundlich).
-
-JUCE-Lizenz vor Distribution/Verkauf klären.
 
 ---
 
@@ -253,6 +247,6 @@ Config: `~/.audio-harbor-headless/config.toml` — DLNA via `sharing.enabled = t
 ### Noch offen
 
 1. Harbor-FIR Feintuning (flat to 25 kHz, ≥ 120 dB Stopband-Messung)
-2. Native ALAC ohne ffmpeg auf Linux (JUCE / libalac)
+2. Native ALAC ohne ffmpeg auf Linux (libalac)
 3. DFF-embedded DST Chunks (nicht nur SACD ISO)
 4. Renderer-HTTP: korrekte MIME aus Catalogue-Track statt nur Dateiendung

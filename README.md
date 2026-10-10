@@ -8,28 +8,23 @@ GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Contro
 
 | Layer | Tech |
 |---|---|
-| Audio engine | **C++ via Node-API** — JUCE + native (Core Audio / ALSA / WASAPI), runtime `output.backend` |
+| Audio engine | **C++ via Node-API** — native Core Audio / ALSA / WASAPI |
 | Host | **TypeScript / Node** (Fastify) |
 | Remote UI | **Vite + TypeScript** (mobile web) |
 
-Release builds ship **both** stacks on Mac/Linux. You choose at runtime:
+Audio uses the OS stack (`output.backend = "auto"` or `"native"`):
 
 ```toml
 # ~/.audio-harbor-headless/config.toml
 [output]
-backend = "auto"    # auto | juce | native
-# auto   → native (Exclusive/DoP-friendly)
-# juce   → portable JUCE path on every OS
-# native → Mac Core Audio | Linux ALSA | Windows WASAPI Exclusive/DoP
+backend = "auto"    # auto | native → Core Audio / ALSA / WASAPI
 ```
-
-Or via API: `PUT /api/v1/output` with `{ "backend": "native" }`.
 
 ## Quick start
 
 ```bash
 npm install
-npm run build:engine   # pulls JUCE via CMake FetchContent, then builds harbor_engine.node
+npm run build:engine   # builds harbor_engine.node (native Core Audio / ALSA / WASAPI)
 npm run build:web
 npm run serve          # or: npm run harbor -- serve
 ```
@@ -55,7 +50,7 @@ The host answers to **`audioharbor.local`** over mDNS / Bonjour, so the remote i
 
 ### Prebuilt packages (ready to start)
 
-GitHub Actions builds one archive **per platform** (JUCE + native on Mac/Linux/Windows) and attaches them to [Releases](https://github.com/petergerov/audio-harbor-headless/releases):
+GitHub Actions builds one archive **per platform** (native audio on Mac/Linux/Windows) and attaches them to [Releases](https://github.com/petergerov/audio-harbor-headless/releases):
 
 | Asset | Platform |
 |---|---|
@@ -74,7 +69,7 @@ Prebuilt archives **bundle Node.js 22** under `runtime/` — you do not need a s
 curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.1.2-linux-arm64.tar.gz
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
-sudo apt install -y libasound2   # JUCE uses ALSA on Linux
+sudo apt install -y libasound2   # ALSA runtime on Linux
 # Node 22+ is bundled in prebuilt packages
 ./start.sh
 ```
@@ -108,9 +103,9 @@ Same idea as Audio Harbor: playlists and labels are sets of catalogue paths.
 
 ### Output modes
 
-- **Shared** — system / JUCE shared graph
-- **Exclusive** — strongest with `backend = "native"` (Core Audio hog / ALSA `hw:` / WASAPI Exclusive)
-- **DoP** — native DoP path; on JUCE, DSD→PCM with an honest badge
+- **Shared** — system mixer path on the OS stack
+- **Exclusive** — Core Audio hog / ALSA `hw:` / WASAPI Exclusive
+- **DoP** — native DoP into a DSD DAC (DSD→PCM with a badge when the path cannot do DoP)
 
 ### Network players (UPnP / DLNA)
 
@@ -161,10 +156,8 @@ API: `PUT /api/v1/output` takes `networkStream` and `networkDsd` (stored for the
 
 ```
 host/     TypeScript daemon (API, library, DLNA server, network players, Bonjour)
-engine/   C++ + N-API — JucePlayer + Mac/Linux/Win native (runtime switch)
+engine/   C++ + N-API — Mac / Linux / Windows native players
 web/      Mobile web remote
 ```
 
-How the parts fit together — ports, data on disk, the engine's backends, network players, flows: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-Check [JUCE licensing](https://juce.com/legal/juce-8-licence/) before distributing or selling.
+How the parts fit together — ports, data on disk, the engine, network players, flows: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

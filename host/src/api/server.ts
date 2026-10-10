@@ -152,7 +152,7 @@ export async function buildServer(ctx: AppContext) {
     Body: {
       deviceUid?: string | null;
       mode?: OutputMode;
-      backend?: 'auto' | 'juce' | 'native';
+      backend?: 'auto' | 'native' | 'juce';
       networkStream?: string;
       networkDsd?: string;
       dsdPcmLevel?: number;
@@ -165,10 +165,12 @@ export async function buildServer(ctx: AppContext) {
       if (level !== 0 && level !== 3 && level !== 6) return reply.code(400).send({ error: 'dsdPcmLevel must be 0, 3 or 6' });
       ctx.playback.setDsdPcmLevel(level);
     }
+    const backend =
+      body.backend === 'juce' ? 'native' : body.backend === undefined ? cfg.output.backend : body.backend;
     await ctx.playback.setOutput(
       body.deviceUid === undefined ? (cfg.output.device_uid ?? null) : body.deviceUid,
       body.mode ?? cfg.output.mode,
-      body.backend ?? cfg.output.backend,
+      backend,
       body.networkStream === undefined ? undefined : normalizeNetworkStream(body.networkStream),
       body.networkDsd === undefined ? undefined : normalizeNetworkDsd(body.networkDsd)
     );

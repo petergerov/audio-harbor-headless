@@ -17,11 +17,10 @@ need_cmd() {
 
 install_apt_deps() {
   if ! command -v apt-get >/dev/null 2>&1; then
-    log "apt-get not found — install Node 22+, cmake, g++, make, libasound2-dev + X11/freetype yourself"
+    log "apt-get not found — install Node 22+, cmake, g++, make, libasound2-dev yourself"
     return 0
   fi
   log "Installing system packages (sudo)"
-  # X11/freetype needed to build juceaide during JUCE FetchContent (even headless)
   sudo apt-get update -y
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     build-essential \
@@ -29,17 +28,6 @@ install_apt_deps() {
     ninja-build \
     pkg-config \
     libasound2-dev \
-    libfreetype-dev \
-    libfontconfig1-dev \
-    libx11-dev \
-    libxcomposite-dev \
-    libxcursor-dev \
-    libxext-dev \
-    libxinerama-dev \
-    libxrandr-dev \
-    libxrender-dev \
-    libglu1-mesa-dev \
-    mesa-common-dev \
     curl \
     ca-certificates
 }

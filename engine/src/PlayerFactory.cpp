@@ -5,9 +5,6 @@
 #include <mutex>
 #include <string>
 
-#if defined(HARBOR_WITH_JUCE)
-IPlayer* createJucePlayer();
-#endif
 #if defined(__APPLE__)
 IPlayer* createMacPlayer();
 #endif
@@ -26,46 +23,17 @@ HarborAudioBackend g_requested = HARBOR_BACKEND_AUTO;
 HarborAudioBackend g_effective = HARBOR_BACKEND_AUTO;
 
 HarborAudioBackend resolveBackend(HarborAudioBackend requested) {
-  if (requested == HARBOR_BACKEND_JUCE) {
-#if defined(HARBOR_WITH_JUCE)
-    return HARBOR_BACKEND_JUCE;
-#endif
-  }
-  if (requested == HARBOR_BACKEND_NATIVE) {
-#if defined(__APPLE__) || defined(__linux__) || defined(_WIN32)
-    return HARBOR_BACKEND_NATIVE;
-#elif defined(HARBOR_WITH_JUCE)
-    return HARBOR_BACKEND_JUCE;
-#endif
-  }
-  // auto: prefer native Exclusive/DoP stacks everywhere they exist
+  (void)requested;
 #if defined(__APPLE__) || defined(__linux__) || defined(_WIN32)
   return HARBOR_BACKEND_NATIVE;
-#elif defined(HARBOR_WITH_JUCE)
-  return HARBOR_BACKEND_JUCE;
 #else
   return HARBOR_BACKEND_AUTO;
 #endif
 }
 
 IPlayer* makePlayer(HarborAudioBackend backend) {
-  if (backend == HARBOR_BACKEND_JUCE) {
-#if defined(HARBOR_WITH_JUCE)
-    return createJucePlayer();
-#endif
-  }
-  if (backend == HARBOR_BACKEND_NATIVE) {
+  (void)backend;
 #if defined(__APPLE__)
-    return createMacPlayer();
-#elif defined(__linux__)
-    return createLinuxPlayer();
-#elif defined(_WIN32)
-    return createWinPlayer();
-#endif
-  }
-#if defined(HARBOR_WITH_JUCE)
-  return createJucePlayer();
-#elif defined(__APPLE__)
   return createMacPlayer();
 #elif defined(__linux__)
   return createLinuxPlayer();
@@ -103,9 +71,6 @@ IPlayer* createHarborPlayer() {
 int harbor_engine_list_audio_backends(char* out, size_t out_len) {
   if (!out || out_len == 0) return -1;
   std::string list = "auto";
-#if defined(HARBOR_WITH_JUCE)
-  list += ",juce";
-#endif
 #if defined(__APPLE__) || defined(__linux__) || defined(_WIN32)
   list += ",native";
 #endif
@@ -116,7 +81,6 @@ int harbor_engine_list_audio_backends(char* out, size_t out_len) {
 
 const char* harbor_engine_audio_backend_name(HarborAudioBackend backend) {
   switch (backend) {
-    case HARBOR_BACKEND_JUCE: return "juce";
     case HARBOR_BACKEND_NATIVE: return "native";
     default: return "auto";
   }

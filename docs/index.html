@@ -31,7 +31,7 @@
     },
     "featureList": [
       "Headless host for Mac, Linux, and Windows",
-      "Runtime choice: JUCE or native Core Audio / ALSA / WASAPI",
+      "Native Core Audio / ALSA / WASAPI (Exclusive and DoP)",
       "Shared, Exclusive, and DoP output modes",
       "FLAC, ALAC, WAV, AIFF, AAC, MP3, DSF, DFF, SACD ISO",
       "Harbor web remote: Deck · Catalogue · Settings",
@@ -594,7 +594,7 @@
     <div class="hero-copy">
       <span class="hero-eyebrow">Mac · Linux · Windows · Headless</span>
       <h1>No desktop UI.<br>Still hear the <em>file</em>.</h1>
-      <p>A quiet audiophile <strong>host</strong> for folders you already own. Exclusive and DoP on native stacks — Core Audio, ALSA, WASAPI — or portable JUCE. Steer with the Harbor remote: <strong>Deck · Catalogue · Settings</strong>.</p>
+      <p>A quiet audiophile <strong>host</strong> for folders you already own. Exclusive and DoP on native stacks — Core Audio, ALSA, WASAPI. Steer with the Harbor remote: <strong>Deck · Catalogue · Settings</strong>.</p>
       <div class="hero-actions">
         <a href="https://github.com/petergerov/audio-harbor-headless" class="btn-primary">
           View on GitHub
@@ -608,7 +608,7 @@
         <div class="term" aria-label="Example host startup">
           <p class="line"><span class="prompt">$</span> ./start.sh</p>
           <p class="line muted">Audio Harbor Headless 1.1.2</p>
-          <p class="line">engine   <span class="ok">macos-juce+coreaudio</span></p>
+          <p class="line">engine   <span class="ok">macos-coreaudio</span></p>
           <p class="line">backend  <span class="ok">native</span> <span class="muted">(auto)</span></p>
           <p class="line">output   Shared · USB DAC ready for Exclusive</p>
           <div class="blank"></div>
@@ -658,7 +658,7 @@
         <p>DSF, DFF, and SACD ISO reach a DSD DAC as DoP. Pick it only if the DAC plays DSD. The conversion badge always says which path you are on.</p>
       </div>
     </div>
-    <p class="sound-note">Strongest Exclusive / DoP with <code>output.backend = "native"</code>. JUCE stays available when you want the portable graph. More in the <a href="https://github.com/petergerov/audio-harbor-headless#readme" style="color: var(--accent);">README</a>.</p>
+    <p class="sound-note">Exclusive and DoP use the platform stack — Core Audio, ALSA, or WASAPI. More in the <a href="https://github.com/petergerov/audio-harbor-headless#readme" style="color: var(--accent);">README</a>.</p>
   </div>
 </section>
 
@@ -667,32 +667,32 @@
 <section class="hosts-section" id="backends">
   <div class="container">
     <div class="features-header">
-      <div class="section-eyebrow">Runtime choice</div>
-      <h2 class="section-title">JUCE and native. You decide.</h2>
-      <p class="section-sub">Release builds ship both stacks. Switch in config or via the API — no rebuild.</p>
+      <div class="section-eyebrow">Native audio</div>
+      <h2 class="section-title">One stack per OS. No portable detour.</h2>
+      <p class="section-sub">The host talks to the same I/O the DAC expects — Exclusive and DoP without a middle graph.</p>
     </div>
     <div class="hosts-grid">
       <div class="host-card">
-        <div class="lead">auto</div>
-        <h3>Native first</h3>
-        <p>Picks the Exclusive/DoP-friendly stack: Core Audio on Mac, ALSA on Linux, WASAPI on Windows.</p>
+        <div class="lead">macOS</div>
+        <h3>Core Audio</h3>
+        <p>Hog mode for Exclusive. DoP into a DSD DAC. Rate follows the file.</p>
       </div>
       <div class="host-card">
-        <div class="lead">native</div>
-        <h3>Platform I/O</h3>
-        <p>Direct hog / <code>hw:</code> / WASAPI Exclusive. Best when the DAC is the point of the machine.</p>
+        <div class="lead">Linux</div>
+        <h3>ALSA</h3>
+        <p><code>hw:</code> / <code>plughw:</code> for Exclusive and DoP. Shared uses the system default when you want it.</p>
       </div>
       <div class="host-card">
-        <div class="lead">juce</div>
-        <h3>Portable graph</h3>
-        <p>Same JUCE path on every OS. Useful for consistent behaviour; DSD becomes PCM with an honest badge.</p>
+        <div class="lead">Windows</div>
+        <h3>WASAPI</h3>
+        <p>Shared, Exclusive, and DoP on the native path. Unpack the zip and run <code>start.cmd</code>.</p>
       </div>
     </div>
     <div class="code-block">
 <span class="c"># ~/.audio-harbor-headless/config.toml</span>
 [<span class="k">output</span>]
 mode = <span class="k">"exclusive"</span>
-backend = <span class="k">"native"</span>   <span class="c"># auto | juce | native</span>
+backend = <span class="k">"native"</span>   <span class="c"># auto | native</span>
     </div>
   </div>
 </section>
@@ -846,7 +846,7 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
       <div class="host-card">
         <div class="lead">Apple Silicon &amp; Intel</div>
         <h3>macOS</h3>
-        <p>Native Core Audio Exclusive / DoP, or JUCE. Separate prebuilts: <code>darwin-arm64</code> and <code>darwin-x64</code>. Bundled Node 22; typically macOS 11+.</p>
+        <p>Native Core Audio Exclusive / DoP. Separate prebuilts: <code>darwin-arm64</code> and <code>darwin-x64</code>. Bundled Node 22; typically macOS 11+.</p>
       </div>
       <div class="host-card">
         <div class="lead">x64 &amp; ARM64</div>
@@ -856,7 +856,7 @@ backend = <span class="k">"native"</span>   <span class="c"># auto | juce | nati
       <div class="host-card">
         <div class="lead">x64</div>
         <h3>Windows</h3>
-        <p>Native WASAPI Shared / Exclusive / DoP, plus JUCE. Unpack the zip and run <code>start.cmd</code>.</p>
+        <p>Native WASAPI Shared / Exclusive / DoP. Unpack the zip and run <code>start.cmd</code>.</p>
       </div>
     </div>
   </div>

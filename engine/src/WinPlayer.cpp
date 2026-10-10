@@ -11,7 +11,7 @@
 #include "Player.h"
 
 // Include order matters on MSVC. Do NOT include functiondiscoverykeys_devpkey.h —
-// its DEFINE_PROPERTYKEY macros clash with the Windows SDK / JUCE include mix in CI.
+// its DEFINE_PROPERTYKEY macros clash with the Windows SDK in CI.
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
