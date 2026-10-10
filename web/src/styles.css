@@ -1116,10 +1116,6 @@ button.cell:disabled .value {
   display: none;
 }
 
-.deck-plate {
-  margin: 0;
-}
-
 .deck-style-bar {
   display: flex;
   align-items: center;
@@ -3131,6 +3127,272 @@ body.overlay-open .ah-toast {
 @media (min-width: 1100px) {
   :root {
     --side-w: 272px;
+  }
+}
+
+/*
+ * Short landscape (iPhone wide / short height): keep the wide shell, but slim
+ * the side rails and drop the Deck stage photo so transport fits.
+ */
+@media (max-height: 520px) {
+  .app-shell.wide {
+    --side-w: 112px;
+  }
+
+  /* Catalogue / Settings: float a mini now-bar instead of the tall desktop strip. */
+  .app-shell.wide.has-bar {
+    --bar-h: 0px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .app-shell.wide.has-bar .sidebar {
+    grid-row: 1;
+    height: 100%;
+  }
+
+  .app-shell.wide.has-bar .content-col {
+    padding-bottom: calc(64px + var(--safe-bottom));
+  }
+
+  .app-shell.wide .now-bar {
+    position: fixed;
+    left: calc(var(--side-w) + 10px + env(safe-area-inset-left, 0px));
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    bottom: calc(8px + var(--safe-bottom));
+    grid-column: unset;
+    grid-row: unset;
+    z-index: 45;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    align-items: center;
+    gap: 8px 10px;
+    height: 56px;
+    min-height: 56px;
+    padding: 6px 8px 6px 6px;
+    border-radius: 14px;
+    border: 0.5px solid var(--separator);
+    border-top: 0.5px solid var(--separator);
+    background: color-mix(in srgb, var(--faceplate) 92%, transparent);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  .app-shell.wide .now-bar-track {
+    padding: 2px 4px 2px 2px;
+    gap: 8px;
+  }
+
+  .app-shell.wide .now-bar-art {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+  }
+
+  .app-shell.wide .now-bar-text strong {
+    font-size: 13px;
+  }
+
+  .app-shell.wide .now-bar-text span {
+    font-size: 11px;
+  }
+
+  .app-shell.wide .now-bar-center {
+    grid-column: auto;
+    grid-row: auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0;
+  }
+
+  .app-shell.wide .now-bar-scrub,
+  .app-shell.wide .now-bar-aside {
+    display: none;
+  }
+
+  .app-shell.wide .now-bar-transport {
+    gap: 4px;
+  }
+
+  .app-shell.wide .now-bar-transport [data-cmd="previous"] {
+    display: none;
+  }
+
+  .app-shell.wide .now-bar-transport button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .app-shell.wide .now-bar-transport .play-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .app-shell.wide .now-bar-transport .play-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .app-shell.wide .sidebar {
+    padding: calc(8px + var(--safe-top)) 6px calc(8px + var(--safe-bottom));
+    gap: 2px;
+  }
+
+  .app-shell.wide .side-brand {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    padding: 2px 4px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Icon + label stack; hide playlist/label lists — no room. */
+  .app-shell.wide .side-heading,
+  .app-shell.wide .side-scroll,
+  .app-shell.wide .side-empty {
+    display: none;
+  }
+
+  .app-shell.wide .side-row {
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 4px;
+    font-size: 10px;
+    min-height: 0;
+  }
+
+  .app-shell.wide .side-row svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .app-shell.wide .side-foot {
+    padding-top: 8px;
+  }
+
+  .app-shell.wide .screen:has(.now-screen) {
+    padding: 6px 8px 8px 6px;
+  }
+
+  .app-shell.wide .deck-layout {
+    gap: 8px;
+  }
+
+  .app-shell.wide .deck-stage.faceplate,
+  .app-shell.wide .now-screen:not(.has-queue-rail) .deck-stage.faceplate {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 10px 12px 12px;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  /* No stage photo — only meta + transport. */
+  .app-shell.wide .deck-visual {
+    display: none;
+  }
+
+  .app-shell.wide .deck-header {
+    gap: 4px;
+  }
+
+  .app-shell.wide .deck-style-bar {
+    gap: 6px;
+  }
+
+  .app-shell.wide .deck-pill {
+    min-height: 28px;
+    min-width: 32px;
+    padding: 4px 8px;
+    font-size: 8px;
+  }
+
+  .app-shell.wide .deck-panel {
+    gap: 6px;
+    justify-content: center;
+    flex: 1;
+  }
+
+  .app-shell.wide .now-title {
+    font-size: 18px;
+  }
+
+  .app-shell.wide .now-artist {
+    font-size: 11px;
+  }
+
+  .app-shell.wide .scrub {
+    margin: 4px auto 2px;
+  }
+
+  .app-shell.wide .transport {
+    gap: 10px;
+    margin: 4px 0 2px;
+  }
+
+  .app-shell.wide .transport .play-btn {
+    width: 56px;
+    height: 56px;
+  }
+
+  .app-shell.wide .transport .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .app-shell.wide .transport .mode-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .app-shell.wide .deck-queue-rail {
+    flex: 0 1 240px;
+    min-width: 210px;
+    max-width: min(260px, 34%);
+  }
+
+  .app-shell.wide .deck-queue-header {
+    padding: 8px 8px 8px;
+  }
+
+  .app-shell.wide .deck-queue-title {
+    font-size: 12px;
+    -webkit-line-clamp: 1;
+  }
+
+  .app-shell.wide .deck-queue-sub {
+    font-size: 9px;
+  }
+
+  /* No artwork — title gets the width. */
+  .app-shell.wide .deck-queue-list .row-icon {
+    display: none;
+  }
+
+  .app-shell.wide .deck-queue-list .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 40px;
+    gap: 8px;
+    padding: 6px 4px 6px 10px;
+  }
+
+  .app-shell.wide .deck-queue-list .row-wrap + .row-wrap::before {
+    left: 10px;
+  }
+
+  .app-shell.wide .deck-queue-list .row-title {
+    font-size: 13px;
+  }
+
+  .app-shell.wide .deck-queue-list .row-sub {
+    font-size: 11px;
+  }
+
+  .app-shell.wide .deck-queue-list .row-more {
+    width: 36px;
   }
 }
 

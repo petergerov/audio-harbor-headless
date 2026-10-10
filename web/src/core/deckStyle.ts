@@ -1,9 +1,9 @@
 /** Deck hero styles — same compact choices as the iOS remote (no Receiver on phone). */
 export type DeckStyle = 'turntable' | 'reelToReel';
 
-export const DECK_STYLES: ReadonlyArray<{ id: DeckStyle; title: string; engraved: string }> = [
-  { id: 'turntable', title: 'Turntable', engraved: 'Listening Desk' },
-  { id: 'reelToReel', title: 'Reel-to-Reel', engraved: 'Tape Transport' },
+export const DECK_STYLES: ReadonlyArray<{ id: DeckStyle; title: string }> = [
+  { id: 'turntable', title: 'Turntable' },
+  { id: 'reelToReel', title: 'Reel-to-Reel' },
 ];
 
 const STORAGE_KEY = 'harbor.deckStyle';
@@ -15,10 +15,6 @@ export function loadDeckStyle(): DeckStyle {
 
 export function saveDeckStyle(style: DeckStyle): void {
   localStorage.setItem(STORAGE_KEY, style);
-}
-
-export function deckEngraved(style: DeckStyle): string {
-  return DECK_STYLES.find((s) => s.id === style)?.engraved ?? 'Listening Desk';
 }
 
 /** Status line left of the stage (needle / transport). */

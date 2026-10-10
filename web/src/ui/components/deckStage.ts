@@ -1,6 +1,5 @@
 import {
   DECK_STYLES,
-  deckEngraved,
   deckProgressLabel,
   deckStageSrc,
   deckStatusLabel,
@@ -28,7 +27,6 @@ export function deckStageHtml(model: DeckStageModel): string {
   const src = deckStageSrc(model.style, wide);
   return `
     <header class="deck-header">
-      <p class="engraved deck-plate" data-deck-plate>${escapeHtml(deckEngraved(model.style))}</p>
       <div class="deck-style-bar">
         <div class="deck-style-picker" role="group" aria-label="Deck style">
           ${DECK_STYLES.map(
