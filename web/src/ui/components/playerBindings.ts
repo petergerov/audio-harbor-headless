@@ -50,7 +50,7 @@ export class PlayerBindings {
       el.textContent = track?.title ?? 'Not Playing';
     });
     this.each(PlayerMarkup.artist, (el) => {
-      el.textContent = track?.artist ?? 'Choose something from Library';
+      el.textContent = track?.artist ?? 'Choose something from Catalogue';
     });
     this.each(PlayerMarkup.toggle, (el) => {
       const small = el.dataset.icon === 'sm';

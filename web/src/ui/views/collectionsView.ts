@@ -122,7 +122,7 @@ export class CollectionsView implements View {
     });
     root.querySelector('[data-add-music]')?.addEventListener('click', async () => {
       await this.ctx.nav.goTo('library');
-      showToast('Pick music in Library, then use Add');
+      showToast('Pick music in Catalogue, then use Add');
     });
     this.ctx.covers.hydrate(root);
     paintMediaList(required(root, '[data-list]'), items, { kind: 'collection', collection: open }, this.ctx);

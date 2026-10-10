@@ -29,7 +29,7 @@ export class NowPlayingView implements View {
         <div class="artwork" data-art>${icons.music}</div>
         <div class="now-meta">
           <h2 class="now-title">${escapeHtml(track?.title ?? 'Not Playing')}</h2>
-          <p class="now-artist">${escapeHtml(track?.artist ?? 'Choose something from Library')}</p>
+          <p class="now-artist">${escapeHtml(track?.artist ?? 'Choose something from Catalogue')}</p>
           <span class="now-badge" data-now-badge>${escapeHtml(state.nowPlaying?.conversionBadge ?? '')}</span>
           <p class="now-error" data-now-error>${escapeHtml(playbackError(state))}</p>
         </div>

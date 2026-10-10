@@ -147,7 +147,7 @@ export function paintMediaList(list: HTMLElement, items: BrowseItem[], scope: Li
   if (!items.length) {
     list.innerHTML =
       scope.kind === 'collection'
-        ? `<div class="empty"><strong>This Collection Is Empty</strong>Add music from your Library.</div>`
+        ? `<div class="empty"><strong>This Collection Is Empty</strong>Add music from your Catalogue.</div>`
         : `<div class="empty"><strong>No Music</strong>Add a folder in Settings → Sources.</div>`;
     return;
   }
