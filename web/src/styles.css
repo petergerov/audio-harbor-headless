@@ -1344,7 +1344,7 @@ button.cell:disabled .value {
 .app-shell:not(.wide) .screen:has(.now-screen) {
   height: calc(100dvh - var(--tab-h) - var(--safe-bottom) - var(--mini-h));
   max-height: calc(100dvh - var(--tab-h) - var(--safe-bottom) - var(--mini-h));
-  padding: calc(4px + var(--safe-top)) max(16px, env(safe-area-inset-right)) 6px
+  padding: calc(4px + var(--safe-top)) max(16px, env(safe-area-inset-right)) 12px
     max(16px, env(safe-area-inset-left));
   overflow: hidden;
   display: flex;
@@ -1369,17 +1369,18 @@ button.cell:disabled .value {
 
 .app-shell:not(.wide) .deck-stage.faceplate {
   gap: 8px;
-  padding: 10px;
+  padding: 10px 10px 16px;
 }
 
 .app-shell:not(.wide) .deck-panel {
   gap: 8px;
   flex-shrink: 0;
+  padding-bottom: 4px;
 }
 
 .app-shell:not(.wide) .deck-hero {
   /* Portrait stage sized so header + controls still fit above the tab bar. */
-  --deck-mobile-chrome: 290px;
+  --deck-mobile-chrome: 310px;
   width: min(100%, calc((100cqh - var(--deck-mobile-chrome)) * 3 / 4));
   aspect-ratio: 3 / 4;
 }
@@ -1389,7 +1390,7 @@ button.cell:disabled .value {
 }
 
 .app-shell:not(.wide) .now-screen .transport {
-  margin: 2px 0 0;
+  margin: 6px 0 10px;
 }
 
 .app-shell:not(.wide) .now-screen .now-meta {
@@ -2882,7 +2883,7 @@ body.overlay-open .ah-toast {
 
 .app-shell.wide .transport {
   gap: 18px;
-  margin-top: 6px;
+  margin: 10px 0 8px;
 }
 
 .app-shell.wide .transport .play-btn {
