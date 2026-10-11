@@ -68,7 +68,7 @@ Prebuilt archives **bundle Node.js 22** under `runtime/` — you do not need a s
 
 ```bash
 # Example Raspberry Pi
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.5-linux-arm64.tar.gz
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.0-linux-arm64.tar.gz
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
 sudo apt install -y libasound2   # ALSA runtime on Linux
@@ -83,7 +83,7 @@ Publish a release (manual only):
 1. Push `main` with the commits you want
 2. Set macOS signing secrets (once) — see [packaging/macos/README.md](packaging/macos/README.md)
 3. GitHub → **Actions** → **Release packages** → **Run workflow**
-4. Enter tag (e.g. `v1.0.5`) — optional: draft / skip notarization
+4. Enter tag (e.g. `v1.0.0`) — optional: draft / skip notarization
 
 The macOS jobs import **Developer ID** certificates from secrets, sign binaries, build a `.pkg`, and notarize when App Store Connect / Apple ID secrets are present.
 
