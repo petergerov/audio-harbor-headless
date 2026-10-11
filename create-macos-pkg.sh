@@ -107,7 +107,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/harbor-macos-pkg.XXXXXX")"
 API_KEY_TMP=""
 cleanup() {
   rm -rf "$WORK"
-  [[ -n "$API_KEY_TMP" && -f "$API_KEY_TMP" ]] && rm -f "$API_KEY_TMP"
+  if [[ -n "$API_KEY_TMP" && -f "$API_KEY_TMP" ]]; then rm -f "$API_KEY_TMP"; fi
 }
 trap cleanup EXIT
 
@@ -152,6 +152,14 @@ cp -a "$PAYLOAD" "$COMP_ROOT$INSTALL_PREFIX"
 mkdir -p "$COMP_ROOT/usr/local/bin"
 ln -sf "$INSTALL_PREFIX/start.sh" "$COMP_ROOT/usr/local/bin/audioharbor"
 
+# Menu bar app: start / stop, QR code, Settings
+MENUBAR_APP="$COMP_ROOT/Applications/Audio Harbor.app"
+log "Building menu bar app"
+mkdir -p "$COMP_ROOT/Applications"
+"$ROOT/packaging/macos/build-menubar.sh" "$COMP_ROOT/Applications" "$VERSION"
+codesign --force --options runtime --timestamp --sign "$SIGN_APP" "$MENUBAR_APP"
+codesign --verify --strict --verbose=2 "$MENUBAR_APP"
+
 SCRIPTS="$WORK/scripts"
 mkdir -p "$SCRIPTS"
 cat > "$SCRIPTS/postinstall" <<EOF
@@ -161,14 +169,35 @@ if command -v xattr >/dev/null 2>&1; then
   xattr -dr com.apple.quarantine "$INSTALL_PREFIX" 2>/dev/null || true
 fi
 chmod +x "$INSTALL_PREFIX/start.sh" "$INSTALL_PREFIX/install.sh" 2>/dev/null || true
+
+# (Re)open the menu bar app for the logged-in user, so an update takes effect.
+CONSOLE_USER="\$(stat -f %Su /dev/console)"
+if [[ -n "\$CONSOLE_USER" && "\$CONSOLE_USER" != "root" ]]; then
+  pkill -x AudioHarbor 2>/dev/null || true
+  # The old server keeps running old code otherwise; the app starts the new one.
+  "$INSTALL_PREFIX/start.sh" stop >/dev/null 2>&1 || true
+  CONSOLE_UID="\$(id -u "\$CONSOLE_USER")"
+  launchctl asuser "\$CONSOLE_UID" sudo -u "\$CONSOLE_USER" open -g "/Applications/Audio Harbor.app" || true
+fi
 exit 0
 EOF
 chmod +x "$SCRIPTS/postinstall"
 
 COMPONENT_PKG="$WORK/audio-harbor-headless-component.pkg"
 log "Building component package"
+# Install the app to /Applications even if a copy was moved elsewhere (no relocation).
+COMPONENT_PLIST="$WORK/component.plist"
+pkgbuild --analyze --root "$COMP_ROOT" "$COMPONENT_PLIST"
+i=0
+while /usr/libexec/PlistBuddy -c "Print :$i" "$COMPONENT_PLIST" >/dev/null 2>&1; do
+  /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsRelocatable" "$COMPONENT_PLIST" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" "$COMPONENT_PLIST"
+  i=$((i + 1))
+done
+
 pkgbuild \
   --root "$COMP_ROOT" \
+  --component-plist "$COMPONENT_PLIST" \
   --identifier "$IDENTIFIER" \
   --version "$VERSION" \
   --install-location "/" \

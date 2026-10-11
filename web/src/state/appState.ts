@@ -59,7 +59,8 @@ export interface AppState {
 }
 
 export const initialState: AppState = {
-  tab: 'now',
+  // `#settings` deep link (the macOS menu bar app opens Settings this way).
+  tab: typeof location !== 'undefined' && location.hash === '#settings' ? 'settings' : 'now',
   library: {
     scope: 'folders',
     folderPath: null,

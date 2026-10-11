@@ -17,4 +17,4 @@ data/
 JUCE/
 .idea/
 .gstack/
-api/
+/api/

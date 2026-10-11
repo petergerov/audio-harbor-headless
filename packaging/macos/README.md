@@ -189,6 +189,17 @@ rm ~/Downloads/AuthKey_*.p8
 
 ---
 
+## Menu bar app
+
+`packaging/macos/menubar/` holds the **Audio Harbor.app** menu bar app (Swift / AppKit, macOS 11+). `create-macos-pkg.sh` builds it with `build-menubar.sh`, signs it with the Developer ID Application identity and installs it to `/Applications`; the postinstall script (re)opens it for the logged-in user.
+
+```bash
+packaging/macos/build-menubar.sh /tmp/menubar 1.0.0   # unsigned build for a quick test
+open "/tmp/menubar/Audio Harbor.app"
+```
+
+It runs `/usr/local/audio-harbor-headless/start.sh` (override: `defaults write com.gerov.audioharbor.menubar ServerRoot /path`) and polls `/api/v1/health` for status and the iPhone URL.
+
 ## Local build
 
 ```bash

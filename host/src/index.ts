@@ -85,7 +85,8 @@ async function main(): Promise<void> {
     version: hostVersion() || 'unknown',
   });
 
-  const app = await buildServer({ catalogue, playback, getConfig, settings, sharing });
+  let remoteUrl: string | null = null;
+  const app = await buildServer({ catalogue, playback, getConfig, settings, sharing, remoteUrl: () => remoteUrl });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
   // mDNS: this host as http://audioharbor.local:<port> — nothing to type, and a new DHCP
@@ -108,6 +109,7 @@ async function main(): Promise<void> {
 
   const lan = lanBaseUrl(cfg.server.port);
   const url = localName ? `http://${localName}:${cfg.server.port}` : lan;
+  remoteUrl = url;
   console.log(`Audio Harbor Headless listening on ${address}`);
   console.log(`Engine: ${engineVersion()}`);
   console.log(`Open on iPhone: ${url}`);

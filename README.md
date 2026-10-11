@@ -95,7 +95,12 @@ npm run package:macos                    # signed .pkg (Developer ID; Apple Sili
 ./create-package.sh                      # source-only (compile on device via install.sh)
 ```
 
-macOS `.pkg` installs to `/usr/local/audio-harbor-headless` and adds `audioharbor` on `PATH`: start with `audioharbor`, stop with Ctrl+C or `audioharbor stop` (also `pair`, `rescan`).
+macOS `.pkg` installs to `/usr/local/audio-harbor-headless`, adds `audioharbor` on `PATH`, and installs the **Audio Harbor** menu bar app in `/Applications`:
+
+- Menu bar: start / stop the server, QR code + pairing PIN for the iPhone, open the remote or Settings, config file, log.
+- Toggles in the menu: *Start Server When App Opens* and *Open at Login* (macOS 13+).
+- Server output goes to `~/.audio-harbor-headless/harbor.log`. Quitting the app stops a server it started.
+- Terminal: start with `audioharbor`, stop with Ctrl+C or `audioharbor stop` (also `pair`, `rescan`).
 
 ### Web remote (Deck · Catalogue · Settings)
 

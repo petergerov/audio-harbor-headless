@@ -21,6 +21,8 @@ export interface AppContext {
   /** The Settings snapshot the remotes show, and changes to it. */
   settings: RemoteSettings;
   sharing: Sharing;
+  /** The URL the remotes should open (mDNS name or LAN IP); null until known. */
+  remoteUrl?: () => string | null;
 }
 
 function authOk(header: string | undefined): boolean {
@@ -43,10 +45,12 @@ export async function buildServer(ctx: AppContext) {
     });
   }
 
-  app.get('/api/v1/health', async () => ({
+  // Polled every few seconds by the macOS menu bar app — keep it out of the request log.
+  app.get('/api/v1/health', { logLevel: 'warn' }, async () => ({
     ok: true,
     name: ctx.getConfig().server.name,
     engine: engineVersion(),
+    url: ctx.remoteUrl?.() ?? null,
   }));
 
   app.post<{ Body: { pin: string } }>('/api/v1/pair', async (req, reply) => {
