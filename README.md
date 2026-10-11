@@ -54,13 +54,15 @@ GitHub Actions builds one archive **per platform** (native audio on Mac/Linux/Wi
 
 | Asset | Platform |
 |---|---|
-| `*-darwin-arm64.tar.gz` | Apple Silicon Mac (M1 and later) |
-| `*-darwin-x64.tar.gz` | Intel Mac |
+| `*-darwin-arm64.pkg` | Apple Silicon Mac — **signed installer** |
+| `*-darwin-x64.pkg` | Intel Mac — **signed installer** |
+| `*-darwin-arm64.tar.gz` | Apple Silicon Mac (portable) |
+| `*-darwin-x64.tar.gz` | Intel Mac (portable) |
 | `*-linux-x64.tar.gz` | Linux Intel/AMD |
 | `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 |
 | `*-win32-x64.zip` | Windows x64 |
 
-Intel and Apple Silicon Macs both use the native Core Audio path (`backend = "native"`). Pick the archive that matches `uname -m` (`arm64` vs `x86_64`).
+Intel and Apple Silicon Macs both use the native Core Audio path (`backend = "native"`). Prefer the `.pkg` on Mac; for portable installs pick the `.tar.gz` that matches `uname -m` (`arm64` vs `x86_64`).
 
 Prebuilt archives **bundle Node.js 22** under `runtime/` — you do not need a system Node install. `./start.sh` uses the bundled binary so it always matches `harbor_engine.node` (requires Node ≥22.5 for `node:sqlite`). macOS typically needs **11 Big Sur or newer**.
 
@@ -79,15 +81,21 @@ Windows: unpack the `.zip` and run `start.cmd` (bundled Node 22, or system Node 
 Publish a release (manual only):
 
 1. Push `main` with the commits you want
-2. GitHub → **Actions** → **Release packages** → **Run workflow**
-3. Enter tag (e.g. `v1.0.5`) — optional: draft
+2. Set macOS signing secrets (once) — see [packaging/macos/README.md](packaging/macos/README.md)
+3. GitHub → **Actions** → **Release packages** → **Run workflow**
+4. Enter tag (e.g. `v1.0.5`) — optional: draft / skip notarization
+
+The macOS jobs import **Developer ID** certificates from secrets, sign binaries, build a `.pkg`, and notarize when App Store Connect / Apple ID secrets are present.
 
 Or locally:
 
 ```bash
 npm run package:prebuilt                 # → dist/packages/*-<platform>.tar.gz
+npm run package:macos                    # signed .pkg (Developer ID; Apple Silicon/Intel host)
 ./create-package.sh                      # source-only (compile on device via install.sh)
 ```
+
+macOS `.pkg` installs to `/usr/local/audio-harbor-headless` and adds `audioharbor` on `PATH`.
 
 ### Web remote (Deck · Catalogue · Settings)
 

@@ -65,9 +65,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
       xattr -d com.apple.quarantine "$f" 2>/dev/null || true
     fi
   done
+  # Ad-hoc sign only when unsigned / not Developer ID. Never strip a real signature.
   if command -v codesign >/dev/null 2>&1; then
-    codesign --force --sign - "$ENGINE_NODE" >/dev/null 2>&1 || true
-    # Bundled node is already signed by Node.js; only ad-hoc if quarantine stripped it oddly.
+    if ! codesign -dv "$ENGINE_NODE" >/dev/null 2>&1 \
+      || codesign -dv "$ENGINE_NODE" 2>&1 | grep -q 'Signature=adhoc\|code object is not signed'; then
+      codesign --force --sign - "$ENGINE_NODE" >/dev/null 2>&1 || true
+    fi
   fi
 fi
 
