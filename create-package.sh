@@ -206,6 +206,7 @@ if [[ "$MODE" == "prebuilt" ]]; then
     '*.sqlite' \
     '.cache/' \
     'config.toml' \
+    'engine/build/' \
     'engine/src/' \
     'engine/napi/' \
     'engine/third_party/' \

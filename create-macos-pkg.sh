@@ -130,11 +130,13 @@ sign_bin() {
   codesign --verify --verbose=2 "$path"
 }
 
-sign_bin "$PAYLOAD/runtime/bin/node"
-sign_bin "$PAYLOAD/engine/build/Release/harbor_engine.node"
-if [[ -f "$PAYLOAD/engine/build/harbor_engine.node" ]]; then
-  sign_bin "$PAYLOAD/engine/build/harbor_engine.node"
-fi
+# Notarization rejects any Mach-O without a Developer ID signature, so sign
+# every executable / dylib / addon in the payload, not just the known ones.
+while IFS= read -r -d '' f; do
+  if file -b "$f" | grep -qE '^Mach-O .*(executable|shared library|bundle)'; then
+    sign_bin "$f"
+  fi
+done < <(find "$PAYLOAD" -type f -print0)
 
 # Refresh tar.gz so the release archive also carries Developer ID binaries
 log "Rewriting signed archive $ARCHIVE"
@@ -193,12 +195,13 @@ productsign --sign "$SIGN_PKG" --timestamp "$UNSIGNED_PKG" "$FINAL_PKG"
 log "Verifying package signature"
 pkgutil --check-signature "$FINAL_PKG"
 
-notarize_pkg() {
-  local pkg="$1"
+# Fills NOTARY_AUTH with notarytool credential args; returns 1 if none are configured.
+NOTARY_AUTH=()
+resolve_notary_auth() {
   if [[ -n "${HARBOR_NOTARY_PROFILE:-}" ]]; then
     log "Notarizing with keychain profile: $HARBOR_NOTARY_PROFILE"
-    xcrun notarytool submit "$pkg" --keychain-profile "$HARBOR_NOTARY_PROFILE" --wait
-    return
+    NOTARY_AUTH=(--keychain-profile "$HARBOR_NOTARY_PROFILE")
+    return 0
   fi
 
   if [[ -n "${APPLE_API_KEY_BASE64:-}" && -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER:-}" ]]; then
@@ -209,39 +212,48 @@ notarize_pkg() {
 
   if [[ -n "${APPLE_API_KEY_PATH:-}" && -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER:-}" ]]; then
     log "Notarizing with App Store Connect API key $APPLE_API_KEY_ID"
-    xcrun notarytool submit "$pkg" \
-      --key "$APPLE_API_KEY_PATH" \
-      --key-id "$APPLE_API_KEY_ID" \
-      --issuer "$APPLE_API_ISSUER" \
-      --wait
-    return
+    NOTARY_AUTH=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+    return 0
   fi
 
   if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
     log "Notarizing with Apple ID $APPLE_ID (team $APPLE_TEAM_ID)"
-    xcrun notarytool submit "$pkg" \
-      --apple-id "$APPLE_ID" \
-      --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-      --team-id "$APPLE_TEAM_ID" \
-      --wait
-    return
+    NOTARY_AUTH=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+    return 0
   fi
 
-  if [[ -z "${HARBOR_NOTARY_PROFILE:-}" ]]; then
-    for candidate in "AC_PASSWORD" "notarytool" "Harbor" "AudioHarbor" "Developer ID"; do
-      if xcrun notarytool history --keychain-profile "$candidate" >/dev/null 2>&1; then
-        log "Notarizing with keychain profile: $candidate"
-        xcrun notarytool submit "$pkg" --keychain-profile "$candidate" --wait
-        return
-      fi
-    done
-  fi
+  for candidate in "AC_PASSWORD" "notarytool" "Harbor" "AudioHarbor" "Developer ID"; do
+    if xcrun notarytool history --keychain-profile "$candidate" >/dev/null 2>&1; then
+      log "Notarizing with keychain profile: $candidate"
+      NOTARY_AUTH=(--keychain-profile "$candidate")
+      return 0
+    fi
+  done
 
   return 1
 }
 
+# notarytool exits 0 even when Apple rejects the upload, so check the status
+# and print Apple's log on failure.
+notarize_pkg() {
+  local pkg="$1" out status sub_id
+  out="$(xcrun notarytool submit "$pkg" "${NOTARY_AUTH[@]}" --wait 2>&1)" || true
+  echo "$out"
+  status="$(echo "$out" | sed -n 's/^ *status: //p' | tail -1)"
+  sub_id="$(echo "$out" | sed -n 's/^ *id: //p' | tail -1)"
+  if [[ "$status" != "Accepted" ]]; then
+    echo "Notarization failed (status: ${status:-unknown})." >&2
+    if [[ -n "$sub_id" ]]; then
+      echo "==> Apple notarization log for $sub_id" >&2
+      xcrun notarytool log "$sub_id" "${NOTARY_AUTH[@]}" >&2 || true
+    fi
+    return 1
+  fi
+}
+
 if [[ "$SKIP_NOTARY" -eq 0 ]]; then
-  if notarize_pkg "$FINAL_PKG"; then
+  if resolve_notary_auth; then
+    notarize_pkg "$FINAL_PKG" || exit 1
     log "Stapling notarization ticket"
     xcrun stapler staple "$FINAL_PKG"
     spctl --assess --type install -vv "$FINAL_PKG" || true
