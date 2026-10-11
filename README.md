@@ -95,7 +95,7 @@ npm run package:macos                    # signed .pkg (Developer ID; Apple Sili
 ./create-package.sh                      # source-only (compile on device via install.sh)
 ```
 
-macOS `.pkg` installs to `/usr/local/audio-harbor-headless` and adds `audioharbor` on `PATH`.
+macOS `.pkg` installs to `/usr/local/audio-harbor-headless` and adds `audioharbor` on `PATH`: start with `audioharbor`, stop with Ctrl+C or `audioharbor stop` (also `pair`, `rescan`).
 
 ### Web remote (Deck · Catalogue · Settings)
 

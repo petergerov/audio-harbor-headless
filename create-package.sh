@@ -258,7 +258,7 @@ Also needed:
    Windows:
      start.cmd
 
-Commands: ./start.sh pair | rescan
+Commands: ./start.sh pair | rescan | stop
 EOF
 
 else

@@ -4,13 +4,40 @@
 #   ./start.sh              # serve
 #   ./start.sh pair
 #   ./start.sh rescan
+#   ./start.sh stop         # stop a running server (any terminal / background)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks (the .pkg installs /usr/local/bin/audioharbor -> start.sh).
+SOURCE="$0"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" == /* ]] || SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 cd "$ROOT"
 
 CMD="${1:-serve}"
 shift || true
+
+if [[ "$CMD" == "stop" ]]; then
+  ENTRY="$ROOT/host/dist/index.js"
+  PIDS="$(pgrep -f "$ENTRY serve" || true)"
+  if [[ -z "$PIDS" ]]; then
+    echo "Audio Harbor Headless is not running."
+    exit 0
+  fi
+  echo "Stopping Audio Harbor Headless (pid $(echo $PIDS))…"
+  # shellcheck disable=SC2086
+  kill -TERM $PIDS 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    pgrep -f "$ENTRY serve" >/dev/null || { echo "Stopped."; exit 0; }
+    sleep 0.5
+  done
+  echo "Still running after 10 s — forcing." >&2
+  pkill -KILL -f "$ENTRY serve" 2>/dev/null || true
+  exit 0
+fi
 
 # Prefer bundled Node (prebuilt packages) so ABI always matches harbor_engine.node.
 NODE_BIN=""
