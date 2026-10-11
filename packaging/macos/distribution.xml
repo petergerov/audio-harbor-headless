@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>Audio Harbor Headless</title>
+  <organization>com.gerov.audioharbor</organization>
+  <domains enable_localSystem="true"/>
+  <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+  <welcome file="welcome.html" mime-type="text/html"/>
+  <pkg-ref id="com.gerov.audioharbor.headless"/>
+  <choices-outline>
+    <line choice="default">
+      <line choice="com.gerov.audioharbor.headless"/>
+    </line>
+  </choices-outline>
+  <choice id="default"/>
+  <choice id="com.gerov.audioharbor.headless" visible="false">
+    <pkg-ref id="com.gerov.audioharbor.headless"/>
+  </choice>
+  <pkg-ref id="com.gerov.audioharbor.headless" version="__VERSION__" onConclusion="none">audio-harbor-headless-component.pkg</pkg-ref>
+</installer-gui-script>

@@ -1,6 +1,7 @@
 name: Release packages
 
 # Builds ready-to-run archives per platform and attaches them to a GitHub Release.
+# macOS jobs also produce a Developer ID–signed (and optionally notarized) .pkg.
 # Manual only — Actions → Release packages → Run workflow.
 on:
   workflow_dispatch:
@@ -11,6 +12,11 @@ on:
         type: string
       draft:
         description: 'Create as draft release'
+        required: false
+        type: boolean
+        default: false
+      skip_notary:
+        description: 'Skip macOS notarization (still Developer ID–sign the .pkg)'
         required: false
         type: boolean
         default: false
@@ -32,20 +38,25 @@ jobs:
           - platform: darwin-arm64
             runner: macos-14
             apt: false
+            macos: true
           # macos-15-intel is the current x86_64 macOS runner (macos-13 retired Dec 2025)
           - platform: darwin-x64
             runner: macos-15-intel
             apt: false
+            macos: true
           - platform: linux-x64
             runner: ubuntu-24.04
             apt: true
+            macos: false
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
             apt: true
+            macos: false
           # Temporarily disabled — rsync/packaging issues on windows-2022
           # - platform: win32-x64
           #   runner: windows-2022
           #   apt: false
+          #   macos: false
 
     steps:
       - uses: actions/checkout@v4
@@ -79,7 +90,8 @@ jobs:
         env:
           HARBOR_PLATFORM: ${{ matrix.platform }}
         run: |
-          chmod +x create-package.sh start.sh install.sh
+          chmod +x create-package.sh start.sh install.sh create-macos-pkg.sh
+          chmod +x packaging/macos/ci-import-signing.sh packaging/macos/ci-cleanup-signing.sh
           ./create-package.sh --prebuilt
           # Always offer a zip for Windows downloads
           if [[ "${{ matrix.platform }}" == win32-* ]]; then
@@ -88,12 +100,40 @@ jobs:
             if command -v zip >/dev/null 2>&1; then
               (cd dist/packages/_z && zip -qr "../${NAME}.zip" "$NAME")
             else
-              # GitHub windows-latest may lack zip; PowerShell works everywhere
               powershell.exe -NoProfile -Command \
                 "Compress-Archive -Path 'dist/packages/_z/${NAME}' -DestinationPath 'dist/packages/${NAME}.zip' -Force"
             fi
             rm -rf dist/packages/_z
           fi
+
+      - name: Import macOS signing certificate
+        if: matrix.macos
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: ./packaging/macos/ci-import-signing.sh
+
+      - name: Sign macOS package (.pkg)
+        if: matrix.macos
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ "${{ inputs.skip_notary }}" == "true" ]]; then
+            ./create-macos-pkg.sh --skip-notary
+          elif [[ -n "${APPLE_API_KEY_BASE64:-}" || -n "${APPLE_ID:-}" ]]; then
+            ./create-macos-pkg.sh --require-notary
+          else
+            ./create-macos-pkg.sh
+          fi
+
+      - name: Cleanup macOS signing keychain
+        if: matrix.macos && always()
+        run: ./packaging/macos/ci-cleanup-signing.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -102,6 +142,8 @@ jobs:
           path: |
             dist/packages/*.tar.gz
             dist/packages/*.tar.gz.sha256
+            dist/packages/*.pkg
+            dist/packages/*.pkg.sha256
             dist/packages/*.zip
           if-no-files-found: error
           retention-days: 14
@@ -142,17 +184,21 @@ jobs:
 
             | Asset | Platform |
             |---|---|
-            | `*-darwin-arm64.tar.gz` | Apple Silicon Mac (M1/M2/M3/…) |
-            | `*-darwin-x64.tar.gz` | Intel Mac |
+            | `*-darwin-arm64.pkg` | Apple Silicon Mac — signed installer |
+            | `*-darwin-x64.pkg` | Intel Mac — signed installer |
+            | `*-darwin-arm64.tar.gz` | Apple Silicon Mac (portable) |
+            | `*-darwin-x64.tar.gz` | Intel Mac (portable) |
             | `*-linux-x64.tar.gz` | Linux x86_64 |
             | `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 Linux |
 
-            Unpack → `./start.sh`. **Node.js is bundled** under `runtime/` (no system Node needed).
+            **macOS:** prefer the `.pkg` (Developer ID signed; notarized when credentials are configured). Installs to `/usr/local/audio-harbor-headless` and adds `audioharbor` on `PATH`.
+            **Portable:** unpack a `.tar.gz` → `./start.sh`. **Node.js is bundled** under `runtime/`.
             macOS: typically **macOS 11+**.
             Linux: `sudo apt install libasound2` if ALSA is missing.
           files: |
             release-assets/*.tar.gz
             release-assets/*.sha256
+            release-assets/*.pkg
             release-assets/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
