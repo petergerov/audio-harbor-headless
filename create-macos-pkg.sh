@@ -280,11 +280,28 @@ notarize_pkg() {
   fi
 }
 
+# The ticket comes from Apple's CloudKit, which drops connections now and then
+# (error 68 / -1005) and may not have a fresh ticket yet (error 65): retry.
+staple_pkg() {
+  local pkg="$1" attempt
+  for attempt in 1 2 3 4 5; do
+    if xcrun stapler staple "$pkg"; then
+      return 0
+    fi
+    if [[ "$attempt" -lt 5 ]]; then
+      log "Stapling failed (attempt $attempt/5) — retrying in $((attempt * 15)) s"
+      sleep $((attempt * 15))
+    fi
+  done
+  echo "Stapling failed after 5 attempts (package is notarized; staple later with: xcrun stapler staple $pkg)." >&2
+  return 1
+}
+
 if [[ "$SKIP_NOTARY" -eq 0 ]]; then
   if resolve_notary_auth; then
     notarize_pkg "$FINAL_PKG" || exit 1
     log "Stapling notarization ticket"
-    xcrun stapler staple "$FINAL_PKG"
+    staple_pkg "$FINAL_PKG" || exit 1
     spctl --assess --type install -vv "$FINAL_PKG" || true
   else
     msg="No notarization credentials — package is signed but not notarized."
