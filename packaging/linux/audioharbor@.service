@@ -1,0 +1,19 @@
+[Unit]
+Description=Audio Harbor Headless (%i)
+Documentation=https://github.com/petergerov/audio-harbor-headless
+Wants=network-online.target
+After=network-online.target sound.target
+
+[Service]
+Type=simple
+User=%i
+SupplementaryGroups=audio
+# Config, catalogue and PIN live in ~%i/.audio-harbor-headless — same as a manual start.
+ExecStart=/opt/audio-harbor-headless/start.sh serve
+Restart=on-failure
+RestartSec=5
+# Leave time for mDNS goodbye packets on stop.
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -39,6 +39,17 @@ if [[ "$CMD" == "stop" ]]; then
   exit 0
 fi
 
+# The .deb runs the server as systemd service audioharbor@<user>; a second
+# serve would clash on the ports. INVOCATION_ID is set inside the service.
+if [[ "$CMD" == "serve" && "$(uname -s)" == "Linux" && -z "${INVOCATION_ID:-}" ]] \
+  && command -v systemctl >/dev/null 2>&1 \
+  && systemctl is-active --quiet "audioharbor@$(id -un).service" 2>/dev/null; then
+  echo "Audio Harbor Headless already runs as service audioharbor@$(id -un)."
+  echo "  Log:     journalctl -u audioharbor@$(id -un) -f"
+  echo "  Restart: sudo systemctl restart audioharbor@$(id -un)"
+  exit 0
+fi
+
 # Prefer bundled Node (prebuilt packages) so ABI always matches harbor_engine.node.
 NODE_BIN=""
 if [[ -x "$ROOT/runtime/bin/node" ]]; then

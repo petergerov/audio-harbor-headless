@@ -1,0 +1,32 @@
+#!/bin/sh
+# Fresh install: enable the service for the installing user.
+# Upgrade: restart the instances that run.
+set -e
+
+pick_user() {
+  u="${HARBOR_USER:-${SUDO_USER:-}}"
+  if [ -z "$u" ] || [ "$u" = "root" ]; then
+    u="$(getent passwd 1000 | cut -d: -f1 || true)"
+  fi
+  if [ -n "$u" ] && id "$u" >/dev/null 2>&1; then
+    echo "$u"
+  fi
+}
+
+if [ "$1" = "configure" ] && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+  if [ -z "$2" ]; then
+    user="$(pick_user)"
+    if [ -n "$user" ]; then
+      systemctl enable --now "audioharbor@${user}.service" || true
+      echo "Audio Harbor Headless runs as ${user} (service audioharbor@${user})."
+      echo "Remote: http://audioharbor.local:8787 — PIN: audioharbor pair"
+    else
+      echo "Start it for a user with: sudo systemctl enable --now audioharbor@<user>"
+    fi
+  else
+    systemctl try-restart 'audioharbor@*.service' || true
+  fi
+fi
+
+exit 0

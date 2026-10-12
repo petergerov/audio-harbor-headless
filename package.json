@@ -18,7 +18,8 @@
     "harbor": "npm run start -w @harbor/host --",
     "package": "./create-package.sh",
     "package:prebuilt": "npm run build && npm prune --omit=dev && ./create-package.sh --prebuilt",
-    "package:macos": "./create-macos-pkg.sh --build"
+    "package:macos": "./create-macos-pkg.sh --build",
+    "package:deb": "./create-deb.sh --build"
   },
   "engines": {
     "node": ">=22.5"

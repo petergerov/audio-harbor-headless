@@ -58,23 +58,26 @@ GitHub Actions builds one archive **per platform** (native audio on Mac/Linux/Wi
 | `*-darwin-x64.pkg` | Intel Mac — **signed installer** |
 | `*-darwin-arm64.tar.gz` | Apple Silicon Mac (portable) |
 | `*-darwin-x64.tar.gz` | Intel Mac (portable) |
-| `*-linux-x64.tar.gz` | Linux Intel/AMD |
-| `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 |
+| `*_arm64.deb` | Raspberry Pi 64-bit / ARM64 — **Debian package + systemd service** |
+| `*_amd64.deb` | Linux Intel/AMD — **Debian package + systemd service** |
+| `install-linux.sh` | one-line installer for the `.deb` |
+| `*-linux-x64.tar.gz` | Linux Intel/AMD (portable) |
+| `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 (portable) |
 | `*-win32-x64.zip` | Windows x64 |
 
 Intel and Apple Silicon Macs both use the native Core Audio path (`backend = "native"`). Prefer the `.pkg` on Mac; for portable installs pick the `.tar.gz` that matches `uname -m` (`arm64` vs `x86_64`).
 
 Prebuilt archives **bundle Node.js 22** under `runtime/` — you do not need a system Node install. `./start.sh` uses the bundled binary so it always matches `harbor_engine.node` (requires Node ≥22.5 for `node:sqlite`). macOS typically needs **11 Big Sur or newer**.
 
+#### Raspberry Pi / Debian / Ubuntu
+
 ```bash
-# Example Raspberry Pi
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.0-linux-arm64.tar.gz
-tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
-cd audio-harbor-headless-*
-sudo apt install -y libasound2   # ALSA runtime on Linux
-# Node 22+ is bundled in prebuilt packages
-./start.sh
+curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/download/install-linux.sh | sudo bash
 ```
+
+Installs to `/opt/audio-harbor-headless` and runs as systemd service `audioharbor@<user>` (starts at boot; config stays in `~/.audio-harbor-headless`). Needs 64-bit Raspberry Pi OS Bookworm or newer, Debian 12+ or Ubuntu 22.04+.
+
+Service, update, removal, portable `.tar.gz`, troubleshooting and building the `.deb`: **[docs/LINUX.md](docs/LINUX.md)**.
 
 Windows: unpack the `.zip` and run `start.cmd` (bundled Node 22, or system Node 22+).
 
@@ -92,6 +95,7 @@ Or locally:
 ```bash
 npm run package:prebuilt                 # → dist/packages/*-<platform>.tar.gz
 npm run package:macos                    # signed .pkg (Developer ID; Apple Silicon/Intel host)
+npm run package:deb                      # .deb (Linux host with dpkg-deb)
 ./create-package.sh                      # source-only (compile on device via install.sh)
 ```
 

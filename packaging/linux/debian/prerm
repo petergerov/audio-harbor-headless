@@ -1,0 +1,16 @@
+#!/bin/sh
+# On removal: stop and disable every audioharbor@<user> instance.
+# User data in ~/.audio-harbor-headless stays.
+set -e
+
+if [ "$1" = "remove" ]; then
+  if [ -d /run/systemd/system ]; then
+    systemctl stop 'audioharbor@*.service' || true
+  fi
+  for link in /etc/systemd/system/*.wants/audioharbor@*.service; do
+    [ -L "$link" ] || continue
+    systemctl disable "$(basename "$link")" 2>/dev/null || rm -f "$link"
+  done
+fi
+
+exit 0
