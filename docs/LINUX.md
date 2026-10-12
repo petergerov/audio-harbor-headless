@@ -27,7 +27,7 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 Without the script — download the `.deb` from the [release page](https://github.com/petergerov/audio-harbor-headless/releases) and:
 
 ```bash
-sudo apt install ./audio-harbor-headless_1.0.0_arm64.deb
+sudo apt install ./audio-harbor-headless_1.0.1_arm64.deb
 ```
 
 ### Requirements
@@ -156,7 +156,7 @@ Stops and disables every `audioharbor@…` instance and removes `/opt/audio-harb
 For distributions without apt, or to run it without installing:
 
 ```bash
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.0-linux-arm64.tar.gz
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.1-linux-arm64.tar.gz
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
 sudo apt install -y libasound2   # ALSA runtime
