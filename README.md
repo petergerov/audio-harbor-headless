@@ -77,7 +77,7 @@ curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/d
 
 Installs to `/opt/audio-harbor-headless` and runs as systemd service `audioharbor@<user>` (starts at boot; config stays in `~/.audio-harbor-headless`). Needs 64-bit Raspberry Pi OS Bookworm or newer, Debian 12+ or Ubuntu 22.04+.
 
-Service, update, removal, portable `.tar.gz`, troubleshooting and building the `.deb`: **[docs/LINUX.md](docs/LINUX.md)**.
+Service, music on a network share (several hosts, one library), update, removal, portable `.tar.gz`, troubleshooting and building the `.deb`: **[docs/LINUX.md](docs/LINUX.md)**.
 
 Windows: unpack the `.zip` and run `start.cmd` (bundled Node 22, or system Node 22+).
 

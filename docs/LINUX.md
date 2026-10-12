@@ -62,7 +62,7 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 
 ## The service
 
-`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra group `audio` (`SupplementaryGroups=audio`), so it can open ALSA devices without changing the user account. It waits for `network-online.target` and restarts 5 s after a crash.
+`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra group `audio` (`SupplementaryGroups=audio`), so it can open ALSA devices without changing the user account. It waits for `network-online.target` and `remote-fs.target` (network shares, see below) and restarts 5 s after a crash.
 
 Because it runs as a normal user, everything stays where a manual start puts it: `audioharbor pair` and `audioharbor rescan` in a terminal work on the same data, and folders the user can read are readable for the host.
 
@@ -84,6 +84,60 @@ Terminal commands:
 | `audioharbor stop` | stops the server; the service stays stopped until restart or reboot |
 | `audioharbor pair` | shows the PIN (`--rotate` for a new one) |
 | `audioharbor rescan` | re-indexes the library folders |
+
+## Music on a network share
+
+Several hosts can play one library: the music lies on a NAS (or on one host that shares it), every host mounts it and adds the mounted folder under Settings → Sources. Local folders and shares together appear as one library in the remote. The engine reads the files like local ones — DSD, SACD ISO, seeking and gapless work as usual; a wired LAN or good Wi‑Fi is plenty.
+
+Mount the share read-only in `/etc/fstab` with systemd automount: boot does not wait for the NAS, and the share mounts on first access.
+
+SMB (NAS, Windows, macOS, Samba) — `sudo apt install cifs-utils`:
+
+```text
+# /etc/fstab
+//nas.local/music  /mnt/nas  cifs  ro,credentials=/etc/samba/nas.cred,uid=pi,gid=pi,iocharset=utf8,vers=3.0,nofail,_netdev,x-systemd.automount,x-systemd.mount-timeout=10  0  0
+```
+
+```text
+# /etc/samba/nas.cred  (sudo chmod 600)
+username=music
+password=…
+```
+
+NFS — `sudo apt install nfs-common`:
+
+```text
+# /etc/fstab
+nas.local:/volume1/music  /mnt/nas  nfs  ro,nofail,_netdev,x-systemd.automount,x-systemd.mount-timeout=10  0  0
+```
+
+Then:
+
+```bash
+sudo mkdir -p /mnt/nas
+sudo systemctl daemon-reload
+ls /mnt/nas                       # mounts it
+```
+
+and add `/mnt/nas` (or a folder below it) under Settings → Sources → Add Folder.
+
+When the share is gone, the library keeps its tracks:
+
+- The service starts after `remote-fs.target`, so shares from `/etc/fstab` are there before the first scan.
+- A folder that is missing, unreadable, or empty while the catalogue still has tracks under it (an unmounted mount point) is skipped by the scan: tracks, labels and playlist entries stay. The journal says `Library: /mnt/nas is empty or unreadable (share not mounted?) — keeping its tracks`. Playing such a track fails until the share is back; the next scan picks up changes.
+- To drop a folder's tracks for good, remove the folder under Settings → Sources — emptying it on disk is not enough.
+
+Share the music from a Pi to the others with Samba (`sudo apt install samba`), read-only:
+
+```text
+# /etc/samba/smb.conf
+[music]
+   path = /media/pi/Music
+   read only = yes
+   guest ok = no
+```
+
+`sudo smbpasswd -a pi && sudo systemctl restart smbd` — the other hosts mount `//audioharbor.local/music`.
 
 ## Update
 
@@ -120,6 +174,7 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 | No DAC in the device list | `aplay -l` lists the ALSA cards; the user needs the `audio` group for a manual start (`sudo usermod -aG audio pi`, log in again). The service has it already. |
 | `GLIBC_2.xx not found` | OS too old — see Requirements. |
 | Music folder not readable | the service runs as the user — `sudo -u pi ls /path/to/music`. |
+| Tracks of a share do not play | share not mounted: `ls /mnt/nas`, `systemctl status mnt-nas.automount`, `journalctl -b \| grep -i cifs`. |
 
 ## Building the packages
 

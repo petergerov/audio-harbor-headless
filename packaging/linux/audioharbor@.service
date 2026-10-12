@@ -2,7 +2,8 @@
 Description=Audio Harbor Headless (%i)
 Documentation=https://github.com/petergerov/audio-harbor-headless
 Wants=network-online.target
-After=network-online.target sound.target
+# remote-fs.target: start after NFS / SMB shares in /etc/fstab are mounted.
+After=network-online.target remote-fs.target sound.target
 
 [Service]
 Type=simple

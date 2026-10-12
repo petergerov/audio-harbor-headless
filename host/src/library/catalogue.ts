@@ -258,8 +258,17 @@ export class Catalogue extends EventEmitter {
 
     for (const root of roots) {
       if (!fs.existsSync(root)) continue;
-      scannedRoots.push(path.resolve(root));
       const files = walkAudioFiles(root);
+      // An unmounted share leaves an empty mount point: keep its tracks, labels
+      // and playlist entries as for a missing root instead of dropping them.
+      if (
+        !files.length &&
+        existing.some((r) => isUnderRoots(parseSacdPath(r.catalogue_path)?.filePath ?? r.catalogue_path, [root]))
+      ) {
+        console.warn(`Library: ${root} is empty or unreadable (share not mounted?) — keeping its tracks`);
+        continue;
+      }
+      scannedRoots.push(path.resolve(root));
       for (const file of files) {
         scanned += 1;
         const st = fs.statSync(file);
