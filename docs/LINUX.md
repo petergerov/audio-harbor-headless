@@ -32,6 +32,16 @@ v1.0.2 ships the `arm64` package only (Raspberry Pi and other 64-bit ARM boards)
 dpkg --print-architecture   # arm64 → current release; amd64 → HARBOR_VERSION=v1.0.1
 ```
 
+The files of a release ([release page](https://github.com/petergerov/audio-harbor-headless/releases)):
+
+| File | For |
+|---|---|
+| `audio-harbor-headless_<ver>_arm64.deb` (+ `.sha256`) | Raspberry Pi OS / Debian / Ubuntu on arm64 — this guide |
+| `install-linux.sh` | the one-line installer above; picks the `.deb` for the CPU |
+| `audio-harbor-headless-<ver>-darwin-arm64.pkg` (+ `.sha256`) | Apple Silicon Mac — signed installer |
+
+Check a download against its checksum: `sha256sum -c audio-harbor-headless_<ver>_arm64.deb.sha256` (in the same folder).
+
 A package for the wrong CPU fails in apt with `Depends: libc6:amd64 (>= 2.32) but it is not installable` (or `:arm64`): apt treats it as a foreign architecture.
 
 The `.deb` by hand, then the first checks (`audioharbor` = the service user, see [Dedicated service user](#dedicated-service-user)):
@@ -99,6 +109,8 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 2. Pair: as long as no device is paired, the remote shows **First Setup** with the PIN already filled in — tap Continue. Further phones and tablets: the PIN is in Settings → About on a paired device (**New PIN** makes a fresh one), or `audioharbor pair` as the service user. The PIN changes after each pairing.
 3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive).
 4. Pick the DAC: Settings → Output → Device.
+
+Settings → About shows the host: CPU load (on a Raspberry Pi with the SoC temperature), memory, and free space on the disk with Harbor's data and on each drive with library folders — refreshed every 3 s while open. An unplugged drive is left out.
 
 The QR code the host prints at start is in the journal:
 
@@ -360,7 +372,19 @@ Maintainer scripts:
 
 ### Release workflow
 
-`.github/workflows/release-packages.yml`, job `linux`: runs on `ubuntu-24.04` and `ubuntu-24.04-arm` inside a `debian:bookworm` container. Building on the Ubuntu 24.04 runner itself would link against glibc 2.39 and the binaries would not start on Raspberry Pi OS Bookworm (glibc 2.36). The job builds the `.tar.gz`, the `.deb`, and attaches `install-linux.sh` to the release.
+`.github/workflows/release-packages.yml` (manual: Actions → Release packages → Run workflow, with the tag), job `linux`: runs on `ubuntu-24.04-arm` inside a `debian:bookworm` container. Building on the Ubuntu 24.04 runner itself would link against glibc 2.39 and the binaries would not start on Raspberry Pi OS Bookworm (glibc 2.36). The job builds the `.tar.gz` and from it the `.deb`, and attaches the `.deb` and `install-linux.sh` to the release.
+
+For now only the arm64 installers are released (`.deb` and the macOS `.pkg`): the `linux-x64` and `darwin-x64` jobs and the portable `.tar.gz` / `.zip` assets are commented out in the workflow, not removed — uncomment them to bring them back.
+
+Rebuilding a release under the same tag: delete the release, move the tag to the new commit and run the workflow again:
+
+```bash
+gh release delete v1.0.2 -y
+git tag -f -a v1.0.2 -m "Audio Harbor Headless 1.0.2" && git push -f origin v1.0.2
+gh workflow run release-packages.yml --ref main -f tag=v1.0.2
+```
+
+Hosts that have this version installed need `apt install --reinstall` (see [Update](#update)); a new version number avoids that.
 
 ### Testing locally (Docker)
 
