@@ -75,6 +75,16 @@ function normalizePort(value: unknown, fallback: number): number {
   return Number.isInteger(port) && port >= 0 && port < 65536 ? port : fallback;
 }
 
+/**
+ * An ALSA alias of a card saved by an older version (plughw:, sysdefault:, front:, surround51:,
+ * iec958:, dmix: …) → the one entry the engine lists now: hw:CARD=<id>,DEV=<n>.
+ */
+export function normalizeAlsaUid(uid: string | null): string | null {
+  if (!uid || process.platform !== 'linux') return uid;
+  const m = uid.match(/^[a-z0-9]+:CARD=([^,]+)(?:,DEV=(\d+))?/i);
+  return m ? `hw:CARD=${m[1]},DEV=${m[2] ?? '0'}` : uid;
+}
+
 export function loadConfig(): HarborConfig {
   const dest = configPath();
   if (!fs.existsSync(dest)) {
@@ -107,7 +117,7 @@ export function loadConfig(): HarborConfig {
         : [...DEFAULTS.library.roots],
     },
     output: {
-      device_uid: output.device_uid ? String(output.device_uid) : null,
+      device_uid: normalizeAlsaUid(output.device_uid ? String(output.device_uid) : null),
       device_name: output.device_name ? String(output.device_name) : null,
       mode: normalizeMode(output.mode),
       dsd_pcm_level: normalizeLevel(output.dsd_pcm_level),

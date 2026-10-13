@@ -87,31 +87,50 @@ public:
     stop();
   }
 
+  /**
+   * One entry per playback device of each sound card — "SMSL USB AUDIO", not the dozen ALSA
+   * aliases of it (plughw, sysdefault, front, surround51, iec958, dmix …). The uid is
+   * hw:CARD=<id>,DEV=<n>: Exclusive / DoP open it as is, Shared through plughw.
+   */
   std::vector<PlayerDevice> listDevices() override {
     std::vector<PlayerDevice> devices;
-    devices.push_back({"default", "System Default (PipeWire/Pulse)", false, false, false});
+    devices.push_back({"default", "System Default", false, false, false});
 
-    void** hints = nullptr;
-    if (snd_device_name_hint(-1, "pcm", &hints) == 0) {
-      for (void** h = hints; *h; ++h) {
-        char* name = snd_device_name_get_hint(*h, "NAME");
-        char* desc = snd_device_name_get_hint(*h, "DESC");
-        char* ioid = snd_device_name_get_hint(*h, "IOID");
-        if (name && (!ioid || std::strcmp(ioid, "Input") != 0)) {
-          PlayerDevice d;
-          d.uid = name;
-          d.name = desc ? desc : name;
-          const bool hw = std::strncmp(name, "hw:", 3) == 0 || std::strncmp(name, "plughw:", 7) == 0;
-          d.isExternal = hw;
-          d.supportsExclusive = hw;
-          d.supportsDop = hw;
-          devices.push_back(std::move(d));
-        }
-        free(name);
-        free(desc);
-        free(ioid);
+    snd_ctl_card_info_t* cardInfo = nullptr;
+    snd_ctl_card_info_alloca(&cardInfo);
+    snd_pcm_info_t* pcmInfo = nullptr;
+    snd_pcm_info_alloca(&pcmInfo);
+    int card = -1;
+    while (snd_card_next(&card) == 0 && card >= 0) {
+      snd_ctl_t* ctl = nullptr;
+      const std::string ctlName = "hw:" + std::to_string(card);
+      if (snd_ctl_open(&ctl, ctlName.c_str(), 0) < 0) continue;
+      if (snd_ctl_card_info(ctl, cardInfo) < 0) {
+        snd_ctl_close(ctl);
+        continue;
       }
-      snd_device_name_free_hint(hints);
+      const std::string cardId = snd_ctl_card_info_get_id(cardInfo);
+      const std::string cardName = snd_ctl_card_info_get_name(cardInfo);
+      const bool usb = std::strcmp(snd_ctl_card_info_get_driver(cardInfo), "USB-Audio") == 0;
+      std::vector<std::pair<int, std::string>> outputs;
+      int dev = -1;
+      while (snd_ctl_pcm_next_device(ctl, &dev) == 0 && dev >= 0) {
+        snd_pcm_info_set_device(pcmInfo, unsigned(dev));
+        snd_pcm_info_set_subdevice(pcmInfo, 0);
+        snd_pcm_info_set_stream(pcmInfo, SND_PCM_STREAM_PLAYBACK);
+        if (snd_ctl_pcm_info(ctl, pcmInfo) < 0) continue;  // capture only
+        outputs.emplace_back(dev, snd_pcm_info_get_name(pcmInfo));
+      }
+      snd_ctl_close(ctl);
+      for (const auto& [d, devName] : outputs) {
+        PlayerDevice pd;
+        pd.uid = "hw:CARD=" + cardId + ",DEV=" + std::to_string(d);
+        pd.name = outputs.size() > 1 ? cardName + " · " + devName : cardName;
+        pd.isExternal = usb;
+        pd.supportsExclusive = true;
+        pd.supportsDop = true;
+        devices.push_back(std::move(pd));
+      }
     }
     return devices;
   }
@@ -266,7 +285,7 @@ private:
     if (requestedMode_ == HARBOR_MODE_SHARED) return;
     const bool hw = selectedUid_.rfind("hw:", 0) == 0 || selectedUid_.rfind("plughw:", 0) == 0;
     if (!hw) {
-      badge_ = "Shared (pick hw: device for Exclusive/DoP)";
+      badge_ = "Shared (pick the DAC itself for Exclusive/DoP)";
       return;
     }
     effectiveMode_ = requestedMode_;
@@ -280,6 +299,9 @@ private:
         error_ = "Exclusive/DoP needs an hw: device";
         return false;
       }
+    } else if (dev.rfind("hw:", 0) == 0) {
+      // Shared: the same card through plughw, which converts format and rate.
+      dev = "plug" + dev;
     }
     int err = snd_pcm_open(&pcmHandle_, dev.c_str(), SND_PCM_STREAM_PLAYBACK, 0);
     if (err < 0) {
