@@ -37,7 +37,7 @@ A package for the wrong CPU fails in apt with `Depends: libc6:amd64 (>= 2.32) bu
 The `.deb` by hand, then the first checks (`audioharbor` = the service user, see [Dedicated service user](#dedicated-service-user)):
 
 ```bash
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_arm64.deb
+cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_arm64.deb
 sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.0.2_arm64.deb
 
 sudo systemctl status audioharbor@audioharbor                    # running?
@@ -45,7 +45,7 @@ journalctl -u audioharbor@audioharbor -b --no-pager | tail -40   # URL and QR co
 sudo -u audioharbor audioharbor pair                             # PIN for the remote
 ```
 
-The `./` matters — without it apt looks for the name in its repositories. apt pulls in the dependencies (ALSA, sudo). Then open `http://audioharbor.local:8787` on the phone — or the IP URL from the journal — and add music under Settings → Sources.
+The `./` matters — without it apt looks for the name in its repositories. `curl -f` stops on a missing file (a wrong version or CPU) instead of saving GitHub's `Not Found` page as `.deb` — apt would then report `Invalid archive signature`. Downloading to `/tmp` keeps the file readable for apt's download user `_apt` (see [Troubleshooting](#troubleshooting)). apt pulls in the dependencies (ALSA, sudo). Then open `http://audioharbor.local:8787` on the phone — or the IP URL from the journal — and add music under Settings → Sources.
 
 ### Dedicated service user
 
@@ -282,6 +282,17 @@ Share the music from a Pi to the others with Samba (`sudo apt install samba`), r
 
 Run the installer again, or `sudo apt install ./<new>.deb`. Running instances restart with the new version; a disabled service stays disabled.
 
+A release rebuilt under the same version number (e.g. 1.0.2 again) installs over the old one when the file differs (`Unpacking audio-harbor-headless (1.0.2) over (1.0.2)`); to be sure, add `--reinstall`. The installer script skips it, as apt sees the version as installed.
+
+Check that the new build runs — the start time should be the moment of the install:
+
+```bash
+systemctl status audioharbor@audioharbor --no-pager | head -5
+journalctl -u audioharbor@audioharbor -b --no-pager | tail -20
+```
+
+If the start time is older: `sudo systemctl restart audioharbor@audioharbor`.
+
 ## Remove
 
 ```bash
@@ -315,6 +326,9 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 | Music folder not readable | the service runs as the user — `sudo -u pi ls /path/to/music`. |
 | Drives section says it needs the service | Harbor was started by hand (`audioharbor`), not as the service — `systemctl status audioharbor@<user>`. After an update from a version without the drive helper: `sudo systemctl restart audioharbor@<user>`. |
 | Set Up fails | the message comes from the helper; details: `journalctl -b -u 'mnt-harbor-*'`. Undo by hand: the previous fstab is `/etc/fstab.harbor-backup`. |
+| `N: Download is performed unsandboxed as root as file '…deb' couldn't be accessed by user '_apt'` at the end of `apt install` | harmless — the install went through. apt reads packages as user `_apt`, who cannot enter a home directory with mode 700 (Debian 12+, Raspberry Pi OS Bookworm), so it read the file as root. Download the `.deb` to `/tmp` to avoid the note. |
+| `Invalid archive signature` / `could not locate member control.tar` | the `.deb` is no package — usually GitHub's `Not Found` page saved by `curl -LO` for a version or CPU that has no package (`cat` the file). Download with `curl -fLO`. |
+| `Depends: libc6:amd64 … but it is not installable` | the package is for another CPU — `dpkg --print-architecture`, see [Which package](#which-package). |
 | Tracks of a share do not play | share not mounted: `ls /mnt/nas`, `systemctl status mnt-nas.automount`, `journalctl -b \| grep -i cifs`. |
 
 ## Building the packages
