@@ -3595,3 +3595,60 @@ body.overlay-open .ah-toast {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.08em;
 }
+
+/* Settings → About: host resources */
+.cell.meter-cell {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.meter-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 17px;
+}
+
+.meter-line > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meter-line .value {
+  flex-shrink: 0;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  height: 4px;
+  margin: 8px 0 6px;
+  border-radius: 2px;
+  background: var(--fill-strong);
+  overflow: hidden;
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  transition: width 0.4s ease;
+}
+
+.meter.warn span {
+  background: var(--tint);
+}
+
+.meter.high span {
+  background: var(--danger);
+}
+
+.meter-cell .row-text {
+  min-width: 0;
+}
+
+.meter-cell .row-sub {
+  font-size: 13px;
+}

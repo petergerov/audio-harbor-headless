@@ -203,6 +203,17 @@ export interface Mount {
   displayName: string;
 }
 
+/** CPU, memory and disk space of the host (GET /api/v1/system). */
+export interface SystemStatus {
+  hostname: string;
+  platform: string;
+  cpu: { model: string; cores: number; usagePercent: number; load1: number; temperatureC: number | null };
+  memory: { totalBytes: number; availableBytes: number; harborBytes: number };
+  disks: { mount: string; uses: string[]; totalBytes: number; freeBytes: number }[];
+  uptimeSecs: number;
+  harborUptimeSecs: number;
+}
+
 /** Where the host's library scan is (pushed as `scan`); `lastScan` stays after it ends. */
 export interface ScanProgress {
   scanning: boolean;

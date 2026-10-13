@@ -20,8 +20,9 @@ import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
 import { isAuthorized, isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
-import { webDistPath } from '../paths.js';
+import { dataDir, webDistPath } from '../paths.js';
 import type { RemoteSettings } from '../remote/settings.js';
+import { systemStatus } from '../system.js';
 import type { BrowseScope, HarborConfig, OutputMode, QueueSource, Track } from '../types.js';
 import type { Sharing } from '../upnp/sharing.js';
 
@@ -188,6 +189,9 @@ export async function buildServer(ctx: AppContext) {
   });
 
   app.get('/api/v1/library/scan', async () => ctx.catalogue.progress);
+
+  // CPU, memory and disk space of the host, for Settings → About.
+  app.get('/api/v1/system', async () => systemStatus(dataDir(), ctx.getConfig().library.roots));
 
   app.get<{
     Querystring: { scope?: BrowseScope; path?: string; q?: string; limit?: string };

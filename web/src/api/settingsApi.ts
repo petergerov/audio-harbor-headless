@@ -4,6 +4,7 @@ import type {
   FolderListing,
   Mount,
   ScanProgress,
+  SystemStatus,
   NetworkPlayerFormats,
   OutputChange,
   OutputStatus,
@@ -29,6 +30,8 @@ export interface SettingsApi {
   setUpDrive(uuid: string, name: string): Promise<string>;
   ejectDrive(name: string): Promise<void>;
   removeDrive(name: string): Promise<void>;
+  /** CPU, memory and disk space of the host. */
+  system(): Promise<SystemStatus>;
   /** The host's current PIN, to pair another device. */
   pairingPin(): Promise<string>;
   /** A fresh PIN; the old one stops working. */
@@ -91,6 +94,10 @@ export class HttpSettingsApi implements SettingsApi {
 
   async removeDrive(name: string): Promise<void> {
     await this.http.delete('/api/v1/drives', { name });
+  }
+
+  system(): Promise<SystemStatus> {
+    return this.http.get('/api/v1/system');
   }
 
   async pairingPin(): Promise<string> {
