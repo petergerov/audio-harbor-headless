@@ -15,6 +15,7 @@ import {
   listFolder,
   removeDrive,
   setUpDrive,
+  setUpShare,
 } from '../drives.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
@@ -143,6 +144,26 @@ export async function buildServer(ctx: AppContext) {
     driveCall(reply, async () => ({
       mountPoint: await setUpDrive(String(req.body?.uuid ?? ''), String(req.body?.name ?? '')),
     }))
+  );
+
+  // SMB share → /etc/fstab under /mnt/harbor; removed and ejected like a drive (by name).
+  app.post<{
+    Body: { server?: string; share?: string; domain?: string; user?: string; password?: string; name?: string };
+  }>('/api/v1/shares', async (req, reply) =>
+    driveCall(reply, async () => {
+      const b = req.body ?? {};
+      const mountPoint = await setUpShare(
+        {
+          server: String(b.server ?? '').trim(),
+          share: String(b.share ?? '').trim(),
+          domain: String(b.domain ?? '').trim(),
+          user: String(b.user ?? '').trim(),
+          password: String(b.password ?? ''),
+        },
+        String(b.name ?? '')
+      );
+      return { mountPoint };
+    })
   );
 
   app.post<{ Body: { name?: string } }>('/api/v1/drives/eject', async (req, reply) =>

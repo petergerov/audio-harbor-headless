@@ -98,6 +98,7 @@ Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Petar Gerov <peter@gerov.com>
 Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, sudo, util-linux
+Recommends: cifs-utils
 Section: sound
 Priority: optional
 Homepage: https://github.com/petergerov/audio-harbor-headless

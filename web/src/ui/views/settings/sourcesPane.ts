@@ -6,6 +6,7 @@ import type { Store } from '../../../core/store';
 import type { AppState } from '../../../state/appState';
 import { openActionMenu, openConfirmDialog, openNameDialog, showToast } from '../../overlay';
 import { openFolderPicker } from '../../sheets/folderPicker';
+import { openShareDialog } from '../../sheets/shareSheet';
 import type { Pane } from '../settingsView';
 
 const count = (n: number) => n.toLocaleString();
@@ -40,6 +41,7 @@ function formatSize(bytes: number | null): string {
 }
 
 function driveSubtitle(drive: Drive): string {
+  if (drive.kind === 'share') return `${drive.title} · ${drive.mounted ? 'mounted' : 'mounts on access'}`;
   const facts = [formatSize(drive.sizeBytes), drive.fsType].filter(Boolean).join(' ');
   if (!drive.name) return [facts, drive.device].filter(Boolean).join(' · ');
   if (!drive.connected) return `Not connected · ${drive.mountPoint}`;
@@ -73,7 +75,7 @@ export class SourcesPane implements Pane {
       <p class="group-label">On This Host</p>
       <div class="group" data-mounts></div>
       <div ${showDrives ? '' : 'hidden'}>
-        <p class="group-label">Drives</p>
+        <p class="group-label">Drives &amp; Network Shares</p>
         <div class="group" data-drives></div>
         <p class="footer-note" data-drives-note></p>
       </div>
@@ -197,10 +199,11 @@ export class SourcesPane implements Pane {
       note.textContent = list.reason ?? '';
       return;
     }
-    note.textContent = 'Set up mounts a drive read-only under /mnt/harbor and keeps it in /etc/fstab — after unplugging it comes back on its own.';
+    note.textContent =
+      'Set up mounts a drive or share read-only under /mnt/harbor and keeps it in /etc/fstab — after unplugging or a restart it comes back on its own.';
     group.innerHTML = list.drives.length
       ? ''
-      : `<div class="empty compact"><strong>No Drives</strong>Plug in a USB drive, then look again.</div>`;
+      : `<div class="empty compact"><strong>No Drives</strong>Plug in a USB drive and look again, or add a network share.</div>`;
 
     for (const drive of list.drives) {
       const row = document.createElement('div');
@@ -230,6 +233,24 @@ export class SourcesPane implements Pane {
     refresh.textContent = 'Look for Drives';
     refresh.addEventListener('click', () => void this.render(root));
     group.appendChild(refresh);
+
+    const addShare = document.createElement('button');
+    addShare.type = 'button';
+    addShare.className = 'cell cell-action';
+    addShare.textContent = 'Add Network Share…';
+    addShare.addEventListener('click', () => this.addShare(root));
+    group.appendChild(addShare);
+  }
+
+  private addShare(root: HTMLElement): void {
+    openShareDialog({
+      onConfirm: async (form) => {
+        const mountPoint = await this.settings.setUpShare(form);
+        await this.render(root);
+        // Straight on to the music folder on it, as for a drive (after the form has closed).
+        window.setTimeout(() => this.chooseFolder(root, mountPoint), 0);
+      },
+    });
   }
 
   private setUpDrive(root: HTMLElement, drive: Drive): void {
@@ -241,8 +262,9 @@ export class SourcesPane implements Pane {
       onConfirm: async (name) => {
         const mountPoint = await this.settings.setUpDrive(drive.uuid, name);
         await this.render(root);
-        // Straight on to the music folder on it.
-        queueMicrotask(() => this.chooseFolder(root, mountPoint));
+        // Straight on to the music folder on it — after this dialog has closed, or closing it
+        // would take the picker with it.
+        window.setTimeout(() => this.chooseFolder(root, mountPoint), 0);
       },
     });
   }
@@ -250,11 +272,14 @@ export class SourcesPane implements Pane {
   private driveMenu(root: HTMLElement, drive: Drive): void {
     const name = drive.name;
     if (!name) return;
+    const share = drive.kind === 'share';
     const remove = () =>
       openConfirmDialog({
         title: `Remove ${name}?`,
-        message: `Takes ${drive.mountPoint} out of /etc/fstab and its folders out of the library. The files on the drive stay.`,
-        confirmLabel: 'Remove Drive',
+        message: share
+          ? `Takes ${drive.title} out of /etc/fstab, deletes its stored login and takes its folders out of the library. The files on the server stay.`
+          : `Takes ${drive.mountPoint} out of /etc/fstab and its folders out of the library. The files on the drive stay.`,
+        confirmLabel: share ? 'Remove Share' : 'Remove Drive',
         onConfirm: async () => {
           await this.settings.removeDrive(name);
           await this.render(root);
@@ -267,16 +292,16 @@ export class SourcesPane implements Pane {
         drive.mounted
           ? [
               {
-                label: 'Eject',
+                label: share ? 'Unmount' : 'Eject',
                 run: async () => {
                   await this.settings.ejectDrive(name);
-                  showToast(`${name} can be unplugged`);
+                  showToast(share ? `${name} unmounted — it mounts again on access` : `${name} can be unplugged`);
                   await this.render(root);
                 },
               },
             ]
           : [],
-        [{ label: 'Remove Drive…', danger: true, run: () => queueMicrotask(remove) }],
+        [{ label: share ? 'Remove Share…' : 'Remove Drive…', danger: true, run: () => queueMicrotask(remove) }],
       ],
     });
   }

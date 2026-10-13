@@ -28,6 +28,8 @@ export interface SettingsApi {
   drives(): Promise<DriveList>;
   /** Adds the drive to /etc/fstab and mounts it; answers with the mount point. */
   setUpDrive(uuid: string, name: string): Promise<string>;
+  /** Adds an SMB share to /etc/fstab and mounts it; answers with the mount point. */
+  setUpShare(share: { server: string; share: string; domain: string; user: string; password: string; name: string }): Promise<string>;
   ejectDrive(name: string): Promise<void>;
   removeDrive(name: string): Promise<void>;
   /** CPU, memory and disk space of the host. */
@@ -85,6 +87,18 @@ export class HttpSettingsApi implements SettingsApi {
 
   async setUpDrive(uuid: string, name: string): Promise<string> {
     const { mountPoint } = await this.http.post<{ mountPoint: string }>('/api/v1/drives', { uuid, name });
+    return mountPoint;
+  }
+
+  async setUpShare(share: {
+    server: string;
+    share: string;
+    domain: string;
+    user: string;
+    password: string;
+    name: string;
+  }): Promise<string> {
+    const { mountPoint } = await this.http.post<{ mountPoint: string }>('/api/v1/shares', share);
     return mountPoint;
   }
 

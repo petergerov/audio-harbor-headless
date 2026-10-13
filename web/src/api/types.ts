@@ -227,6 +227,7 @@ export interface ScanProgress {
 
 /** A drive the host sees; `name` is set once it has a Harbor fstab entry under /mnt/harbor. */
 export interface Drive {
+  kind: 'drive' | 'share';
   uuid: string;
   title: string;
   device: string | null;

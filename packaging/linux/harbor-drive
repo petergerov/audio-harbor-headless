@@ -1,10 +1,12 @@
 #!/bin/bash
-# Root helper for the web remote: puts a drive into /etc/fstab and mounts it
-# read-only under /mnt/harbor/<name>. The service runs it through sudo
+# Root helper for the web remote: puts a drive or an SMB share into /etc/fstab and
+# mounts it read-only under /mnt/harbor/<name>. The service runs it through sudo
 # (/etc/sudoers.d/audio-harbor-headless, group harbor-drives).
 #
 #   harbor-drive add <UUID> <name>   fstab entry + mount, owned by the calling user
-#   harbor-drive remove <name>       unmount, drop the fstab entry and the mount point
+#   harbor-drive add-smb <name>      the same for an SMB share; reads five lines on stdin:
+#                                    server, share, domain, user, password (user empty: guest)
+#   harbor-drive remove <name>       unmount, drop the fstab entry, mount point and credentials
 #   harbor-drive eject <name>        unmount — safe to unplug; mounts again on access
 #
 # Only touches fstab entries below /mnt/harbor/. Errors go to stderr, one line.
@@ -15,6 +17,8 @@ umask 022
 BASE=/mnt/harbor
 FSTAB=/etc/fstab
 MARK="# audio-harbor-headless drive"
+# SMB credentials, one root-only file per share — never in fstab.
+CRED_DIR=/etc/audio-harbor-headless
 
 die() { echo "$*" >&2; exit 1; }
 trap 'echo "harbor-drive: unexpected failure (line $LINENO)" >&2' ERR
@@ -27,6 +31,17 @@ flock -w 30 9 || die "another drive change is still running"
 
 valid_name() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]]; }
 valid_uuid() { [[ "$1" =~ ^[A-Za-z0-9-]{1,64}$ ]]; }
+valid_host() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,252})$ ]]; }
+# Share names may hold spaces; fstab gets them as \040.
+valid_share() { [[ "$1" =~ ^[A-Za-z0-9_\$]([A-Za-z0-9._\$\ -]{0,79})$ ]]; }
+valid_domain() { [[ -z "$1" || "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$ ]]; }
+valid_user() { [[ -z "$1" || "$1" =~ ^[A-Za-z0-9._@-]{1,64}$ ]]; }
+
+calling_user_ids() {
+  uid="${SUDO_UID:-}"
+  gid="${SUDO_GID:-}"
+  [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] || die "run through sudo"
+}
 
 # fstab line of a mount point below $BASE, empty when there is none.
 fstab_entry() { awk -v mp="$1" '$1 !~ /^#/ && $2 == mp' "$FSTAB"; }
@@ -81,9 +96,9 @@ cmd_add() {
     umount "$current" || die "could not unmount $current"
   done < <(lsblk -no MOUNTPOINTS "$dev")
 
-  local fs uid="${SUDO_UID:-}" gid="${SUDO_GID:-}" type opts
+  local fs uid gid type opts
   fs="$(blkid -s TYPE -o value "$dev")"
-  [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] || die "run through sudo"
+  calling_user_ids
   local owner="uid=$uid,gid=$gid,umask=022"
   case "$fs" in
     exfat) type=exfat; opts="ro,$owner" ;;
@@ -101,22 +116,70 @@ cmd_add() {
   # Boot does not wait for the drive; an unplugged drive fails fast instead of after 90 s.
   opts="$opts,nofail,x-systemd.automount,x-systemd.device-timeout=5s,x-systemd.mount-timeout=30s"
 
+  activate "UUID=$uuid" "$mp" "$type" "$opts" "$dev"
+}
+
+# Adds the fstab line, mounts it once to check; on failure everything is undone.
+activate() {
+  local spec="$1" mp="$2" type="$3" opts="$4" what="$5"
   mkdir -p "$mp"
-  { cat "$FSTAB"; printf '%s\nUUID=%s  %s  %s  %s  0  0\n' "$MARK" "$uuid" "$mp" "$type" "$opts"; } | write_fstab
+  { cat "$FSTAB"; printf '%s\n%s  %s  %s  %s  0  0\n' "$MARK" "$spec" "$mp" "$type" "$opts"; } | write_fstab
 
   units_for "$mp"
   systemctl daemon-reload
   if ! systemctl restart "$automount_unit" || ! ls "$mp" >/dev/null 2>&1 \
       || [[ "$(findmnt -no FSTYPE "$mp" | tail -1)" == autofs ]]; then
     local why
-    why="$(journalctl -b -u "$mount_unit" -n 3 -o cat --no-pager 2>/dev/null | tail -1)"
+    why="$( { journalctl -b -u "$mount_unit" -n 5 -o cat --no-pager 2>/dev/null || true; } \
+      | grep -iE 'error|denied|refused|no such|unreachable|timed out' | tail -1 || true)"
     systemctl stop "$automount_unit" "$mount_unit" 2>/dev/null || true
     drop_entry "$mp"
     systemctl daemon-reload
     rmdir "$mp" 2>/dev/null || true
-    die "could not mount $dev${why:+: $why}"
+    rm -f "$CRED_DIR/$(basename "$mp").cred"
+    die "could not mount $what${why:+ — $why}"
   fi
   echo "$mp"
+}
+
+cmd_add_smb() {
+  local name="${1:-}"
+  valid_name "$name" || die "invalid name — letters, digits, . _ - (up to 32)"
+  local server share domain user password
+  IFS= read -r server || true
+  IFS= read -r share || true
+  IFS= read -r domain || true
+  IFS= read -r user || true
+  IFS= read -r password || true
+  share="${share#/}"; share="${share%/}"
+  valid_host "$server" || die "invalid server — a name like nas.local or an IP address"
+  valid_share "$share" || die "invalid share name"
+  valid_domain "$domain" || die "invalid domain"
+  valid_user "$user" || die "invalid user name"
+  [[ "$password" != *$'\r'* ]] || die "invalid password"
+  command -v mount.cifs >/dev/null 2>&1 || die "SMB needs cifs-utils: sudo apt install cifs-utils"
+
+  local mp="$BASE/$name"
+  [[ -z "$(fstab_entry "$mp")" ]] || die "$mp is already in use"
+  local uid gid
+  calling_user_ids
+
+  local opts="ro,uid=$uid,gid=$gid,file_mode=0444,dir_mode=0555,iocharset=utf8"
+  if [[ -n "$user" ]]; then
+    local cred="$CRED_DIR/$name.cred"
+    mkdir -p "$CRED_DIR"
+    chmod 700 "$CRED_DIR"
+    ( umask 077
+      printf 'username=%s\npassword=%s\n' "$user" "$password" > "$cred"
+      [[ -n "$domain" ]] && printf 'domain=%s\n' "$domain" >> "$cred"
+      true )
+    opts="$opts,credentials=$cred"
+  else
+    opts="$opts,guest"
+  fi
+  # Boot does not wait for the network share; an unreachable server fails within 15 s.
+  opts="$opts,nofail,_netdev,x-systemd.automount,x-systemd.mount-timeout=15s"
+  activate "//$server/${share// /\\040}" "$mp" cifs "$opts" "//$server/$share"
 }
 
 cmd_remove() {
@@ -130,6 +193,7 @@ cmd_remove() {
   drop_entry "$mp"
   systemctl daemon-reload
   rmdir "$mp" 2>/dev/null || true
+  rm -f "$CRED_DIR/$name.cred"
 }
 
 cmd_eject() {
@@ -144,7 +208,8 @@ cmd_eject() {
 
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;
+  add-smb) shift; cmd_add_smb "$@" ;;
   remove) shift; cmd_remove "$@" ;;
   eject) shift; cmd_eject "$@" ;;
-  *) die "usage: harbor-drive add <UUID> <name> | remove <name> | eject <name>" ;;
+  *) die "usage: harbor-drive add <UUID> <name> | add-smb <name> (stdin) | remove <name> | eject <name>" ;;
 esac

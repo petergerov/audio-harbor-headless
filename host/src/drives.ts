@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -14,6 +14,9 @@ const SUPPORTED_FS = new Set(['exfat', 'vfat', 'ntfs', 'ext2', 'ext3', 'ext4', '
 const SYSTEM_MOUNTS = new Set(['/', '/boot', '/boot/firmware', '/usr', '/var', '/home', '[SWAP]']);
 
 export interface Drive {
+  /** A local disk, or an SMB share on the network. */
+  kind: 'drive' | 'share';
+  /** Disk: the file system UUID. Share: empty. */
   uuid: string;
   /** Volume label, else the disk model, else the device. */
   title: string;
@@ -52,6 +55,8 @@ interface BlockDevice {
 
 interface FstabEntry {
   uuid: string;
+  /** `//server/share` for an SMB share. */
+  share: string | null;
   mountPoint: string;
   fsType: string;
 }
@@ -93,7 +98,10 @@ function harborEntries(): FstabEntry[] {
     const [spec, mountPoint, fsType] = line.trim().split(/\s+/);
     if (!spec || spec.startsWith('#') || !mountPoint?.startsWith(`${DRIVE_BASE}/`)) continue;
     const uuid = spec.match(/^UUID="?([^"]+)"?$/)?.[1];
-    if (uuid) entries.push({ uuid, mountPoint, fsType: fsType ?? '' });
+    if (uuid) entries.push({ uuid, share: null, mountPoint, fsType: fsType ?? '' });
+    else if (spec.startsWith('//') && fsType === 'cifs') {
+      entries.push({ uuid: '', share: spec.replace(/\\040/g, ' '), mountPoint, fsType });
+    }
   }
   return entries;
 }
@@ -146,7 +154,7 @@ export async function listDrives(): Promise<DriveList> {
     devices.filter((d) => d.mountpoints.some((m) => m && SYSTEM_MOUNTS.has(m))).map(diskOf)
   );
   const entries = harborEntries();
-  const entryByUuid = new Map(entries.map((e) => [e.uuid, e]));
+  const entryByUuid = new Map(entries.filter((e) => !e.share).map((e) => [e.uuid, e]));
 
   const drives: Drive[] = [];
   for (const d of devices) {
@@ -159,6 +167,7 @@ export async function listDrives(): Promise<DriveList> {
     const disk = byName.get(diskOf(d));
     const title = d.label || disk?.model?.trim() || d.path;
     drives.push({
+      kind: 'drive',
       uuid: d.uuid,
       title,
       device: d.path,
@@ -176,6 +185,7 @@ export async function listDrives(): Promise<DriveList> {
   for (const entry of entryByUuid.values()) {
     const name = path.basename(entry.mountPoint);
     drives.push({
+      kind: 'drive',
       uuid: entry.uuid,
       title: name,
       device: null,
@@ -188,18 +198,64 @@ export async function listDrives(): Promise<DriveList> {
       suggestedName: name,
     });
   }
+  // SMB shares: reachable or not shows on access; "mounted" says whether it is mounted now.
+  for (const entry of entries.filter((e) => e.share)) {
+    const name = path.basename(entry.mountPoint);
+    drives.push({
+      kind: 'share',
+      uuid: '',
+      title: entry.share!,
+      device: entry.share,
+      fsType: 'smb',
+      sizeBytes: null,
+      connected: true,
+      name,
+      mountPoint: entry.mountPoint,
+      mounted: isMounted(entry.mountPoint),
+      suggestedName: name,
+    });
+  }
   return { supported: true, reason: null, drives };
 }
 
-async function helper(args: string[]): Promise<string> {
+/** Runs the root helper; `input` goes to its stdin (SMB password — never on the command line). */
+async function helper(args: string[], input = ''): Promise<string> {
   if (!(await helperAllowed())) throw new DriveError('Setting up drives is not available on this host');
-  try {
-    const { stdout } = await run('sudo', ['-n', HELPER, ...args], { timeout: 90_000 });
-    return stdout.trim();
-  } catch (err) {
-    const stderr = String((err as { stderr?: string }).stderr ?? '').trim();
-    throw new DriveError(stderr.split('\n').pop() || 'The drive helper failed');
-  }
+  return new Promise((resolve, reject) => {
+    const child = spawn('sudo', ['-n', HELPER, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => child.kill(), 90_000);
+    child.stdout.on('data', (chunk) => (stdout += chunk));
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new DriveError(err.message));
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(stdout.trim());
+      else reject(new DriveError(stderr.trim().split('\n').pop() || 'The drive helper failed'));
+    });
+    child.stdin.end(input);
+  });
+}
+
+export interface ShareSettings {
+  /** nas.local or an IP address. */
+  server: string;
+  share: string;
+  domain?: string;
+  /** Empty: guest access. */
+  user?: string;
+  password?: string;
+}
+
+/** SMB share → fstab entry + mount; answers with the mount point. */
+export async function setUpShare(settings: ShareSettings, name: string): Promise<string> {
+  const lines = [settings.server, settings.share, settings.domain ?? '', settings.user ?? '', settings.password ?? ''];
+  if (lines.some((l) => /[\r\n]/.test(l))) throw new DriveError('Line breaks are not allowed');
+  return helper(['add-smb', name], `${lines.join('\n')}\n`);
 }
 
 /** fstab entry + mount; answers with the mount point. */

@@ -19,6 +19,7 @@ The script:
 |---|---|---|
 | `HARBOR_VERSION` | latest release | release tag to install, e.g. `v1.0.0` |
 | `HARBOR_USER` | `$SUDO_USER` | user the service runs as |
+| `HARBOR_REINSTALL` | — | `1`: install even when this version is installed — for a release rebuilt under the same version number |
 
 ```bash
 curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
@@ -26,10 +27,10 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 
 ### Which package
 
-v1.0.2 ships the `arm64` package only (Raspberry Pi and other 64-bit ARM boards); the `amd64` package for x86_64 PCs is paused for now — the newest one is in v1.0.1. Check the CPU before installing:
+Each release has a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. By hand, check the CPU first:
 
 ```bash
-dpkg --print-architecture   # arm64 → current release; amd64 → HARBOR_VERSION=v1.0.1
+dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name
 ```
 
 The files of a release ([release page](https://github.com/petergerov/audio-harbor-headless/releases)):
@@ -37,14 +38,17 @@ The files of a release ([release page](https://github.com/petergerov/audio-harbo
 | File | For |
 |---|---|
 | `audio-harbor-headless_<ver>_arm64.deb` (+ `.sha256`) | Raspberry Pi OS / Debian / Ubuntu on arm64 — this guide |
+| `audio-harbor-headless_<ver>_amd64.deb` (+ `.sha256`) | Debian / Ubuntu on x86_64 — this guide |
 | `install-linux.sh` | the one-line installer above; picks the `.deb` for the CPU |
-| `audio-harbor-headless-<ver>-darwin-arm64.pkg` (+ `.sha256`) | Apple Silicon Mac — signed installer |
+| `audio-harbor-headless-<ver>-linux-<arm64\|x64>.tar.gz` | portable, no service — see [Portable `.tar.gz`](#portable-targz) |
+| `audio-harbor-headless-<ver>-darwin-<arm64\|x64>.pkg` (+ `.sha256`) | Mac (Apple Silicon / Intel) — signed installer |
+| `audio-harbor-headless-<ver>-darwin-<arm64\|x64>.tar.gz` | Mac, portable |
 
-Check a download against its checksum: `sha256sum -c audio-harbor-headless_<ver>_arm64.deb.sha256` (in the same folder).
+Check a download against its checksum: `sha256sum -c audio-harbor-headless_<ver>_<arch>.deb.sha256` (in the same folder).
 
 A package for the wrong CPU fails in apt with `Depends: libc6:amd64 (>= 2.32) but it is not installable` (or `:arm64`): apt treats it as a foreign architecture.
 
-The `.deb` by hand, then the first checks (`audioharbor` = the service user, see [Dedicated service user](#dedicated-service-user)):
+The `.deb` by hand (here `arm64`; on a PC `amd64`), then the first checks (`audioharbor` = the service user, see [Dedicated service user](#dedicated-service-user)):
 
 ```bash
 cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_arm64.deb
@@ -97,7 +101,7 @@ sudo apt install ./audio-harbor-headless_1.0.2_arm64.deb
 
 ### Requirements
 
-- 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package. v1.0.2 ships `arm64` only (see [Which package](#which-package)).
+- 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package. See [Which package](#which-package).
 - glibc 2.32 or newer: Raspberry Pi OS Bookworm or newer, Debian 12+, Ubuntu 22.04+. The package states the exact version in `Depends`.
 - systemd for the service. Without it (e.g. in a container) the package installs and `audioharbor` starts by hand.
 
@@ -127,6 +131,7 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 | `/usr/lib/systemd/system/audioharbor@.service` | service template, one instance per user |
 | `/usr/libexec/audio-harbor-headless/harbor-drive` | root helper that sets up drives in `/etc/fstab` (see [Music on a USB drive](#music-on-a-usb-drive)) |
 | `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run that helper, and nothing else, as root |
+| `/etc/audio-harbor-headless/<name>.cred` | login of an SMB share set up from the remote (root only), created then |
 | `~/.audio-harbor-headless/` | config, catalogue, artwork, PIN — of the service user, created on first start |
 
 ## The service
@@ -240,6 +245,27 @@ Add `/mnt/music` in the remote under Settings → Sources → Add Folder.
 
 Several hosts can play one library: the music lies on a NAS (or on one host that shares it), every host mounts it and adds the mounted folder under Settings → Sources. Local folders and shares together appear as one library in the remote. The engine reads the files like local ones — DSD, SACD ISO, seeking and gapless work as usual; a wired LAN or good Wi‑Fi is plenty.
 
+### SMB share from the remote
+
+Settings → Sources → Drives & Network Shares → **Add Network Share…**:
+
+| Field | Example |
+|---|---|
+| Server | `nas.local` or `192.168.1.10` (also `//nas.local/music` pasted whole: the share part is dropped, enter it below) |
+| Share | `music` — the share name, not a folder below it (pick that in the next step) |
+| User / Password | the NAS account; user empty = guest |
+| Domain | only for a Windows domain or a workgroup login |
+| Name | the folder under `/mnt/harbor`; default: the share name |
+
+**Add** mounts it read-only at `/mnt/harbor/<name>` and keeps it in `/etc/fstab`; a wrong password or server comes back as the error (`mount error(13): Permission denied`) and nothing is left behind. The folder picker then opens on the share — tap through to the music and **Add**, as for a drive. The share's `•••` menu has **Unmount** (it mounts again on the next access) and **Remove Share…** (fstab entry, stored login and its library folders).
+
+- The fstab line: `//server/share  /mnt/harbor/<name>  cifs  ro,uid=…,gid=…,file_mode=0444,dir_mode=0555,iocharset=utf8,credentials=/etc/audio-harbor-headless/<name>.cred,nofail,_netdev,x-systemd.automount,x-systemd.mount-timeout=15s` — boot does not wait for the NAS, and an unreachable NAS fails within 15 s instead of hanging.
+- The login is in `/etc/audio-harbor-headless/<name>.cred`, readable for root only (`600`), never in fstab; the remote sends the password to the root helper on its stdin, not on a command line.
+- Needs `cifs-utils` — the package recommends it, so apt installs it along; otherwise the remote says `SMB needs cifs-utils`.
+- Like drives, this works when Harbor runs as the `audioharbor@` service (see [Music on a USB drive](#music-on-a-usb-drive)).
+
+### By hand
+
 Mount the share read-only in `/etc/fstab` with systemd automount: boot does not wait for the NAS, and the share mounts on first access.
 
 SMB (NAS, Windows, macOS, Samba) — `sudo apt install cifs-utils`:
@@ -294,12 +320,21 @@ Share the music from a Pi to the others with Samba (`sudo apt install samba`), r
 
 Run the installer again, or `sudo apt install ./<new>.deb`. Running instances restart with the new version; a disabled service stays disabled.
 
-A release rebuilt under the same version number (e.g. 1.0.2 again) installs over the old one when the file differs (`Unpacking audio-harbor-headless (1.0.2) over (1.0.2)`); to be sure, add `--reinstall`. The installer script skips it, as apt sees the version as installed. Download it again first — the old file in `/tmp` is the previous build:
+A release rebuilt under the same version number (e.g. 1.0.2 again): apt sees the version as installed, so tell it to install anyway. With the installer — it downloads to `/tmp` itself:
+
+```bash
+curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/download/install-linux.sh | sudo HARBOR_REINSTALL=1 bash
+```
+
+Or by hand with `--reinstall`. Download again first — an old file is the previous build — and into `/tmp`, not your home folder: apt reads packages as user `_apt`, who cannot enter a home directory with mode 700 (Raspberry Pi OS Bookworm, Debian 12+) and then ends with `Notice: Download is performed unsandboxed as root …` (harmless, see [Troubleshooting](#troubleshooting)):
 
 ```bash
 cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_arm64.deb
 sudo apt install --reinstall ./audio-harbor-headless_1.0.2_arm64.deb
+rm -f ~/audio-harbor-headless_*.deb   # an older copy in the home folder, if any
 ```
+
+A file already in the home folder: `mv ~/audio-harbor-headless_1.0.2_arm64.deb /tmp/` and install `/tmp/audio-harbor-headless_1.0.2_arm64.deb`.
 
 An update keeps config, library and pairing (`~/.audio-harbor-headless`): paired devices stay paired, and an already paired host shows no **First Setup** — the PIN for another device is in Settings → About.
 
@@ -318,7 +353,7 @@ If the start time is older: `sudo systemctl restart audioharbor@audioharbor`.
 sudo apt remove audio-harbor-headless
 ```
 
-Stops and disables every `audioharbor@…` instance and removes `/opt/audio-harbor-headless`. `~/.audio-harbor-headless` stays — delete it by hand for a clean slate. Drives set up from the remote stay in `/etc/fstab` (marked `# audio-harbor-headless drive`, harmless with `nofail`) — remove them in the remote before, or delete the lines by hand. A later install enables the service again.
+Stops and disables every `audioharbor@…` instance and removes `/opt/audio-harbor-headless`. `~/.audio-harbor-headless` stays — delete it by hand for a clean slate. Drives and shares set up from the remote stay in `/etc/fstab` (marked `# audio-harbor-headless drive`, harmless with `nofail`), share logins in `/etc/audio-harbor-headless/` — remove them in the remote before, or delete the lines and files by hand. A later install enables the service again.
 
 ## Portable `.tar.gz`
 
@@ -345,7 +380,9 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 | Music folder not readable | the service runs as the user — `sudo -u pi ls /path/to/music`. |
 | Drives section says it needs the service | Harbor was started by hand (`audioharbor`), not as the service — `systemctl status audioharbor@<user>`. After an update from a version without the drive helper: `sudo systemctl restart audioharbor@<user>`. |
 | Set Up fails | the message comes from the helper; details: `journalctl -b -u 'mnt-harbor-*'`. Undo by hand: the previous fstab is `/etc/fstab.harbor-backup`. |
-| `N: Download is performed unsandboxed as root as file '…deb' couldn't be accessed by user '_apt'` at the end of `apt install` | harmless — the install went through. apt reads packages as user `_apt`, who cannot enter a home directory with mode 700 (Debian 12+, Raspberry Pi OS Bookworm), so it read the file as root. Download the `.deb` to `/tmp` to avoid the note. |
+| Network share: `mount error(13): Permission denied` | wrong user or password — or the NAS wants a domain / workgroup. Add it again with the right login. |
+| Network share: `mount error(112)` / `Host is down` / timed out | server name or IP wrong, NAS asleep, or SMB1 only (switch the NAS to SMB2/3). `ping nas.local`. |
+| `N: Download is performed unsandboxed as root as file '…deb' couldn't be accessed by user '_apt'` at the end of `apt install` | harmless — the install went through. apt reads packages as user `_apt`, who cannot enter a home directory with mode 700 (Debian 12+, Raspberry Pi OS Bookworm), so it read the file as root. Download the `.deb` with `cd /tmp` first (or `mv` it there), or use the installer — it downloads to `/tmp`. |
 | `Invalid archive signature` / `could not locate member control.tar` | the `.deb` is no package — usually GitHub's `Not Found` page saved by `curl -LO` for a version or CPU that has no package (`cat` the file). Download with `curl -fLO`. |
 | `Depends: libc6:amd64 … but it is not installable` | the package is for another CPU — `dpkg --print-architecture`, see [Which package](#which-package). |
 | Tracks of a share do not play | share not mounted: `ls /mnt/nas`, `systemctl status mnt-nas.automount`, `journalctl -b \| grep -i cifs`. |
@@ -372,19 +409,29 @@ Maintainer scripts:
 
 ### Release workflow
 
-`.github/workflows/release-packages.yml` (manual: Actions → Release packages → Run workflow, with the tag), job `linux`: runs on `ubuntu-24.04-arm` inside a `debian:bookworm` container. Building on the Ubuntu 24.04 runner itself would link against glibc 2.39 and the binaries would not start on Raspberry Pi OS Bookworm (glibc 2.36). The job builds the `.tar.gz` and from it the `.deb`, and attaches the `.deb` and `install-linux.sh` to the release.
+`.github/workflows/release-packages.yml` (manual: Actions → Release packages → Run workflow, with the tag), job `linux`: runs on `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64) inside a `debian:bookworm` container. Building on the Ubuntu 24.04 runner itself would link against glibc 2.39 and the binaries would not start on Raspberry Pi OS Bookworm (glibc 2.36). Each job builds the `.tar.gz` and from it the `.deb`. Job `build` makes the macOS `.pkg` and `.tar.gz` for `darwin-arm64` and `darwin-x64`, and the Windows `.zip`. The release job adds `install-linux.sh` whenever a Linux package is in it.
 
-For now only the arm64 installers are released (`.deb` and the macOS `.pkg`): the `linux-x64` and `darwin-x64` jobs and the portable `.tar.gz` / `.zip` assets are commented out in the workflow, not removed — uncomment them to bring them back.
+The run dialog has a checkbox per platform; job `plan` turns the ticked ones into the build matrices, so the others do not run and are not in the release:
+
+| Input | Builds | Default |
+|---|---|---|
+| `macos_arm64` | Apple Silicon `.pkg` + `.tar.gz` | on |
+| `macos_x64` | Intel `.pkg` + `.tar.gz` | on |
+| `linux_arm64` | `_arm64.deb` + `.tar.gz` | on |
+| `linux_x64` | `_amd64.deb` + `.tar.gz` | on |
+| `windows_x64` | `.zip` + `.tar.gz` — experimental, packaging on `windows-2022` had rsync issues | off |
+
+At least one must be ticked. From the command line: `gh workflow run release-packages.yml --ref main -f tag=v1.0.2 -f macos_x64=false -f windows_x64=true`. The release notes list every platform, also those not built.
 
 Rebuilding a release under the same tag: delete the release, move the tag to the new commit and run the workflow again:
 
 ```bash
 gh release delete v1.0.2 -y
 git tag -f -a v1.0.2 -m "Audio Harbor Headless 1.0.2" && git push -f origin v1.0.2
-gh workflow run release-packages.yml --ref main -f tag=v1.0.2
+gh workflow run release-packages.yml --ref main -f tag=v1.0.2   # add -f <platform>=false|true to choose
 ```
 
-Hosts that have this version installed need `apt install --reinstall` (see [Update](#update)); a new version number avoids that.
+Hosts that have this version installed need `HARBOR_REINSTALL=1` or `apt install --reinstall` (see [Update](#update)); a new version number avoids that.
 
 ### Testing locally (Docker)
 

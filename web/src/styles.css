@@ -3652,3 +3652,16 @@ body.overlay-open .ah-toast {
 .meter-cell .row-sub {
   font-size: 13px;
 }
+
+/* Network share form */
+.share-form {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.share-note {
+  margin: 4px 4px 0;
+  font-size: 13px;
+  color: var(--secondary);
+}
