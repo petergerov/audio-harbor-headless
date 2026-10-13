@@ -24,6 +24,38 @@ The script:
 curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 ```
 
+### Dedicated service user
+
+Installing needs root (apt), but the service should run as a normal user, not as root. To run it as a dedicated user such as `audioharbor`:
+
+```bash
+sudo adduser audioharbor   # if it does not exist yet
+```
+
+Logged in as `audioharbor` with sudo rights — `$SUDO_USER` picks it up:
+
+```bash
+curl -fsSL …/install-linux.sh | sudo bash
+```
+
+As root or another admin user — name it explicitly:
+
+```bash
+curl -fsSL …/install-linux.sh | sudo HARBOR_USER=audioharbor bash
+```
+
+Always pass `HARBOR_USER` when installing as someone else: without it the package falls back to the user with UID 1000, on a Pi usually the first account created, not `audioharbor`. The same works for the `.deb` alone: `sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_…_arm64.deb`.
+
+Afterwards:
+
+- data lives in `/home/audioharbor/.audio-harbor-headless/`,
+- service and log: `sudo systemctl status audioharbor@audioharbor`, `journalctl -u audioharbor@audioharbor -f`,
+- terminal commands as that user, so they use the same data: `sudo -u audioharbor audioharbor pair`,
+- music folders and mounts must be readable for `audioharbor` — for CIFS use `uid=audioharbor,gid=audioharbor` in `/etc/fstab`,
+- no need to add it to the `audio` group, the service does that (`SupplementaryGroups=audio`).
+
+If the service already runs for another user, switch it: `sudo systemctl disable --now audioharbor@pi && sudo systemctl enable --now audioharbor@audioharbor`.
+
 Without the script — download the `.deb` from the [release page](https://github.com/petergerov/audio-harbor-headless/releases) and:
 
 ```bash
@@ -42,7 +74,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 
 1. Open `http://audioharbor.local:8787` on the iPhone (Safari → Share → Add to Home Screen keeps it as an app).
 2. PIN for the Bonjour remote: `audioharbor pair` (as the service user).
-3. Add music: Settings → Sources → Add Folder. USB drives are under `/media/<user>/…`.
+3. Add music: Settings → Sources → Add Folder. For a USB drive see [Music on a USB drive](#music-on-a-usb-drive).
 4. Pick the DAC: Settings → Output → Device.
 
 The QR code the host prints at start is in the journal:
@@ -84,6 +116,63 @@ Terminal commands:
 | `audioharbor stop` | stops the server; the service stays stopped until restart or reboot |
 | `audioharbor pair` | shows the PIN (`--rotate` for a new one) |
 | `audioharbor rescan` | re-indexes the library folders |
+
+## Music on a USB drive
+
+Raspberry Pi OS Lite mounts nothing on its own, and the desktop only mounts a drive under `/media/<desktop user>/…` while someone is logged in — readable for that user, often not for the service user. Mount the drive in `/etc/fstab` instead: it is there at boot, without a login, and comes back when you plug it in again.
+
+Find the partition, its file system and UUID:
+
+```bash
+lsblk -f
+```
+
+```
+NAME   FSTYPE LABEL UUID                                 MOUNTPOINTS
+sda
+└─sda1 exfat  MUSIC 1A2B-3C4D
+```
+
+Create the mount point and add one line to `/etc/fstab` (`sudoedit /etc/fstab`), depending on `FSTYPE`:
+
+```bash
+sudo mkdir -p /mnt/music
+```
+
+```
+# exFAT — owner comes from uid/gid
+UUID=1A2B-3C4D  /mnt/music  exfat  ro,uid=audioharbor,gid=audioharbor,nofail,x-systemd.automount,x-systemd.device-timeout=5  0  0
+
+# NTFS — the same with ntfs3
+UUID=0123456789ABCDEF  /mnt/music  ntfs3  ro,uid=audioharbor,gid=audioharbor,nofail,x-systemd.automount,x-systemd.device-timeout=5  0  0
+
+# ext4 — owner and permissions are stored on the drive
+UUID=0f1e2d3c-…  /mnt/music  ext4  ro,nofail,x-systemd.automount,x-systemd.device-timeout=5  0  0
+```
+
+Replace `audioharbor` with the service user. Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart mnt-music.automount
+ls /mnt/music
+```
+
+With ext4 the service user needs read access to the files; if it lacks it, remount writable once and open them up:
+
+```bash
+sudo mount -o remount,rw /mnt/music
+sudo chmod -R a+rX /mnt/music
+sudo mount -o remount,ro /mnt/music
+```
+
+Add `/mnt/music` in the remote under Settings → Sources → Add Folder.
+
+- `nofail`: the Pi boots without the drive.
+- `x-systemd.automount`: the drive mounts on first access, also after unplugging and plugging it in again — no reboot.
+- `ro`: the host only reads; pulling the drive cannot damage the file system. Still, `sudo umount /mnt/music` before unplugging is cleaner.
+- The fstab line is bound to this drive's UUID. Another drive needs its own line and mount point.
+- While the drive is unplugged a scan keeps its tracks in the library. The host does not watch folders: after copying new albums press Rescan in the remote or run `sudo -u audioharbor audioharbor rescan`.
 
 ## Music on a network share
 
