@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -25,6 +26,58 @@ bool endsWithCi(const std::string& s, const char* ext) {
     if ((a | 32) != (b | 32)) return false;
   }
   return true;
+}
+
+/** Sample formats the PCM path can write, best first. A hw: device takes only what the DAC does. */
+struct AlsaFormat {
+  snd_pcm_format_t format;
+  const char* name;
+};
+constexpr AlsaFormat kPcmFormats[] = {
+    {SND_PCM_FORMAT_FLOAT_LE, "float"},
+    {SND_PCM_FORMAT_S32_LE, "32-bit"},
+    {SND_PCM_FORMAT_S24_LE, "24-bit"},
+    {SND_PCM_FORMAT_S24_3LE, "24-bit"},
+    {SND_PCM_FORMAT_S16_LE, "16-bit"},
+};
+
+/** Float (full scale ±1) to the device format, clipped instead of wrapped. */
+void convertFloat(const float* in, size_t samples, float gain, snd_pcm_format_t format, uint8_t* out) {
+  auto scaled = [&](size_t i, double full) {
+    const double v = std::nearbyint(double(in[i]) * gain * full);
+    return int64_t(std::clamp(v, -full, full - 1.0));
+  };
+  switch (format) {
+    case SND_PCM_FORMAT_FLOAT_LE: {
+      auto* o = reinterpret_cast<float*>(out);
+      for (size_t i = 0; i < samples; ++i) o[i] = std::clamp(in[i] * gain, -1.0f, 1.0f);
+      break;
+    }
+    case SND_PCM_FORMAT_S32_LE: {
+      auto* o = reinterpret_cast<int32_t*>(out);
+      for (size_t i = 0; i < samples; ++i) o[i] = int32_t(scaled(i, 2147483648.0));
+      break;
+    }
+    case SND_PCM_FORMAT_S24_LE: {
+      // 24 bits in the low three bytes of a 32-bit word.
+      auto* o = reinterpret_cast<int32_t*>(out);
+      for (size_t i = 0; i < samples; ++i) o[i] = int32_t(scaled(i, 8388608.0));
+      break;
+    }
+    case SND_PCM_FORMAT_S24_3LE:
+      for (size_t i = 0; i < samples; ++i) {
+        const int32_t v = int32_t(scaled(i, 8388608.0));
+        out[i * 3] = uint8_t(v);
+        out[i * 3 + 1] = uint8_t(v >> 8);
+        out[i * 3 + 2] = uint8_t(v >> 16);
+      }
+      break;
+    default: {
+      auto* o = reinterpret_cast<int16_t*>(out);
+      for (size_t i = 0; i < samples; ++i) o[i] = int16_t(scaled(i, 32768.0));
+      break;
+    }
+  }
 }
 
 class LinuxPlayer final : public IPlayer {
@@ -228,24 +281,72 @@ private:
         return false;
       }
     }
-    if (snd_pcm_open(&pcmHandle_, dev.c_str(), SND_PCM_STREAM_PLAYBACK, 0) < 0) return false;
+    int err = snd_pcm_open(&pcmHandle_, dev.c_str(), SND_PCM_STREAM_PLAYBACK, 0);
+    if (err < 0) {
+      pcmHandle_ = nullptr;
+      error_ = "Cannot open " + dev + ": " + snd_strerror(err);
+      return false;
+    }
+    auto fail = [&](const std::string& why) {
+      error_ = why;
+      closeAlsa_();
+      return false;
+    };
 
     snd_pcm_hw_params_t* params = nullptr;
     snd_pcm_hw_params_alloca(&params);
     snd_pcm_hw_params_any(pcmHandle_, params);
-    snd_pcm_hw_params_set_access(pcmHandle_, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-    if (isDop_) {
-      snd_pcm_hw_params_set_format(pcmHandle_, params, SND_PCM_FORMAT_S32_LE);
-    } else {
-      snd_pcm_hw_params_set_format(pcmHandle_, params, SND_PCM_FORMAT_FLOAT_LE);
+    if (snd_pcm_hw_params_set_access(pcmHandle_, params, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {
+      return fail(dev + " does not take interleaved samples");
     }
-    snd_pcm_hw_params_set_channels(pcmHandle_, params, channels_);
+    // The device must take the format we write — writing float into an integer
+    // device sounds like a heavily overdriven signal.
+    if (isDop_) {
+      if (snd_pcm_hw_params_set_format(pcmHandle_, params, SND_PCM_FORMAT_S32_LE) < 0) {
+        return fail(dev + " does not take 32-bit samples, which DoP needs");
+      }
+      format_ = SND_PCM_FORMAT_S32_LE;
+    } else {
+      bool found = false;
+      for (const auto& f : kPcmFormats) {
+        if (snd_pcm_hw_params_test_format(pcmHandle_, params, f.format) == 0 &&
+            snd_pcm_hw_params_set_format(pcmHandle_, params, f.format) == 0) {
+          format_ = f.format;
+          found = true;
+          break;
+        }
+      }
+      if (!found) return fail(dev + " takes none of float / 32 / 24 / 16-bit samples");
+    }
+    if (snd_pcm_hw_params_set_channels(pcmHandle_, params, channels_) < 0) {
+      return fail(dev + " does not play " + std::to_string(channels_) + " channels");
+    }
+    // No resampling here: a hw: device either plays the file's rate or refuses —
+    // a near rate would play at the wrong speed (DoP would stop being DSD).
     unsigned int rate = sampleRate_;
-    snd_pcm_hw_params_set_rate_near(pcmHandle_, params, &rate, nullptr);
-    sampleRate_ = rate;
-    if (snd_pcm_hw_params(pcmHandle_, params) < 0) {
-      closeAlsa_();
-      return false;
+    if (snd_pcm_hw_params_set_rate(pcmHandle_, params, rate, 0) < 0) {
+      return fail(dev + " does not play " + std::to_string(rate) + " Hz — pick its plughw: entry or Shared");
+    }
+    snd_pcm_uframes_t buffer = sampleRate_ / 2;  // ~0.5 s
+    snd_pcm_hw_params_set_buffer_size_near(pcmHandle_, params, &buffer);
+    err = snd_pcm_hw_params(pcmHandle_, params);
+    if (err < 0) return fail(std::string("ALSA setup failed: ") + snd_strerror(err));
+    frameBytes_ = size_t(snd_pcm_format_physical_width(format_) / 8) * channels_;
+    return true;
+  }
+
+  /** Writes all frames, recovering from an underrun; false when the device is gone. */
+  bool writeFrames_(const void* data, size_t frames) {
+    const auto* p = static_cast<const uint8_t*>(data);
+    while (frames > 0) {
+      snd_pcm_sframes_t n = snd_pcm_writei(pcmHandle_, p, frames);
+      if (n < 0) {
+        n = snd_pcm_recover(pcmHandle_, int(n), 1);
+        if (n < 0) return false;
+        continue;
+      }
+      p += size_t(n) * frameBytes_;
+      frames -= size_t(n);
     }
     return true;
   }
@@ -282,6 +383,7 @@ private:
     threadRunning_ = true;
     std::thread([this] {
       constexpr size_t block = 1024;
+      std::vector<uint8_t> out;
       while (true) {
         HarborPlaybackState st;
         {
@@ -308,12 +410,21 @@ private:
           continue;
         }
         const size_t n = std::min(block, ready - idx);
+        bool ok = true;
         if (isDop_) {
-          snd_pcm_writei(pcmHandle_, dop_.data() + idx * channels_, n);
+          ok = writeFrames_(dop_.data() + idx * channels_, n);
         } else {
-          std::vector<float> tmp(n * channels_);
-          for (size_t i = 0; i < n * channels_; ++i) tmp[i] = pcm_[idx * channels_ + i] * volume_;
-          snd_pcm_writei(pcmHandle_, tmp.data(), n);
+          out.resize(n * frameBytes_);
+          convertFloat(pcm_.data() + idx * channels_, n * channels_, volume_, format_, out.data());
+          ok = writeFrames_(out.data(), n);
+        }
+        if (!ok) {
+          std::lock_guard lock(mutex_);
+          error_ = "Audio device stopped responding";
+          state_ = HARBOR_STATE_FAILED;
+          emit_("state", nullptr);
+          threadRunning_ = false;
+          break;
         }
         frameIndex_.store(idx + n);
       }
@@ -347,6 +458,8 @@ private:
   std::atomic<size_t> totalFrames_ { 0 };
   std::atomic<bool> cancelDecodeFlag_ { false };
   snd_pcm_t* pcmHandle_ = nullptr;
+  snd_pcm_format_t format_ = SND_PCM_FORMAT_FLOAT_LE;
+  size_t frameBytes_ = 8;
   bool threadRunning_ = false;
 };
 
