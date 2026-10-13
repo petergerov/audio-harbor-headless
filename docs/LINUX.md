@@ -27,10 +27,10 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 
 ### Which package
 
-Each release has a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. By hand, check the CPU first:
+There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.0.2 has `arm64` only** (`.deb`, `.tar.gz`); the newest `amd64` package and macOS `.pkg` are in v1.0.1. On a PC the installer then stops with `no .deb for amd64 in that release`. By hand, check the CPU first:
 
 ```bash
-dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name
+dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name; amd64 now: HARBOR_VERSION=v1.0.1
 ```
 
 The files of a release ([release page](https://github.com/petergerov/audio-harbor-headless/releases)):
@@ -112,7 +112,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 1. Open `http://audioharbor.local:8787` on the iPhone (Safari → Share → Add to Home Screen keeps it as an app).
 2. Pair: as long as no device is paired, the remote shows **First Setup** with the PIN already filled in — tap Continue. Further phones and tablets: the PIN is in Settings → About on a paired device (**New PIN** makes a fresh one), or `audioharbor pair` as the service user. The PIN changes after each pairing.
 3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive).
-4. Pick the DAC: Settings → Output → Device.
+4. Pick the DAC: Settings → Output → Device. Each output is listed once — `SMSL USB AUDIO`, `bcm2835 Headphones`, `vc4-hdmi-0` — as `aplay -l` shows them, not every ALSA alias of it. The mode decides how it is opened: **Shared** through `plughw` (converts format and rate), **Exclusive** / **DoP** directly as `hw:` (bit-perfect; a rate the DAC lacks is refused, not resampled).
 
 Settings → About shows the host: CPU load (on a Raspberry Pi with the SoC temperature), memory, and free space on the disk with Harbor's data and on each drive with library folders — refreshed every 3 s while open. An unplugged drive is left out.
 
@@ -421,7 +421,14 @@ The run dialog has a checkbox per platform; job `plan` turns the ticked ones int
 | `linux_x64` | `_amd64.deb` + `.tar.gz` | on |
 | `windows_x64` | `.zip` + `.tar.gz` — experimental, packaging on `windows-2022` had rsync issues | off |
 
-At least one must be ticked. From the command line: `gh workflow run release-packages.yml --ref main -f tag=v1.0.2 -f macos_x64=false -f windows_x64=true`. The release notes list every platform, also those not built.
+At least one must be ticked. From the command line: `gh workflow run release-packages.yml --ref main -f tag=v1.0.2 -f macos_x64=false -f windows_x64=true`; only the Raspberry Pi:
+
+```bash
+gh workflow run release-packages.yml --ref main -f tag=v1.0.2 \
+  -f macos_arm64=false -f macos_x64=false -f linux_x64=false -f linux_arm64=true
+```
+
+In the run, the unticked group shows as skipped — named `matrix.platform`, as an empty matrix has no name to show; harmless. The release notes list every platform, also those not built.
 
 Rebuilding a release under the same tag: delete the release, move the tag to the new commit and run the workflow again:
 
