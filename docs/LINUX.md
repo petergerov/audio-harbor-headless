@@ -24,6 +24,41 @@ The script:
 curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 ```
 
+### Debian / Ubuntu on x86_64 (amd64)
+
+Releases from v1.0.2 on ship the `amd64` package only — no `arm64` package for the Raspberry Pi for now; the installer stops there with `no .deb for arm64 in that release`.
+
+Check the CPU — it must print `amd64`:
+
+```bash
+dpkg --print-architecture
+```
+
+With the installer (`sudo apt install -y curl` first if curl is missing):
+
+```bash
+curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/download/install-linux.sh | sudo HARBOR_USER=audioharbor bash
+```
+
+Or the `.deb` by hand:
+
+```bash
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_amd64.deb
+sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.0.2_amd64.deb
+```
+
+The `./` matters — without it apt looks for the name in its repositories. apt pulls in the dependencies (ALSA, sudo). Leave out `HARBOR_USER` to run the service as the user who ran `sudo`; see [Dedicated service user](#dedicated-service-user) for creating `audioharbor`.
+
+Then (`audioharbor` = the service user):
+
+```bash
+sudo systemctl status audioharbor@audioharbor                    # running?
+journalctl -u audioharbor@audioharbor -b --no-pager | tail -40   # URL and QR code
+sudo -u audioharbor audioharbor pair                             # PIN for the remote
+```
+
+Open `http://audioharbor.local:8787` on the phone — or the IP URL from the journal — and add music under Settings → Sources.
+
 ### Dedicated service user
 
 Installing needs root (apt), but the service should run as a normal user, not as root. To run it as a dedicated user such as `audioharbor`:
@@ -64,7 +99,7 @@ sudo apt install ./audio-harbor-headless_1.0.2_arm64.deb
 
 ### Requirements
 
-- 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package.
+- 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package. The current releases ship `amd64` only (see [above](#debian--ubuntu-on-x86_64-amd64)).
 - glibc 2.32 or newer: Raspberry Pi OS Bookworm or newer, Debian 12+, Ubuntu 22.04+. The package states the exact version in `Depends`.
 - systemd for the service. Without it (e.g. in a container) the package installs and `audioharbor` starts by hand.
 
