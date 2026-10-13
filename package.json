@@ -1,7 +1,7 @@
 {
   "name": "audio-harbor-headless",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Headless audiophile media host — native audio engine + TypeScript host",
   "workspaces": [
     "host",
