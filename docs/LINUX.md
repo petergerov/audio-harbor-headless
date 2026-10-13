@@ -24,40 +24,28 @@ The script:
 curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 ```
 
-### Debian / Ubuntu on x86_64 (amd64)
+### Which package
 
-Releases from v1.0.2 on ship the `amd64` package only — no `arm64` package for the Raspberry Pi for now; the installer stops there with `no .deb for arm64 in that release`.
-
-Check the CPU — it must print `amd64`:
+v1.0.2 ships the `arm64` package only (Raspberry Pi and other 64-bit ARM boards); the `amd64` package for x86_64 PCs is paused for now — the newest one is in v1.0.1. Check the CPU before installing:
 
 ```bash
-dpkg --print-architecture
+dpkg --print-architecture   # arm64 → current release; amd64 → HARBOR_VERSION=v1.0.1
 ```
 
-With the installer (`sudo apt install -y curl` first if curl is missing):
+A package for the wrong CPU fails in apt with `Depends: libc6:amd64 (>= 2.32) but it is not installable` (or `:arm64`): apt treats it as a foreign architecture.
+
+The `.deb` by hand, then the first checks (`audioharbor` = the service user, see [Dedicated service user](#dedicated-service-user)):
 
 ```bash
-curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/download/install-linux.sh | sudo HARBOR_USER=audioharbor bash
-```
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_arm64.deb
+sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.0.2_arm64.deb
 
-Or the `.deb` by hand:
-
-```bash
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_amd64.deb
-sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.0.2_amd64.deb
-```
-
-The `./` matters — without it apt looks for the name in its repositories. apt pulls in the dependencies (ALSA, sudo). Leave out `HARBOR_USER` to run the service as the user who ran `sudo`; see [Dedicated service user](#dedicated-service-user) for creating `audioharbor`.
-
-Then (`audioharbor` = the service user):
-
-```bash
 sudo systemctl status audioharbor@audioharbor                    # running?
 journalctl -u audioharbor@audioharbor -b --no-pager | tail -40   # URL and QR code
 sudo -u audioharbor audioharbor pair                             # PIN for the remote
 ```
 
-Open `http://audioharbor.local:8787` on the phone — or the IP URL from the journal — and add music under Settings → Sources.
+The `./` matters — without it apt looks for the name in its repositories. apt pulls in the dependencies (ALSA, sudo). Then open `http://audioharbor.local:8787` on the phone — or the IP URL from the journal — and add music under Settings → Sources.
 
 ### Dedicated service user
 
@@ -99,7 +87,7 @@ sudo apt install ./audio-harbor-headless_1.0.2_arm64.deb
 
 ### Requirements
 
-- 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package. The current releases ship `amd64` only (see [above](#debian--ubuntu-on-x86_64-amd64)).
+- 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package. v1.0.2 ships `arm64` only (see [Which package](#which-package)).
 - glibc 2.32 or newer: Raspberry Pi OS Bookworm or newer, Debian 12+, Ubuntu 22.04+. The package states the exact version in `Depends`.
 - systemd for the service. Without it (e.g. in a container) the package installs and `audioharbor` starts by hand.
 
