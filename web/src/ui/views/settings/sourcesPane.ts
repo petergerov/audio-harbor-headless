@@ -5,6 +5,7 @@ import { escapeHtml, required } from '../../../core/html';
 import type { Store } from '../../../core/store';
 import type { AppState } from '../../../state/appState';
 import { openActionMenu, openConfirmDialog, openNameDialog, showToast } from '../../overlay';
+import { icons } from '../../icons';
 import { openFolderPicker } from '../../sheets/folderPicker';
 import { openShareDialog } from '../../sheets/shareSheet';
 import type { Pane } from '../settingsView';
@@ -71,7 +72,24 @@ export class SourcesPane implements Pane {
         .catch(() => {}),
     ]);
     const showDrives = drives.supported || Boolean(drives.reason);
+    // Something to scan: a library folder, or a drive / share that is set up.
+    const showUpdate = mounts.length > 0 || drives.drives.some((d) => d.name);
     root.innerHTML = `
+      <div ${showUpdate ? '' : 'hidden'}>
+        <p class="group-label">Library</p>
+        <div class="group">
+          <button type="button" class="cell" data-rescan>
+            <span>Update Library</span>
+            <span class="value rescan-value"><span class="rescan-icon">${icons.rescan}</span><span data-rescan-label>Rescan</span></span>
+          </button>
+          <div class="cell scan-status" data-scan-status hidden>
+            <div class="row-text">
+              <div class="row-sub" data-scan-text></div>
+              <div class="scan-bar" data-scan-bar hidden><span></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <p class="group-label">On This Host</p>
       <div class="group" data-mounts></div>
       <div ${showDrives ? '' : 'hidden'}>
@@ -87,15 +105,6 @@ export class SourcesPane implements Pane {
             autocapitalize="off" spellcheck="false" aria-label="Folder path" />
           <button class="btn-text" type="submit">Add</button>
         </form>
-      </div>
-      <div class="group">
-        <button type="button" class="cell" data-rescan><span>Update Library</span><span class="value">Rescan</span></button>
-        <div class="cell scan-status" data-scan-status hidden>
-          <div class="row-text">
-            <div class="row-sub" data-scan-text></div>
-            <div class="scan-bar" data-scan-bar hidden><span></span></div>
-          </div>
-        </div>
       </div>
       <p class="footer-note">Paths must exist on the host running Harbor.</p>
     `;
@@ -138,6 +147,7 @@ export class SourcesPane implements Pane {
 
     const rescan = required<HTMLButtonElement>(root, '[data-rescan]');
     const value = required(rescan, '.value');
+    const label = required(rescan, '[data-rescan-label]');
     const status = required(root, '[data-scan-status]');
     const text = required(root, '[data-scan-text]');
     const bar = required(root, '[data-scan-bar]');
@@ -148,8 +158,9 @@ export class SourcesPane implements Pane {
       const scanning = Boolean(scan?.scanning);
       if (!scanning && scan?.lastScan && this.pending && scan.lastScan.at > this.addedAt) this.pending = false;
       rescan.disabled = scanning;
-      value.textContent = scanning ? 'Scanning…' : this.pending ? 'Rescan Now' : 'Rescan';
+      label.textContent = scanning ? 'Scanning…' : this.pending ? 'Rescan Now' : 'Rescan';
       value.classList.toggle('accent', !scanning && this.pending);
+      value.classList.toggle('spinning', scanning);
       const line = this.pending && !scanning ? 'New folders are read when you press Rescan.' : scanText(scan);
       text.textContent = line;
       status.hidden = !line;
@@ -162,7 +173,8 @@ export class SourcesPane implements Pane {
     paint();
     rescan.addEventListener('click', async () => {
       rescan.disabled = true;
-      value.textContent = 'Scanning…';
+      label.textContent = 'Scanning…';
+      value.classList.add('spinning');
       try {
         this.store.update({ scan: await this.settings.rescan() });
       } catch (err) {

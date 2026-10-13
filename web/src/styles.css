@@ -3665,3 +3665,31 @@ body.overlay-open .ah-toast {
   font-size: 13px;
   color: var(--secondary);
 }
+
+/* Update Library: icon before Rescan, turning while a scan runs */
+.rescan-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rescan-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.rescan-value.spinning .rescan-icon {
+  animation: rescan-spin 1s linear infinite;
+}
+
+@keyframes rescan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rescan-value.spinning .rescan-icon {
+    animation: none;
+  }
+}
