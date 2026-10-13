@@ -282,7 +282,14 @@ Share the music from a Pi to the others with Samba (`sudo apt install samba`), r
 
 Run the installer again, or `sudo apt install ./<new>.deb`. Running instances restart with the new version; a disabled service stays disabled.
 
-A release rebuilt under the same version number (e.g. 1.0.2 again) installs over the old one when the file differs (`Unpacking audio-harbor-headless (1.0.2) over (1.0.2)`); to be sure, add `--reinstall`. The installer script skips it, as apt sees the version as installed.
+A release rebuilt under the same version number (e.g. 1.0.2 again) installs over the old one when the file differs (`Unpacking audio-harbor-headless (1.0.2) over (1.0.2)`); to be sure, add `--reinstall`. The installer script skips it, as apt sees the version as installed. Download it again first — the old file in `/tmp` is the previous build:
+
+```bash
+cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.2/audio-harbor-headless_1.0.2_arm64.deb
+sudo apt install --reinstall ./audio-harbor-headless_1.0.2_arm64.deb
+```
+
+An update keeps config, library and pairing (`~/.audio-harbor-headless`): paired devices stay paired, and an already paired host shows no **First Setup** — the PIN for another device is in Settings → About.
 
 Check that the new build runs — the start time should be the moment of the install:
 
