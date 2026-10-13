@@ -9,6 +9,8 @@
 # Env:
 #   HARBOR_VERSION   release tag to install (e.g. v1.0.0) — default: latest
 #   HARBOR_USER      user the service runs as — default: $SUDO_USER
+#   HARBOR_REINSTALL 1 = install even when this version is installed (a release
+#                    rebuilt under the same version number)
 set -euo pipefail
 
 REPO="petergerov/audio-harbor-headless"
@@ -51,7 +53,9 @@ chmod 644 "$DEB"
 USER_NAME="${HARBOR_USER:-${SUDO_USER:-}}"
 log "Installing (apt)"
 apt-get update -y
-HARBOR_USER="$USER_NAME" DEBIAN_FRONTEND=noninteractive apt-get install -y "$DEB"
+APT_ARGS=(-y)
+[[ "${HARBOR_REINSTALL:-}" == "1" ]] && APT_ARGS+=(--reinstall)
+HARBOR_USER="$USER_NAME" DEBIAN_FRONTEND=noninteractive apt-get install "${APT_ARGS[@]}" "$DEB"
 
 echo
 log "Done"
