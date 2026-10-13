@@ -57,6 +57,12 @@ export class App {
       if (message.type === 'nowPlaying') playback.receive(message.payload);
       else if (message.type === 'queue') playback.receiveQueue(message.payload);
       else if (message.type === 'settings') settings.receive(message.payload);
+      else if (message.type === 'scan') {
+        const finished = Boolean(this.deps.store.get().scan?.scanning) && !message.payload.scanning;
+        this.deps.store.update({ scan: message.payload });
+        // New tracks show up without a reload.
+        if (finished && this.ready) void library.load().catch(() => {});
+      }
     });
     try {
       await playback.refresh();

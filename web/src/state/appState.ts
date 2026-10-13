@@ -6,6 +6,7 @@ import type {
   NowPlaying,
   PlaylistSummary,
   QueueSnapshot,
+  ScanProgress,
   SettingsSnapshot,
 } from '../api/types';
 
@@ -56,6 +57,8 @@ export interface AppState {
   queue: QueueSnapshot | null;
   /** The host's Settings snapshot, as it pushes changes. */
   settings: SettingsSnapshot | null;
+  /** The library scan, as the host pushes it. */
+  scan: ScanProgress | null;
 }
 
 export const initialState: AppState = {
@@ -76,4 +79,5 @@ export const initialState: AppState = {
   nowPlaying: null,
   queue: null,
   settings: null,
+  scan: null,
 };

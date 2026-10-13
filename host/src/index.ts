@@ -57,9 +57,12 @@ async function main(): Promise<void> {
   };
 
   const catalogue = new Catalogue();
+  // In the background: the remote is up at once and shows the scan's progress.
   if (cfg.library.roots.length) {
-    const result = await catalogue.scanRoots(cfg.library.roots);
-    console.log(`Library: scanned ${result.scanned}, updated ${result.indexed}`);
+    void catalogue
+      .scanRoots(cfg.library.roots)
+      .then((result) => console.log(`Library: scanned ${result.scanned}, updated ${result.indexed}`))
+      .catch((err) => console.warn('Library scan failed:', err));
   }
 
   // Network players (UPnP / DLNA renderers) show up in the output list like a DAC.

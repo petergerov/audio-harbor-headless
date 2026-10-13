@@ -106,8 +106,7 @@ export async function buildServer(ctx: AppContext) {
     if (!cfg.library.roots.includes(p)) cfg.library.roots.push(p);
     saveConfig(cfg);
     ctx.settings.changed();
-    // A whole drive can take minutes — the remotes follow isScanning in the settings.
-    void ctx.catalogue.scanRoots(cfg.library.roots).catch((err) => req.log.warn(err, 'Scan failed'));
+    // No scan here — the library reads the new folder on Rescan.
     return { roots: cfg.library.roots };
   });
 
@@ -169,10 +168,15 @@ export async function buildServer(ctx: AppContext) {
     return { roots: cfg.library.roots };
   });
 
-  app.post('/api/v1/library/rescan', async () => {
+  // Starts a scan (or joins the running one) and answers at once; progress comes over the
+  // WebSocket as `scan` and from GET /api/v1/library/scan.
+  app.post('/api/v1/library/rescan', async (req) => {
     const cfg = ctx.getConfig();
-    return ctx.catalogue.scanRoots(cfg.library.roots);
+    void ctx.catalogue.scanRoots(cfg.library.roots).catch((err) => req.log.warn(err, 'Scan failed'));
+    return ctx.catalogue.progress;
   });
+
+  app.get('/api/v1/library/scan', async () => ctx.catalogue.progress);
 
   app.get<{
     Querystring: { scope?: BrowseScope; path?: string; q?: string; limit?: string };
@@ -632,14 +636,18 @@ export async function buildServer(ctx: AppContext) {
       send('nowPlaying', ctx.playback.snapshot());
       send('queue', ctx.playback.queueSnapshot());
       send('settings', ctx.settings.snapshot());
+      send('scan', ctx.catalogue.progress);
       const onNp = (p: unknown) => send('nowPlaying', p);
       const onQ = (p: unknown) => send('queue', p);
+      const onScan = (p: unknown) => send('scan', p);
       ctx.playback.on('nowPlaying', onNp);
       ctx.playback.on('queue', onQ);
+      ctx.catalogue.on('progress', onScan);
       const unwatch = ctx.settings.watch((p) => send('settings', p));
       socket.on('close', () => {
         ctx.playback.off('nowPlaying', onNp);
         ctx.playback.off('queue', onQ);
+        ctx.catalogue.off('progress', onScan);
         unwatch();
       });
     });

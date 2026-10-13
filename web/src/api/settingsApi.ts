@@ -3,6 +3,7 @@ import type {
   DriveList,
   FolderListing,
   Mount,
+  ScanProgress,
   NetworkPlayerFormats,
   OutputChange,
   OutputStatus,
@@ -18,7 +19,9 @@ export interface SettingsApi {
   mounts(): Promise<Mount[]>;
   addMount(path: string): Promise<void>;
   removeMount(path: string): Promise<void>;
-  rescan(): Promise<void>;
+  /** Starts a scan (or joins the running one); answers at once with its progress. */
+  rescan(): Promise<ScanProgress>;
+  scanProgress(): Promise<ScanProgress>;
   /** Folders inside `path`, or the places to start from without it. */
   folders(path?: string): Promise<FolderListing>;
   drives(): Promise<DriveList>;
@@ -57,8 +60,12 @@ export class HttpSettingsApi implements SettingsApi {
     await this.http.delete('/api/v1/mounts', { path });
   }
 
-  async rescan(): Promise<void> {
-    await this.http.post('/api/v1/library/rescan');
+  rescan(): Promise<ScanProgress> {
+    return this.http.post('/api/v1/library/rescan');
+  }
+
+  scanProgress(): Promise<ScanProgress> {
+    return this.http.get('/api/v1/library/scan');
   }
 
   folders(path?: string): Promise<FolderListing> {

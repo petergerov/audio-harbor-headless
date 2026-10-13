@@ -152,10 +152,45 @@ function sacdToTrack(
   };
 }
 
-/** Emits `scanning` (true / false) when a scan of the roots starts and ends. */
+/** Where a library scan is; `lastScan` stays after it ends. */
+export interface ScanProgress {
+  scanning: boolean;
+  /** listing: looking for files; reading: tags of new / changed files; finishing: search index. */
+  phase: 'idle' | 'listing' | 'reading' | 'finishing';
+  /** The folder being walked. */
+  root: string | null;
+  /** Files looked at so far, of `total` (0 while listing). */
+  done: number;
+  total: number;
+  /** New or changed files read so far. */
+  indexed: number;
+  lastScan: { at: number; scanned: number; indexed: number } | null;
+}
+
+/** How often `progress` is emitted while a scan runs. */
+const PROGRESS_MS = 300;
+/** The scan gives the event loop back this often, so requests and playback keep going. */
+const YIELD_MS = 12;
+
+const nextTick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * Emits `scanning` (true / false) when a scan of the roots starts and ends, and
+ * `progress` (ScanProgress) while it runs.
+ */
 export class Catalogue extends EventEmitter {
   private db: DatabaseSync;
-  private scans = 0;
+  private running: Promise<{ scanned: number; indexed: number }> | null = null;
+  private state: ScanProgress = {
+    scanning: false,
+    phase: 'idle',
+    root: null,
+    done: 0,
+    total: 0,
+    indexed: 0,
+    lastScan: null,
+  };
+  private lastEmit = 0;
   /** Directories holding tracks (and those above them); rebuilt after a scan. */
   private directories: string[] | null = null;
 
@@ -168,7 +203,20 @@ export class Catalogue extends EventEmitter {
 
   /** A scan of the roots is running. */
   get isScanning(): boolean {
-    return this.scans > 0;
+    return this.running !== null;
+  }
+
+  get progress(): ScanProgress {
+    return { ...this.state };
+  }
+
+  private report(change: Partial<ScanProgress>, force = false): void {
+    const phaseChanged = change.phase !== undefined && change.phase !== this.state.phase;
+    this.state = { ...this.state, ...change };
+    const now = Date.now();
+    if (!force && !phaseChanged && now - this.lastEmit < PROGRESS_MS) return;
+    this.lastEmit = now;
+    this.emit('progress', this.progress);
   }
 
   private migrate(): void {
@@ -213,16 +261,25 @@ export class Catalogue extends EventEmitter {
     this.db.close();
   }
 
-  async scanRoots(roots: string[]): Promise<{ scanned: number; indexed: number }> {
-    this.scans += 1;
-    if (this.scans === 1) this.emit('scanning', true);
-    try {
-      return await this.scan(roots);
-    } finally {
-      this.scans -= 1;
-      this.directories = null;
-      if (this.scans === 0) this.emit('scanning', false);
-    }
+  /** Scans the roots; while a scan runs, a second call joins it instead of starting another. */
+  scanRoots(roots: string[]): Promise<{ scanned: number; indexed: number }> {
+    if (this.running) return this.running;
+    this.report({ scanning: true, phase: 'listing', root: null, done: 0, total: 0, indexed: 0 }, true);
+    this.emit('scanning', true);
+    const run = (async () => {
+      try {
+        const result = await this.scan(roots);
+        this.state.lastScan = { at: Date.now(), ...result };
+        return result;
+      } finally {
+        this.running = null;
+        this.directories = null;
+        this.report({ scanning: false, phase: 'idle', root: null }, true);
+        this.emit('scanning', false);
+      }
+    })();
+    this.running = run;
+    return run;
   }
 
   private async scan(roots: string[]): Promise<{ scanned: number; indexed: number }> {
@@ -256,9 +313,23 @@ export class Catalogue extends EventEmitter {
     const resolvedRoots = roots.map((r) => path.resolve(r));
     const scannedRoots: string[] = [];
 
+    // List every root first, so the progress has a total.
+    const listed: Array<{ root: string; files: string[] }> = [];
+    let foundBefore = 0;
     for (const root of roots) {
-      if (!fs.existsSync(root)) continue;
-      const files = walkAudioFiles(root);
+      // Async: an unplugged drive's automount takes seconds to fail.
+      if (!(await fs.promises.stat(root).then(() => true, () => false))) continue;
+      this.report({ phase: 'listing', root });
+      const files = await listAudioFiles(root, (found) => this.report({ total: foundBefore + found }));
+      foundBefore += files.length;
+      listed.push({ root, files });
+    }
+    const total = listed.reduce((n, l) => n + l.files.length, 0);
+    this.report({ phase: 'reading', total, done: 0 }, true);
+    let lastYield = performance.now();
+
+    for (const { root, files } of listed) {
+      this.report({ root }, true);
       // An unmounted share leaves an empty mount point: keep its tracks, labels
       // and playlist entries as for a missing root instead of dropping them.
       if (
@@ -271,7 +342,17 @@ export class Catalogue extends EventEmitter {
       scannedRoots.push(path.resolve(root));
       for (const file of files) {
         scanned += 1;
-        const st = fs.statSync(file);
+        this.report({ done: scanned, indexed });
+        if (performance.now() - lastYield > YIELD_MS) {
+          await nextTick();
+          lastYield = performance.now();
+        }
+        let st: fs.Stats;
+        try {
+          st = fs.statSync(file);
+        } catch {
+          continue;
+        }
         const mtime = Math.floor(st.mtimeMs);
         try {
           if (path.extname(file).toLowerCase() === '.iso' && isSacdIso(file)) {
@@ -336,6 +417,8 @@ export class Catalogue extends EventEmitter {
       }
     }
 
+    this.report({ phase: 'finishing', done: scanned, indexed }, true);
+    await nextTick();
     this.removeOrphanTracks(seen, resolvedRoots, scannedRoots);
     this.db.exec(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`);
     return { scanned, indexed };
@@ -1020,6 +1103,29 @@ function walkAudioFiles(root: string): string[] {
       if (ent.isDirectory()) stack.push(full);
       else if (AUDIO_EXT.has(path.extname(ent.name).toLowerCase())) out.push(full);
     }
+  }
+  return out;
+}
+
+/** walkAudioFiles without blocking: one directory per await, `onFound` with the count so far. */
+async function listAudioFiles(root: string, onFound: (count: number) => void): Promise<string[]> {
+  const out: string[] = [];
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      if (ent.name.startsWith('.')) continue;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) stack.push(full);
+      else if (AUDIO_EXT.has(path.extname(ent.name).toLowerCase())) out.push(full);
+    }
+    onFound(out.length);
   }
   return out;
 }

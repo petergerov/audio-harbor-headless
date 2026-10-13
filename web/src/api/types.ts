@@ -203,6 +203,17 @@ export interface Mount {
   displayName: string;
 }
 
+/** Where the host's library scan is (pushed as `scan`); `lastScan` stays after it ends. */
+export interface ScanProgress {
+  scanning: boolean;
+  phase: 'idle' | 'listing' | 'reading' | 'finishing';
+  root: string | null;
+  done: number;
+  total: number;
+  indexed: number;
+  lastScan: { at: number; scanned: number; indexed: number } | null;
+}
+
 /** A drive the host sees; `name` is set once it has a Harbor fstab entry under /mnt/harbor. */
 export interface Drive {
   uuid: string;

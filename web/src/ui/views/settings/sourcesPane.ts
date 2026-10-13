@@ -1,5 +1,5 @@
 import type { SettingsApi } from '../../../api/settingsApi';
-import type { Drive, DriveList } from '../../../api/types';
+import type { Drive, DriveList, ScanProgress } from '../../../api/types';
 import { errorMessage } from '../../../core/errors';
 import { escapeHtml, required } from '../../../core/html';
 import type { Store } from '../../../core/store';
@@ -8,7 +8,24 @@ import { openActionMenu, openConfirmDialog, openNameDialog, showToast } from '..
 import { openFolderPicker } from '../../sheets/folderPicker';
 import type { Pane } from '../settingsView';
 
-const DONE_MS = 1200;
+const count = (n: number) => n.toLocaleString();
+
+/** One line on where the scan is, or how the last one went. */
+function scanText(scan: ScanProgress | null): string {
+  if (!scan) return '';
+  const where = scan.root ? ` · ${scan.root.split('/').filter(Boolean).pop() ?? scan.root}` : '';
+  switch (scan.phase) {
+    case 'listing':
+      return `Looking for music… ${count(scan.total)} files${where}`;
+    case 'reading':
+      return `Reading ${count(scan.done)} of ${count(scan.total)} · ${count(scan.indexed)} new or changed${where}`;
+    case 'finishing':
+      return 'Updating the search index…';
+    default:
+      if (!scan.lastScan) return '';
+      return `Last scan ${new Date(scan.lastScan.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${count(scan.lastScan.scanned)} files, ${count(scan.lastScan.indexed)} new or changed`;
+  }
+}
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -32,6 +49,9 @@ function driveSubtitle(drive: Drive): string {
 /** The music folders on the host: list, add, remove, rescan — and drives to set up for them. */
 export class SourcesPane implements Pane {
   private unsubscribe: (() => void) | null = null;
+  /** A folder was added since the last scan — its music comes with Rescan. */
+  private pending = false;
+  private addedAt = 0;
 
   constructor(
     private readonly settings: SettingsApi,
@@ -43,6 +63,10 @@ export class SourcesPane implements Pane {
     const [mounts, drives] = await Promise.all([
       this.settings.mounts(),
       this.settings.drives().catch((): DriveList => ({ supported: false, reason: null, drives: [] })),
+      this.settings
+        .scanProgress()
+        .then((scan) => this.store.update({ scan }))
+        .catch(() => {}),
     ]);
     const showDrives = drives.supported || Boolean(drives.reason);
     root.innerHTML = `
@@ -64,6 +88,12 @@ export class SourcesPane implements Pane {
       </div>
       <div class="group">
         <button type="button" class="cell" data-rescan><span>Update Library</span><span class="value">Rescan</span></button>
+        <div class="cell scan-status" data-scan-status hidden>
+          <div class="row-text">
+            <div class="row-sub" data-scan-text></div>
+            <div class="scan-bar" data-scan-bar hidden><span></span></div>
+          </div>
+        </div>
       </div>
       <p class="footer-note">Paths must exist on the host running Harbor.</p>
     `;
@@ -97,6 +127,7 @@ export class SourcesPane implements Pane {
       const path = String(new FormData(event.target as HTMLFormElement).get('path'));
       try {
         await this.settings.addMount(path);
+        this.markPending();
         await this.render(root);
       } catch (err) {
         showToast(errorMessage(err, 'Could not add folder'), { error: true });
@@ -105,34 +136,44 @@ export class SourcesPane implements Pane {
 
     const rescan = required<HTMLButtonElement>(root, '[data-rescan]');
     const value = required(rescan, '.value');
-    let done = false;
-    // A scan may also come from the iOS app (Rebuild Index), a new folder or the host's start.
+    const status = required(root, '[data-scan-status]');
+    const text = required(root, '[data-scan-text]');
+    const bar = required(root, '[data-scan-bar]');
+    const fill = required(bar, 'span');
+    // A scan may also come from the iOS app (Rebuild Index), another remote or the host's start.
     const paint = () => {
-      const scanning = Boolean(this.store.get().settings?.isScanning);
+      const scan = this.store.get().scan;
+      const scanning = Boolean(scan?.scanning);
+      if (!scanning && scan?.lastScan && this.pending && scan.lastScan.at > this.addedAt) this.pending = false;
       rescan.disabled = scanning;
-      if (!done) value.textContent = scanning ? 'Rescanning…' : 'Rescan';
+      value.textContent = scanning ? 'Scanning…' : this.pending ? 'Rescan Now' : 'Rescan';
+      value.classList.toggle('accent', !scanning && this.pending);
+      const line = this.pending && !scanning ? 'New folders are read when you press Rescan.' : scanText(scan);
+      text.textContent = line;
+      status.hidden = !line;
+      bar.hidden = !scanning || !scan?.total || scan.phase !== 'reading';
+      fill.style.width = scan?.total ? `${Math.min(100, (scan.done / scan.total) * 100)}%` : '0';
     };
     this.unsubscribe = this.store.subscribe((state, previous) => {
-      if (state.settings !== previous.settings) paint();
+      if (state.scan !== previous.scan) paint();
     });
     paint();
     rescan.addEventListener('click', async () => {
       rescan.disabled = true;
-      value.textContent = 'Rescanning…';
+      value.textContent = 'Scanning…';
       try {
-        await this.settings.rescan();
+        this.store.update({ scan: await this.settings.rescan() });
       } catch (err) {
         showToast(errorMessage(err, 'Could not update the library'), { error: true });
         paint();
-        return;
       }
-      done = true;
-      value.textContent = 'Done';
-      window.setTimeout(() => {
-        done = false;
-        paint();
-      }, DONE_MS);
     });
+  }
+
+  /** After a folder is added: no scan yet, Rescan reads it. */
+  private markPending(): void {
+    this.pending = true;
+    this.addedAt = Date.now();
   }
 
   private chooseFolder(root: HTMLElement, start?: string): void {
@@ -141,7 +182,8 @@ export class SourcesPane implements Pane {
       start,
       onPick: async (path) => {
         await this.settings.addMount(path);
-        showToast('Added — the library is updating');
+        this.markPending();
+        showToast('Added — press Rescan to read its music');
         await this.render(root);
       },
     });

@@ -3536,3 +3536,39 @@ body.overlay-open .ah-toast {
 .folder-group .row-text {
   min-width: 0;
 }
+
+/* Library scan status */
+.cell.scan-status {
+  min-height: 0;
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+
+.scan-status .row-sub {
+  white-space: normal;
+  font-size: 13px;
+}
+
+.scan-bar {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--fill-strong);
+  overflow: hidden;
+}
+
+.scan-bar[hidden] {
+  display: none;
+}
+
+.scan-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--tint);
+  transition: width 0.3s ease;
+}
+
+.cell .value.accent {
+  color: var(--tint);
+}
