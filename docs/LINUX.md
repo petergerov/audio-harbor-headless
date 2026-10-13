@@ -111,7 +111,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 
 1. Open `http://audioharbor.local:8787` on the iPhone (Safari → Share → Add to Home Screen keeps it as an app).
 2. Pair: as long as no device is paired, the remote shows **First Setup** with the PIN already filled in — tap Continue. Further phones and tablets: the PIN is in Settings → About on a paired device (**New PIN** makes a fresh one), or `audioharbor pair` as the service user. The PIN changes after each pairing.
-3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive).
+3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive). Adding a folder does not scan it: **Library → Update Library → Rescan**, at the top of Sources once there is a folder, drive or share, reads it and shows the progress.
 4. Pick the DAC: Settings → Output → Device. Each output is listed once — `SMSL USB AUDIO`, `bcm2835 Headphones`, `vc4-hdmi-0` — as `aplay -l` shows them, not every ALSA alias of it. The mode decides how it is opened: **Shared** through `plughw` (converts format and rate), **Exclusive** / **DoP** directly as `hw:` (bit-perfect; a rate the DAC lacks is refused, not resampled).
 
 Settings → About shows the host: CPU load (on a Raspberry Pi with the SoC temperature), memory, and free space on the disk with Harbor's data and on each drive with library folders — refreshed every 3 s while open. An unplugged drive is left out.
@@ -347,6 +347,12 @@ journalctl -u audioharbor@audioharbor -b --no-pager | tail -20
 
 If the start time is older: `sudo systemctl restart audioharbor@audioharbor`.
 
+Then in the remote:
+
+- Settings → Output lists each output once — compare with `aplay -l`. A DAC picked with an older version (as `plughw:…`, `sysdefault:…`, `front:…` and the like) stays picked: it is mapped to its `hw:CARD=…` entry.
+- Settings → Sources has Library → Update Library on top.
+- Settings → About shows the version and the host's CPU, memory and disks.
+
 ## Remove
 
 ```bash
@@ -375,6 +381,8 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 |---|---|
 | `audioharbor.local` not found | the host answers mDNS itself; it may have taken `audioharbor-2.local` (see the journal). Phone and Pi on the same network? Or use the IP URL from the journal. |
 | Service does not start | `journalctl -u audioharbor@pi -b` — e.g. port 8787 taken by a manual `./start.sh`. |
+| Output list differs from `aplay -l` (a card missing, or an output twice) | send `aplay -l` and a screenshot of Settings → Output. The list is one entry per playback device of each card, named like the card (`SMSL USB AUDIO`); a card with several outputs shows `card · output`. |
+| Selected DAC shows as missing after an update | it is not connected, or its card id changed (`aplay -l`, the name after `card N:`). Pick it again under Settings → Output. |
 | No DAC in the device list | `aplay -l` lists the ALSA cards; the user needs the `audio` group for a manual start (`sudo usermod -aG audio pi`, log in again). The service has it already. |
 | `GLIBC_2.xx not found` | OS too old — see Requirements. |
 | Music folder not readable | the service runs as the user — `sudo -u pi ls /path/to/music`. |
