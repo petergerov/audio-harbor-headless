@@ -19,6 +19,11 @@ export class PairingView {
           <h1>Audio Harbor</h1>
           <p class="engraved" style="margin-bottom:12px">Remote</p>
           <p>Music plays on the host. Enter the 6-digit PIN to steer it.</p>
+          <div data-first-run class="pair-first" hidden>
+            <p class="engraved">First Setup</p>
+            <p>No device is paired yet, so the host's PIN is filled in below — tap Continue.</p>
+            <p class="pair-hint">It shows only until the first device pairs. To add more devices later, open Settings → About on a paired one.</p>
+          </div>
           <input id="pin" class="pin-input" inputmode="numeric" maxlength="6"
             placeholder="••••••" autocomplete="one-time-code" enterkeyhint="done" />
           <button data-pair class="btn-fill">Continue</button>
@@ -30,6 +35,16 @@ export class PairingView {
     const error = required(root, '[data-error]');
     const button = required<HTMLButtonElement>(root, '[data-pair]');
     pin.focus();
+    // Nothing paired yet: offer the PIN, so a headless host needs no terminal.
+    void this.auth
+      .setup()
+      .then((setup) => {
+        if (!setup.firstRun || !setup.pin) return;
+        required(root, '[data-first-run]').hidden = false;
+        pin.value = setup.pin;
+        button.focus();
+      })
+      .catch(() => {});
     const submit = async () => {
       error.hidden = true;
       button.disabled = true;

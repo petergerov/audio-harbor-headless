@@ -91,6 +91,11 @@ export function pairWithPin(pin: string): string | null {
   return token;
 }
 
+/** No device has paired yet: the first remote may show the PIN itself. */
+export function isFirstRun(): boolean {
+  return loadPairing().tokens.length === 0;
+}
+
 export function isAuthorized(token: string | undefined | null): boolean {
   if (!token) return false;
   const want = normalizeToken(token);

@@ -42,7 +42,7 @@ sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.0.2_arm64.deb
 
 sudo systemctl status audioharbor@audioharbor                    # running?
 journalctl -u audioharbor@audioharbor -b --no-pager | tail -40   # URL and QR code
-sudo -u audioharbor audioharbor pair                             # PIN for the remote
+sudo -u audioharbor audioharbor pair                             # PIN (the first remote shows it itself)
 ```
 
 The `./` matters — without it apt looks for the name in its repositories. `curl -f` stops on a missing file (a wrong version or CPU) instead of saving GitHub's `Not Found` page as `.deb` — apt would then report `Invalid archive signature`. Downloading to `/tmp` keeps the file readable for apt's download user `_apt` (see [Troubleshooting](#troubleshooting)). apt pulls in the dependencies (ALSA, sudo). Then open `http://audioharbor.local:8787` on the phone — or the IP URL from the journal — and add music under Settings → Sources.
@@ -96,7 +96,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 ## First steps
 
 1. Open `http://audioharbor.local:8787` on the iPhone (Safari → Share → Add to Home Screen keeps it as an app).
-2. PIN for the Bonjour remote: `audioharbor pair` (as the service user).
+2. Pair: as long as no device is paired, the remote shows **First Setup** with the PIN already filled in — tap Continue. Further phones and tablets: the PIN is in Settings → About on a paired device (**New PIN** makes a fresh one), or `audioharbor pair` as the service user. The PIN changes after each pairing.
 3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive).
 4. Pick the DAC: Settings → Output → Device.
 

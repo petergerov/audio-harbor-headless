@@ -18,7 +18,7 @@ import {
 } from '../drives.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
-import { isAuthorized, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
+import { isAuthorized, isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { webDistPath } from '../paths.js';
 import type { RemoteSettings } from '../remote/settings.js';
@@ -70,6 +70,12 @@ export async function buildServer(ctx: AppContext) {
     if (!token) return reply.code(401).send({ error: 'invalid pin' });
     return { token };
   });
+
+  // First setup: until a device pairs, the pairing screen shows the PIN — nobody can
+  // read it from a headless host otherwise. Afterwards a paired remote shows it.
+  app.get('/api/v1/pair/setup', async () =>
+    isFirstRun() ? { firstRun: true, pin: loadPairing().pin } : { firstRun: false }
+  );
 
   app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/api/v1/')) return;
@@ -170,6 +176,11 @@ export async function buildServer(ctx: AppContext) {
 
   // Starts a scan (or joins the running one) and answers at once; progress comes over the
   // WebSocket as `scan` and from GET /api/v1/library/scan.
+  // The PIN for pairing another device, on a paired one (Settings → About). Not under
+  // /api/v1/pair — that prefix needs no token.
+  app.get('/api/v1/remotes/pin', async () => ({ pin: loadPairing().pin }));
+  app.post('/api/v1/remotes/pin', async () => ({ pin: rotatePin().pin }));
+
   app.post('/api/v1/library/rescan', async (req) => {
     const cfg = ctx.getConfig();
     void ctx.catalogue.scanRoots(cfg.library.roots).catch((err) => req.log.warn(err, 'Scan failed'));

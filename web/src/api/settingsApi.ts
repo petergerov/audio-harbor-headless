@@ -29,6 +29,10 @@ export interface SettingsApi {
   setUpDrive(uuid: string, name: string): Promise<string>;
   ejectDrive(name: string): Promise<void>;
   removeDrive(name: string): Promise<void>;
+  /** The host's current PIN, to pair another device. */
+  pairingPin(): Promise<string>;
+  /** A fresh PIN; the old one stops working. */
+  newPairingPin(): Promise<string>;
   output(): Promise<OutputStatus>;
   /** Asks the host to search for network players now, and returns the output as it is. */
   discoverOutput(): Promise<OutputStatus>;
@@ -87,6 +91,14 @@ export class HttpSettingsApi implements SettingsApi {
 
   async removeDrive(name: string): Promise<void> {
     await this.http.delete('/api/v1/drives', { name });
+  }
+
+  async pairingPin(): Promise<string> {
+    return (await this.http.get<{ pin: string }>('/api/v1/remotes/pin')).pin;
+  }
+
+  async newPairingPin(): Promise<string> {
+    return (await this.http.post<{ pin: string }>('/api/v1/remotes/pin')).pin;
   }
 
   output(): Promise<OutputStatus> {

@@ -3572,3 +3572,26 @@ body.overlay-open .ah-toast {
 .cell .value.accent {
   color: var(--tint);
 }
+
+/* Pairing: PIN on first setup and in Settings → About */
+.pair-first {
+  margin: 4px 0 16px;
+  padding: 14px 12px;
+  border-radius: var(--radius);
+  background: var(--fill);
+}
+
+.pair-first[hidden] {
+  display: none;
+}
+
+.pair-hint {
+  font-size: 13px;
+  color: var(--secondary);
+}
+
+.cell .value.pin-value {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
