@@ -5,6 +5,8 @@
 #   /opt/audio-harbor-headless/                app + bundled Node
 #   /usr/bin/audioharbor                       → start.sh
 #   /usr/lib/systemd/system/audioharbor@.service
+#   /usr/libexec/audio-harbor-headless/harbor-drive   root helper: drives → /etc/fstab
+#   /etc/sudoers.d/audio-harbor-headless              lets the service run it
 #
 # The service runs as the installing user (audioharbor@<user>), so config,
 # catalogue and PIN stay in ~/.audio-harbor-headless like a manual start.
@@ -64,7 +66,8 @@ trap 'rm -rf "$WORK"' EXIT
 PKG="$WORK/pkg"
 
 log "Staging $NAME → $PREFIX"
-mkdir -p "$PKG$PREFIX" "$PKG/usr/bin" "$PKG/usr/lib/systemd/system" "$PKG/DEBIAN"
+mkdir -p "$PKG$PREFIX" "$PKG/usr/bin" "$PKG/usr/lib/systemd/system" "$PKG/DEBIAN" \
+  "$PKG/usr/libexec/audio-harbor-headless" "$PKG/etc/sudoers.d"
 tar -xzf "$ARCHIVE" -C "$WORK"
 cp -a "$WORK/$NAME/." "$PKG$PREFIX/"
 # Source-build and Windows helpers have no use in the installed package.
@@ -73,6 +76,11 @@ chmod 755 "$PKG$PREFIX/start.sh"
 
 ln -s "$PREFIX/start.sh" "$PKG/usr/bin/audioharbor"
 install -m 644 "$ROOT/packaging/linux/audioharbor@.service" "$PKG/usr/lib/systemd/system/"
+install -m 755 "$ROOT/packaging/linux/harbor-drive" "$PKG/usr/libexec/audio-harbor-headless/"
+install -m 440 "$ROOT/packaging/linux/sudoers" "$PKG/etc/sudoers.d/audio-harbor-headless"
+if command -v visudo >/dev/null 2>&1; then
+  visudo -cqf "$PKG/etc/sudoers.d/audio-harbor-headless" || { echo "sudoers file invalid" >&2; exit 1; }
+fi
 install -m 755 "$ROOT/packaging/linux/debian/postinst" "$ROOT/packaging/linux/debian/prerm" "$PKG/DEBIAN/"
 
 # Lowest glibc the shipped binaries accept (bundled Node needs 2.28).
@@ -89,7 +97,7 @@ Package: audio-harbor-headless
 Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Petar Gerov <peter@gerov.com>
-Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2
+Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, sudo, util-linux
 Section: sound
 Priority: optional
 Homepage: https://github.com/petergerov/audio-harbor-headless

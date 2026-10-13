@@ -203,6 +203,38 @@ export interface Mount {
   displayName: string;
 }
 
+/** A drive the host sees; `name` is set once it has a Harbor fstab entry under /mnt/harbor. */
+export interface Drive {
+  uuid: string;
+  title: string;
+  device: string | null;
+  fsType: string;
+  sizeBytes: number | null;
+  connected: boolean;
+  name: string | null;
+  mountPoint: string | null;
+  mounted: boolean;
+  suggestedName: string;
+}
+
+export interface DriveList {
+  supported: boolean;
+  reason: string | null;
+  drives: Drive[];
+}
+
+export interface FolderEntry {
+  name: string;
+  path: string;
+}
+
+/** `path` null: the places to start from (drives, /media, home). */
+export interface FolderListing {
+  path: string | null;
+  parent: string | null;
+  folders: FolderEntry[];
+}
+
 /** What a play request queues: one of the contexts, optionally starting at a track. */
 export interface PlayContext {
   cataloguePath?: string;

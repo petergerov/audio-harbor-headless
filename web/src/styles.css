@@ -3515,3 +3515,24 @@ body.overlay-open .ah-toast {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Folder picker */
+.folder-path {
+  margin: 4px 20px 10px;
+  color: var(--secondary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.ah-body .folder-group {
+  margin: 0 16px 8px;
+}
+
+.folder-group .row-title,
+.folder-group .row-sub {
+  display: block;
+}
+
+.folder-group .row-text {
+  min-width: 0;
+}

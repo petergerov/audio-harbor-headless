@@ -1,10 +1,21 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import { loadConfig, normalizeNetworkDsd, normalizeNetworkStream, saveConfig } from '../config.js';
+import {
+  DRIVE_BASE,
+  DriveError,
+  ejectDrive,
+  folderStarts,
+  listDrives,
+  listFolder,
+  removeDrive,
+  setUpDrive,
+} from '../drives.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
 import { isAuthorized, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
@@ -94,9 +105,60 @@ export async function buildServer(ctx: AppContext) {
     const cfg = ctx.getConfig();
     if (!cfg.library.roots.includes(p)) cfg.library.roots.push(p);
     saveConfig(cfg);
-    await ctx.catalogue.scanRoots(cfg.library.roots);
+    ctx.settings.changed();
+    // A whole drive can take minutes — the remotes follow isScanning in the settings.
+    void ctx.catalogue.scanRoots(cfg.library.roots).catch((err) => req.log.warn(err, 'Scan failed'));
     return { roots: cfg.library.roots };
   });
+
+  // Folder picker: the folders inside `path`, or the places to start from without it.
+  app.get<{ Querystring: { path?: string } }>('/api/v1/folders', async (req, reply) => {
+    if (!req.query.path) return { path: null, parent: null, folders: folderStarts(os.homedir()) };
+    try {
+      return listFolder(req.query.path);
+    } catch {
+      return reply.code(400).send({ error: 'Folder not readable' });
+    }
+  });
+
+  // USB / SATA drives: set up in /etc/fstab under /mnt/harbor through the root helper.
+  app.get('/api/v1/drives', async () => listDrives());
+
+  const driveCall = async (reply: FastifyReply, op: () => Promise<unknown>) => {
+    try {
+      return await op();
+    } catch (err) {
+      if (err instanceof DriveError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
+  };
+
+  app.post<{ Body: { uuid?: string; name?: string } }>('/api/v1/drives', async (req, reply) =>
+    driveCall(reply, async () => ({
+      mountPoint: await setUpDrive(String(req.body?.uuid ?? ''), String(req.body?.name ?? '')),
+    }))
+  );
+
+  app.post<{ Body: { name?: string } }>('/api/v1/drives/eject', async (req, reply) =>
+    driveCall(reply, async () => {
+      await ejectDrive(String(req.body?.name ?? ''));
+      return { ok: true };
+    })
+  );
+
+  // Removes the fstab entry and the library folders on the drive.
+  app.delete<{ Body: { name?: string } }>('/api/v1/drives', async (req, reply) =>
+    driveCall(reply, async () => {
+      const name = String(req.body?.name ?? '');
+      await removeDrive(name);
+      const cfg = ctx.getConfig();
+      const mountPoint = `${DRIVE_BASE}/${name}`;
+      cfg.library.roots = cfg.library.roots.filter((r) => r !== mountPoint && !r.startsWith(`${mountPoint}/`));
+      saveConfig(cfg);
+      ctx.settings.changed();
+      return { roots: cfg.library.roots };
+    })
+  );
 
   app.delete<{ Body: { path: string } }>('/api/v1/mounts', async (req) => {
     const p = String(req.body?.path ?? '');

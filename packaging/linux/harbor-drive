@@ -1,0 +1,150 @@
+#!/bin/bash
+# Root helper for the web remote: puts a drive into /etc/fstab and mounts it
+# read-only under /mnt/harbor/<name>. The service runs it through sudo
+# (/etc/sudoers.d/audio-harbor-headless, group harbor-drives).
+#
+#   harbor-drive add <UUID> <name>   fstab entry + mount, owned by the calling user
+#   harbor-drive remove <name>       unmount, drop the fstab entry and the mount point
+#   harbor-drive eject <name>        unmount — safe to unplug; mounts again on access
+#
+# Only touches fstab entries below /mnt/harbor/. Errors go to stderr, one line.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 022
+
+BASE=/mnt/harbor
+FSTAB=/etc/fstab
+MARK="# audio-harbor-headless drive"
+
+die() { echo "$*" >&2; exit 1; }
+trap 'echo "harbor-drive: unexpected failure (line $LINENO)" >&2' ERR
+
+[[ "$(id -u)" -eq 0 ]] || die "harbor-drive must run as root"
+[[ -d /run/systemd/system ]] || die "systemd is not running"
+
+exec 9>/run/lock/harbor-drive.lock
+flock -w 30 9 || die "another drive change is still running"
+
+valid_name() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]]; }
+valid_uuid() { [[ "$1" =~ ^[A-Za-z0-9-]{1,64}$ ]]; }
+
+# fstab line of a mount point below $BASE, empty when there is none.
+fstab_entry() { awk -v mp="$1" '$1 !~ /^#/ && $2 == mp' "$FSTAB"; }
+
+units_for() {
+  automount_unit="$(systemd-escape --path --suffix=automount "$1")"
+  mount_unit="$(systemd-escape --path --suffix=mount "$1")"
+}
+
+# New fstab next to the old one, then rename — never a half-written fstab.
+write_fstab() {
+  local tmp="$FSTAB.harbor-tmp"
+  cat > "$tmp"
+  chmod 644 "$tmp"
+  cp -p "$FSTAB" "$FSTAB.harbor-backup"
+  mv "$tmp" "$FSTAB"
+}
+
+drop_entry() {
+  awk -v mp="$1" -v mark="$MARK" '
+    $0 == mark { held = $0; next }
+    $1 !~ /^#/ && $2 == mp { held = ""; next }
+    held != "" { print held; held = "" }
+    { print }
+    END { if (held != "") print held }
+  ' "$FSTAB" | write_fstab
+}
+
+cmd_add() {
+  local uuid="${1:-}" name="${2:-}"
+  valid_uuid "$uuid" || die "invalid UUID"
+  valid_name "$name" || die "invalid name — letters, digits, . _ - (up to 32)"
+  local mp="$BASE/$name"
+  local dev
+  dev="$(blkid -U "$uuid" 2>/dev/null)" || die "no drive with UUID $uuid is connected"
+
+  [[ -z "$(fstab_entry "$mp")" ]] || die "$mp is already in use"
+  grep -Eq "^[[:space:]]*UUID=\"?$uuid\"?[[:space:]]" "$FSTAB" && die "this drive is already in /etc/fstab"
+
+  # Never the disk the system runs from.
+  local disk root_src root_disk
+  disk="$(lsblk -no PKNAME "$dev" 2>/dev/null | head -1 || true)"; disk="${disk:-$(basename "$dev")}"
+  root_src="$(findmnt -no SOURCE / || true)"
+  root_disk="$(lsblk -no PKNAME "${root_src%%\[*}" 2>/dev/null | head -1 || true)"
+  [[ -n "$root_disk" && "$disk" == "$root_disk" ]] && die "this is the system disk"
+
+  # Mounted by the desktop under /media: take it over. Anything else: leave it alone.
+  local current
+  while read -r current; do
+    [[ -z "$current" ]] && continue
+    [[ "$current" == /media/* ]] || die "$dev is in use at $current"
+    umount "$current" || die "could not unmount $current"
+  done < <(lsblk -no MOUNTPOINTS "$dev")
+
+  local fs uid="${SUDO_UID:-}" gid="${SUDO_GID:-}" type opts
+  fs="$(blkid -s TYPE -o value "$dev")"
+  [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] || die "run through sudo"
+  local owner="uid=$uid,gid=$gid,umask=022"
+  case "$fs" in
+    exfat) type=exfat; opts="ro,$owner" ;;
+    vfat) type=vfat; opts="ro,$owner,utf8" ;;
+    ntfs)
+      if modprobe -q ntfs3 2>/dev/null || grep -qw ntfs3 /proc/filesystems; then type=ntfs3
+      elif command -v ntfs-3g >/dev/null 2>&1; then type=ntfs-3g
+      else die "NTFS needs the ntfs3 kernel module or ntfs-3g (sudo apt install ntfs-3g)"
+      fi
+      opts="ro,$owner" ;;
+    ext2|ext3|ext4|btrfs|xfs) type="$fs"; opts=ro ;;
+    "") die "$dev has no file system" ;;
+    *) die "file system $fs is not supported" ;;
+  esac
+  # Boot does not wait for the drive; an unplugged drive fails fast instead of after 90 s.
+  opts="$opts,nofail,x-systemd.automount,x-systemd.device-timeout=5s,x-systemd.mount-timeout=30s"
+
+  mkdir -p "$mp"
+  { cat "$FSTAB"; printf '%s\nUUID=%s  %s  %s  %s  0  0\n' "$MARK" "$uuid" "$mp" "$type" "$opts"; } | write_fstab
+
+  units_for "$mp"
+  systemctl daemon-reload
+  if ! systemctl restart "$automount_unit" || ! ls "$mp" >/dev/null 2>&1 \
+      || [[ "$(findmnt -no FSTYPE "$mp" | tail -1)" == autofs ]]; then
+    local why
+    why="$(journalctl -b -u "$mount_unit" -n 3 -o cat --no-pager 2>/dev/null | tail -1)"
+    systemctl stop "$automount_unit" "$mount_unit" 2>/dev/null || true
+    drop_entry "$mp"
+    systemctl daemon-reload
+    rmdir "$mp" 2>/dev/null || true
+    die "could not mount $dev${why:+: $why}"
+  fi
+  echo "$mp"
+}
+
+cmd_remove() {
+  local name="${1:-}"
+  valid_name "$name" || die "invalid name"
+  local mp="$BASE/$name"
+  [[ -n "$(fstab_entry "$mp")" ]] || die "$mp is not set up"
+  units_for "$mp"
+  systemctl stop "$automount_unit" "$mount_unit" 2>/dev/null || true
+  mountpoint -q "$mp" && { umount "$mp" || die "$mp is busy"; }
+  drop_entry "$mp"
+  systemctl daemon-reload
+  rmdir "$mp" 2>/dev/null || true
+}
+
+cmd_eject() {
+  local name="${1:-}"
+  valid_name "$name" || die "invalid name"
+  local mp="$BASE/$name"
+  [[ -n "$(fstab_entry "$mp")" ]] || die "$mp is not set up"
+  units_for "$mp"
+  systemctl stop "$mount_unit" || die "$mp is busy"
+  sync
+}
+
+case "${1:-}" in
+  add) shift; cmd_add "$@" ;;
+  remove) shift; cmd_remove "$@" ;;
+  eject) shift; cmd_eject "$@" ;;
+  *) die "usage: harbor-drive add <UUID> <name> | remove <name> | eject <name>" ;;
+esac

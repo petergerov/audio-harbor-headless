@@ -74,7 +74,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 
 1. Open `http://audioharbor.local:8787` on the iPhone (Safari → Share → Add to Home Screen keeps it as an app).
 2. PIN for the Bonjour remote: `audioharbor pair` (as the service user).
-3. Add music: Settings → Sources → Add Folder. For a USB drive see [Music on a USB drive](#music-on-a-usb-drive).
+3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive).
 4. Pick the DAC: Settings → Output → Device.
 
 The QR code the host prints at start is in the journal:
@@ -90,11 +90,13 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 | `/opt/audio-harbor-headless/` | host, web remote, native engine, bundled Node 22 (`runtime/bin/node`) |
 | `/usr/bin/audioharbor` | symlink to `/opt/audio-harbor-headless/start.sh` |
 | `/usr/lib/systemd/system/audioharbor@.service` | service template, one instance per user |
+| `/usr/libexec/audio-harbor-headless/harbor-drive` | root helper that sets up drives in `/etc/fstab` (see [Music on a USB drive](#music-on-a-usb-drive)) |
+| `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run that helper, and nothing else, as root |
 | `~/.audio-harbor-headless/` | config, catalogue, artwork, PIN — of the service user, created on first start |
 
 ## The service
 
-`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra group `audio` (`SupplementaryGroups=audio`), so it can open ALSA devices without changing the user account. It waits for `network-online.target` and `remote-fs.target` (network shares, see below) and restarts 5 s after a crash.
+`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra groups `audio` and `harbor-drives` (`SupplementaryGroups=`), so it can open ALSA devices and set up drives without changing the user account. It waits for `network-online.target` and `remote-fs.target` (network shares, see below) and restarts 5 s after a crash.
 
 Because it runs as a normal user, everything stays where a manual start puts it: `audioharbor pair` and `audioharbor rescan` in a terminal work on the same data, and folders the user can read are readable for the host.
 
@@ -118,6 +120,31 @@ Terminal commands:
 | `audioharbor rescan` | re-indexes the library folders |
 
 ## Music on a USB drive
+
+### From the remote
+
+Plug in the drive, then Settings → Sources → Drives:
+
+1. **Look for Drives** lists the drives the host sees — label, size, file system. The disk the system runs from is never listed.
+2. **Set Up** asks for a short name (letters, digits, `-` `_` `.`), adds the drive to `/etc/fstab` and mounts it read-only at `/mnt/harbor/<name>`.
+3. The folder picker opens on the drive: tap through to the music folder and **Add**. **Add Folder** on the drive's row adds more folders later.
+
+The `•••` menu of a set-up drive:
+
+- **Eject** unmounts it — safe to unplug. The host mounts it again on the next access.
+- **Remove Drive…** takes it out of `/etc/fstab`, removes `/mnt/harbor/<name>` and its folders from the library. The files on the drive stay.
+
+What it does:
+
+- The fstab line is the one below: by UUID, `ro`, `nofail`, `x-systemd.automount`, `x-systemd.device-timeout=5s` — boot does not wait for the drive, plugging it in again needs nothing, and while it is unplugged an access fails after 5 s instead of hanging. exFAT, FAT and NTFS get the service user as owner (`uid=`, `gid=`); ext4, btrfs and xfs keep the permissions on the drive.
+- A drive the desktop already mounted under `/media/…` is taken over; a drive mounted anywhere else is not listed.
+- Each change backs up the previous fstab to `/etc/fstab.harbor-backup`. The helper only edits entries below `/mnt/harbor/`, marked `# audio-harbor-headless drive`.
+- It works when Harbor runs as the `audioharbor@` service: the service has the group `harbor-drives`, and `/etc/sudoers.d/audio-harbor-headless` lets that group run `/usr/libexec/audio-harbor-headless/harbor-drive` as root. The helper checks its arguments (UUID, name) and refuses the system disk. A manual `audioharbor` in a terminal has no such group — the remote then says so and you use the way below.
+- NTFS needs the `ntfs3` kernel module (Raspberry Pi OS has it) or `sudo apt install ntfs-3g`.
+
+The host does not watch the folders: after copying new albums onto the drive press Rescan.
+
+### By hand
 
 Raspberry Pi OS Lite mounts nothing on its own, and the desktop only mounts a drive under `/media/<desktop user>/…` while someone is logged in — readable for that user, often not for the service user. Mount the drive in `/etc/fstab` instead: it is there at boot, without a login, and comes back when you plug it in again.
 
@@ -238,7 +265,7 @@ Run the installer again, or `sudo apt install ./<new>.deb`. Running instances re
 sudo apt remove audio-harbor-headless
 ```
 
-Stops and disables every `audioharbor@…` instance and removes `/opt/audio-harbor-headless`. `~/.audio-harbor-headless` stays — delete it by hand for a clean slate. A later install enables the service again.
+Stops and disables every `audioharbor@…` instance and removes `/opt/audio-harbor-headless`. `~/.audio-harbor-headless` stays — delete it by hand for a clean slate. Drives set up from the remote stay in `/etc/fstab` (marked `# audio-harbor-headless drive`, harmless with `nofail`) — remove them in the remote before, or delete the lines by hand. A later install enables the service again.
 
 ## Portable `.tar.gz`
 
@@ -263,6 +290,8 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 | No DAC in the device list | `aplay -l` lists the ALSA cards; the user needs the `audio` group for a manual start (`sudo usermod -aG audio pi`, log in again). The service has it already. |
 | `GLIBC_2.xx not found` | OS too old — see Requirements. |
 | Music folder not readable | the service runs as the user — `sudo -u pi ls /path/to/music`. |
+| Drives section says it needs the service | Harbor was started by hand (`audioharbor`), not as the service — `systemctl status audioharbor@<user>`. After an update from a version without the drive helper: `sudo systemctl restart audioharbor@<user>`. |
+| Set Up fails | the message comes from the helper; details: `journalctl -b -u 'mnt-harbor-*'`. Undo by hand: the previous fstab is `/etc/fstab.harbor-backup`. |
 | Tracks of a share do not play | share not mounted: `ls /mnt/nas`, `systemctl status mnt-nas.automount`, `journalctl -b \| grep -i cifs`. |
 
 ## Building the packages
@@ -282,7 +311,7 @@ Needs a Linux host with `dpkg-deb`; builds for the host CPU. Output: `dist/packa
 
 Maintainer scripts:
 
-- `postinst` — fresh install: `systemctl enable --now audioharbor@<user>`, user from `HARBOR_USER`, else `SUDO_USER`, else the user with UID 1000. Upgrade: `try-restart` of running instances. Skips systemd when it is not running.
+- `postinst` — creates the system group `harbor-drives` (drive helper through sudo). Fresh install: `systemctl enable --now audioharbor@<user>`, user from `HARBOR_USER`, else `SUDO_USER`, else the user with UID 1000. Upgrade: `try-restart` of running instances. Skips systemd when it is not running.
 - `prerm` — on removal: stop all instances and remove their `*.wants` links.
 
 ### Release workflow

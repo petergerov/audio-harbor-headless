@@ -8,7 +8,8 @@ After=network-online.target remote-fs.target sound.target
 [Service]
 Type=simple
 User=%i
-SupplementaryGroups=audio
+# harbor-drives: may run the drive helper through sudo (web remote → Set Up drive).
+SupplementaryGroups=audio harbor-drives
 # Config, catalogue and PIN live in ~%i/.audio-harbor-headless — same as a manual start.
 ExecStart=/opt/audio-harbor-headless/start.sh serve
 Restart=on-failure
