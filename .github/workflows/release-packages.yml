@@ -2,6 +2,8 @@ name: Release packages
 
 # Builds ready-to-run archives per platform and attaches them to a GitHub Release.
 # macOS jobs also produce a Developer ID–signed (and optionally notarized) .pkg.
+# For now only arm64 installers are released: darwin-arm64 .pkg and the arm64 .deb
+# (+ install-linux.sh). x64 jobs and the portable .tar.gz are commented out, not removed.
 # Manual only — Actions → Release packages → Run workflow.
 on:
   workflow_dispatch:
@@ -38,10 +40,11 @@ jobs:
           - platform: darwin-arm64
             runner: macos-14
             macos: true
+          # Paused — arm64 only for now.
           # macos-15-intel is the current x86_64 macOS runner (macos-13 retired Dec 2025)
-          - platform: darwin-x64
-            runner: macos-15-intel
-            macos: true
+          # - platform: darwin-x64
+          #   runner: macos-15-intel
+          #   macos: true
           # Temporarily disabled — rsync/packaging issues on windows-2022
           # - platform: win32-x64
           #   runner: windows-2022
@@ -121,12 +124,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.platform }}
+          # Portable .tar.gz / .zip paused — arm64 installers only for now.
+          #   dist/packages/*.tar.gz
+          #   dist/packages/*.tar.gz.sha256
+          #   dist/packages/*.zip
           path: |
-            dist/packages/*.tar.gz
-            dist/packages/*.tar.gz.sha256
             dist/packages/*.pkg
             dist/packages/*.pkg.sha256
-            dist/packages/*.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -143,8 +147,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: linux-x64
-            runner: ubuntu-24.04
+          # Paused — arm64 only for now.
+          # - platform: linux-x64
+          #   runner: ubuntu-24.04
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
 
@@ -183,16 +188,18 @@ jobs:
         run: ./create-deb.sh
 
       - name: Add Linux installer script
-        if: matrix.platform == 'linux-x64'
+        # Was linux-x64 — moved while the x64 job is paused.
+        if: matrix.platform == 'linux-arm64'
         run: cp packaging/linux/install-linux.sh dist/packages/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.platform }}
+          # Portable .tar.gz paused — the .deb is built from it, but not released for now.
+          #   dist/packages/*.tar.gz
+          #   dist/packages/*.tar.gz.sha256
           path: |
-            dist/packages/*.tar.gz
-            dist/packages/*.tar.gz.sha256
             dist/packages/*.deb
             dist/packages/*.deb.sha256
             dist/packages/install-linux.sh
@@ -236,26 +243,28 @@ jobs:
             | Asset | Platform |
             |---|---|
             | `*-darwin-arm64.pkg` | Apple Silicon Mac — signed installer |
+            | `*_arm64.deb` | Raspberry Pi 64-bit / ARM64 — Debian package with systemd service |
+            | `install-linux.sh` | one-line installer for the `.deb` |
+
+            <!-- Paused — arm64 installers only for now:
             | `*-darwin-x64.pkg` | Intel Mac — signed installer |
             | `*-darwin-arm64.tar.gz` | Apple Silicon Mac (portable) |
             | `*-darwin-x64.tar.gz` | Intel Mac (portable) |
-            | `*_arm64.deb` | Raspberry Pi 64-bit / ARM64 — Debian package with systemd service |
             | `*_amd64.deb` | Linux x86_64 — Debian package with systemd service |
-            | `install-linux.sh` | one-line installer for the `.deb` |
             | `*-linux-x64.tar.gz` | Linux x86_64 (portable) |
             | `*-linux-arm64.tar.gz` | Raspberry Pi 64-bit / ARM64 Linux (portable) |
+            -->
 
             **macOS:** prefer the `.pkg` (Developer ID signed; notarized when credentials are configured). Installs to `/usr/local/audio-harbor-headless` and adds `audioharbor` on `PATH`.
-            **Portable:** unpack a `.tar.gz` → `./start.sh`. **Node.js is bundled** under `runtime/`.
-            macOS: typically **macOS 11+**.
-            **Raspberry Pi OS / Debian / Ubuntu:** `curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install-linux.sh | sudo bash` — installs the `.deb` to `/opt/audio-harbor-headless` and starts service `audioharbor@<user>`. Built on Debian 12 (glibc 2.32+): Raspberry Pi OS Bookworm or newer, Debian 12+, Ubuntu 22.04+.
-            Portable Linux: `sudo apt install libasound2` if ALSA is missing.
+            <!-- **Portable:** unpack a `.tar.gz` → `./start.sh`. **Node.js is bundled** under `runtime/`. -->
+            **Node.js is bundled.** macOS: Apple Silicon, typically **macOS 11+**.
+            **Raspberry Pi OS / Debian / Ubuntu:** `curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install-linux.sh | sudo bash` — installs the `.deb` to `/opt/audio-harbor-headless` and starts service `audioharbor@<user>`. arm64 only (64-bit Raspberry Pi OS, Pi 3 or newer). Built on Debian 12 (glibc 2.32+): Raspberry Pi OS Bookworm or newer, Debian 12+, Ubuntu 22.04+.
+            <!-- Portable Linux: `sudo apt install libasound2` if ALSA is missing. -->
+          # Paused: release-assets/*.tar.gz, release-assets/*.zip (portable archives)
           files: |
-            release-assets/*.tar.gz
             release-assets/*.sha256
             release-assets/*.pkg
             release-assets/*.deb
             release-assets/install-linux.sh
-            release-assets/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
