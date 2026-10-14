@@ -27,10 +27,10 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 
 ### Which package
 
-There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.0.2 has `arm64` only** (`.deb`, `.tar.gz`); the newest `amd64` package and macOS `.pkg` are in v1.0.1. On a PC the installer then stops with `no .deb for amd64 in that release`. By hand, check the CPU first:
+There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.0.2 has all but Windows**: `.deb` and `.tar.gz` for `arm64` and `amd64`, `.pkg` and `.tar.gz` for Apple Silicon and Intel Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
 
 ```bash
-dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name; amd64 now: HARBOR_VERSION=v1.0.1
+dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name
 ```
 
 The files of a release ([release page](https://github.com/petergerov/audio-harbor-headless/releases)):
