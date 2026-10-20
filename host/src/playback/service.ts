@@ -21,6 +21,7 @@ import {
   resolveSacdPlaybackPath,
   SACD_MARKER,
 } from '../library/sacd.js';
+import { localPathLabel } from '../resolution.js';
 import { isDsdTrack, nativeDsdContainers, sinkDsdTypes } from '../upnp/networkMedia.js';
 import { LoadSuperseded, type NetworkPlayer } from '../upnp/networkPlayer.js';
 import {
@@ -209,7 +210,7 @@ export class PlaybackService extends EventEmitter {
       repeat: this.repeat,
       volume: eng?.volume ?? output.volume,
       output,
-      conversionBadge: eng?.conversionBadge ?? output.conversionBadge,
+      conversionBadge: eng ? localPathLabel(eng) : output.conversionBadge,
       error: eng?.error ?? null,
       ...queue,
     };

@@ -41,6 +41,53 @@ constexpr AlsaFormat kPcmFormats[] = {
     {SND_PCM_FORMAT_S16_LE, "16-bit"},
 };
 
+/**
+ * Rate and sample width a card runs at, from /proc/asound — behind plughw the card may run at
+ * another rate or format than the one written to it. `dev` is plughw:CARD=<id>,DEV=<n> (or
+ * plughw:<card>,<device>). False when the card or an open substream is not found.
+ */
+bool cardFormat(const std::string& dev, uint32_t& rate, int& bits) {
+  std::string card;
+  std::string device = "0";
+  int position = 0;
+  size_t start = dev.find(':') + 1;
+  while (start > 0 && start <= dev.size()) {
+    const size_t end = dev.find(',', start);
+    const std::string part = dev.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    if (part.rfind("CARD=", 0) == 0) card = part.substr(5);
+    else if (part.rfind("DEV=", 0) == 0) device = part.substr(4);
+    else if (position == 0) card = part;
+    else if (position == 1) device = part;
+    ++position;
+    if (end == std::string::npos) break;
+    start = end + 1;
+  }
+  if (card.empty() || device.empty() || device.find_first_not_of("0123456789") != std::string::npos) return false;
+  const int index = snd_card_get_index(card.c_str());
+  if (index < 0) return false;
+  for (int sub = 0; sub < 32; ++sub) {
+    char path[128];
+    std::snprintf(path, sizeof(path), "/proc/asound/card%d/pcm%sp/sub%d/hw_params", index, device.c_str(), sub);
+    FILE* f = std::fopen(path, "r");
+    if (!f) break;
+    char line[128];
+    char name[32] = {};
+    unsigned long hz = 0;
+    while (std::fgets(line, sizeof(line), f)) {
+      if (std::sscanf(line, "format: %31s", name) == 1) continue;
+      std::sscanf(line, "rate: %lu", &hz);
+    }
+    std::fclose(f);
+    // A closed substream has just "closed".
+    const snd_pcm_format_t format = name[0] ? snd_pcm_format_value(name) : SND_PCM_FORMAT_UNKNOWN;
+    if (format == SND_PCM_FORMAT_UNKNOWN || !hz) continue;
+    rate = uint32_t(hz);
+    bits = snd_pcm_format_width(format);
+    return true;
+  }
+  return false;
+}
+
 /** Float (full scale ±1) to the device format, clipped instead of wrapped. */
 void convertFloat(const float* in, size_t samples, float gain, snd_pcm_format_t format, uint8_t* out) {
   auto scaled = [&](size_t i, double full) {
@@ -268,6 +315,12 @@ public:
     s.duration_secs = duration_;
     s.effective_mode = effectiveMode_;
     std::snprintf(s.conversion_badge, sizeof(s.conversion_badge), "%s", badge_.c_str());
+    if (pcmHandle_) {
+      s.stream_rate = sampleRate_;
+      s.device_rate = deviceRate_;
+      s.device_bits = deviceBits_;
+      s.is_dop = isDop_ ? 1 : 0;
+    }
     s.volume = volume_;
     std::snprintf(s.error, sizeof(s.error), "%s", error_.c_str());
     return s;
@@ -354,6 +407,18 @@ private:
     err = snd_pcm_hw_params(pcmHandle_, params);
     if (err < 0) return fail(std::string("ALSA setup failed: ") + snd_strerror(err));
     frameBytes_ = size_t(snd_pcm_format_physical_width(format_) / 8) * channels_;
+
+    // What the DAC gets. hw: runs at the file's rate; its significant bits are the DAC's
+    // (24 in a 32-bit sample for most USB DACs). Behind plughw the card says it in /proc.
+    deviceRate_ = 0;
+    deviceBits_ = 0;
+    if (dev.rfind("plughw:", 0) == 0) {
+      cardFormat(dev, deviceRate_, deviceBits_);
+    } else if (dev.rfind("hw:", 0) == 0) {
+      const int sbits = snd_pcm_hw_params_get_sbits(params);
+      deviceRate_ = rate;
+      deviceBits_ = sbits > 0 ? sbits : snd_pcm_format_width(format_);
+    }
     return true;
   }
 
@@ -481,6 +546,8 @@ private:
   std::atomic<bool> cancelDecodeFlag_ { false };
   snd_pcm_t* pcmHandle_ = nullptr;
   snd_pcm_format_t format_ = SND_PCM_FORMAT_FLOAT_LE;
+  uint32_t deviceRate_ = 0;
+  int deviceBits_ = 0;
   size_t frameBytes_ = 8;
   bool threadRunning_ = false;
 };

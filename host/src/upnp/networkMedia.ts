@@ -1,5 +1,6 @@
 import { engineNetStreamClose, engineNetStreamOpen, engineNetStreamRead } from '../engine/bridge.js';
 import { SACD_MARKER } from '../library/sacd.js';
+import { dsdName, resolution } from '../resolution.js';
 import type { AudioFormat, NetworkDsdMode, NetworkStreamQuality, Track } from '../types.js';
 import { formatTime } from './controlPoint.js';
 import { DLNA_FEATURES } from './mediaHttp.js';
@@ -120,23 +121,6 @@ export interface NetworkSignal {
   bitsPerSample: number | null;
 }
 
-/** 44100 → "44.1 kHz", 96000 → "96 kHz". */
-function kHz(rate: number): string {
-  return `${Number((rate / 1000).toFixed(1))} kHz`;
-}
-
-/** 2.8224 MHz → DSD64, twice that → DSD128 … */
-function dsdName(rate: number | null): string {
-  return rate ? `DSD${Math.round(rate / 44_100)}` : 'DSD';
-}
-
-/** "44.1 kHz / 24-bit"; lossy files have no bit depth: "44.1 kHz". */
-function resolution(signal: NetworkSignal): string {
-  const rate = signal.sampleRate ? kHz(signal.sampleRate) : '';
-  const bits = signal.bitsPerSample ? `${signal.bitsPerSample}-bit` : '';
-  return [rate, bits].filter(Boolean).join(' / ');
-}
-
 /**
  * What the Deck and the remotes show as the path — what goes to the player and at what
  * resolution: "FLAC 44.1 kHz / 24-bit · Network", "DSD→PCM 88.2 kHz / 24-bit · Network",
@@ -146,10 +130,12 @@ export function networkPathLabel(plan: NetworkMediaPlan, signal: NetworkSignal):
   let what: string;
   if (plan.kind === 'dop') what = `DoP ${dsdName(signal.sampleRate ? signal.sampleRate * 16 : null)}`;
   else if (plan.kind === 'file') {
-    what = plan.dsd ? dsdName(signal.sampleRate) : `${signal.format.toUpperCase()} ${resolution(signal)}`;
+    what = plan.dsd
+      ? dsdName(signal.sampleRate)
+      : `${signal.format.toUpperCase()} ${resolution(signal.sampleRate, signal.bitsPerSample)}`;
   } else {
     const kind = plan.dsd ? (plan.wifi ? 'Wi‑Fi PCM' : 'DSD→PCM') : 'PCM';
-    what = `${kind} ${resolution(signal)}`;
+    what = `${kind} ${resolution(signal.sampleRate, signal.bitsPerSample)}`;
   }
   return `${what.trim()} · Network`;
 }

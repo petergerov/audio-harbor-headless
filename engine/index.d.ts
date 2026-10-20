@@ -22,6 +22,12 @@ export interface EngineState {
   durationSecs: number | null;
   effectiveMode: OutputMode;
   conversionBadge: string | null;
+  /** Rate the engine feeds the device (file, DSD→PCM or DoP carrier); 0 when nothing is loaded. */
+  streamRate: number;
+  /** Rate and bits the device runs at; 0 when the platform does not tell (Windows). */
+  deviceRate: number;
+  deviceBits: number;
+  dop: boolean;
   volume: number | null;
   error: string | null;
 }

@@ -59,6 +59,10 @@ Napi::Object stateToJs(Napi::Env env, const HarborEngineState& s) {
   o.Set("effectiveMode", modeToString(s.effective_mode));
   if (s.conversion_badge[0]) o.Set("conversionBadge", s.conversion_badge);
   else o.Set("conversionBadge", env.Null());
+  o.Set("streamRate", double(s.stream_rate));
+  o.Set("deviceRate", double(s.device_rate));
+  o.Set("deviceBits", double(s.device_bits));
+  o.Set("dop", s.is_dop != 0);
   if (s.volume >= 0) o.Set("volume", s.volume);
   else o.Set("volume", env.Null());
   if (s.error[0]) o.Set("error", s.error);

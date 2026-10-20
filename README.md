@@ -126,6 +126,18 @@ Same idea as Audio Harbor: playlists and labels are sets of catalogue paths.
 - **Exclusive** — Core Audio hog / ALSA `hw:` / WASAPI Exclusive
 - **DoP** — native DoP into a DSD DAC (DSD→PCM with a badge when the path cannot do DoP)
 
+The Deck badge (also the bottom player and Settings → Output → Path) shows what the DAC gets — the rate and bits the device runs at, then the path:
+
+| Badge | Means |
+|---|---|
+| `96 kHz / 24-bit · Exclusive` | the file's rate, bit-perfect |
+| `44.1 → 48 kHz / 24-bit · Shared` | the system resamples to the rate the device is set to (Audio MIDI Setup on a Mac); Exclusive avoids that |
+| `DSD→PCM 88.2 kHz / 24-bit · Exclusive` | DSD as PCM |
+| `DoP DSD64` | DoP into the DAC |
+| `… · Shared (no external DAC)` | Exclusive / DoP asked for, but the device is not an external DAC |
+
+macOS reads the device's rate and physical format; Linux the `hw:` format (significant bits, e.g. 24 in a 32-bit sample), or in Shared what the card runs at behind `plughw` (`/proc/asound/card*/pcm*p/sub*/hw_params`, the sample width). Windows shows the path only.
+
 ### Network players (UPnP / DLNA)
 
 A UPnP / DLNA renderer on the home network — a streamer, an amp such as a Devialet Expert, some TVs and soundbars — is an output like a DAC. The host stays the player with library and queue; the renderer pulls the audio over HTTP. Same behaviour as [Audio Harbor](https://github.com/petergerov/audio-harbor/blob/main/docs/UPNP.md).

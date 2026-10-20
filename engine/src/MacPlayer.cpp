@@ -236,6 +236,11 @@ public:
     s.duration_secs = duration_;
     s.effective_mode = effectiveMode_;
     std::snprintf(s.conversion_badge, sizeof(s.conversion_badge), "%s", badge_.c_str());
+    if (audioUnit_) {
+      s.stream_rate = sampleRate_;
+      s.is_dop = isDop_ ? 1 : 0;
+      deviceFormat_(s.device_rate, s.device_bits);
+    }
     s.volume = volume_;
     std::snprintf(s.error, sizeof(s.error), "%s", error_.c_str());
     return s;
@@ -274,6 +279,39 @@ private:
         || transport == kAudioDeviceTransportTypeFireWire
         || transport == kAudioDeviceTransportTypeThunderbolt
         || transport == kAudioDeviceTransportTypePCI;
+  }
+
+  /**
+   * Rate and bits the device runs at — what the DAC gets. Read each time: a hog's rate change
+   * lands a moment later, and in Shared the device keeps its own rate (Core Audio resamples).
+   */
+  void deviceFormat_(uint32_t& rate, int& bits) const {
+    const AudioDeviceID id = selectedDeviceId_();
+    if (id == kAudioObjectUnknown) return;
+    AudioObjectPropertyAddress rateAddr {
+      kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain
+    };
+    Float64 nominal = 0;
+    UInt32 size = sizeof(nominal);
+    if (AudioObjectGetPropertyData(id, &rateAddr, 0, nullptr, &size, &nominal) == noErr && nominal > 0) {
+      rate = uint32_t(nominal + 0.5);
+    }
+    AudioObjectPropertyAddress streamsAddr {
+      kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain
+    };
+    if (AudioObjectGetPropertyDataSize(id, &streamsAddr, 0, nullptr, &size) != noErr || size < sizeof(AudioStreamID)) {
+      return;
+    }
+    std::vector<AudioStreamID> streams(size / sizeof(AudioStreamID));
+    if (AudioObjectGetPropertyData(id, &streamsAddr, 0, nullptr, &size, streams.data()) != noErr) return;
+    AudioObjectPropertyAddress formatAddr {
+      kAudioStreamPropertyPhysicalFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain
+    };
+    AudioStreamBasicDescription physical {};
+    size = sizeof(physical);
+    if (AudioObjectGetPropertyData(streams[0], &formatAddr, 0, nullptr, &size, &physical) == noErr) {
+      bits = int(physical.mBitsPerChannel);
+    }
   }
 
   void refreshEffective_() {

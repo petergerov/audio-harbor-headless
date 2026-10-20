@@ -8,6 +8,7 @@ import type {
   NetStreamOptions,
   OutputMode,
 } from '@harbor/engine';
+import { localPathLabel } from '../resolution.js';
 import type { AudioBackend, OutputDevice, OutputStatus } from '../types.js';
 
 const require = createRequire(import.meta.url);
@@ -190,7 +191,7 @@ export function buildOutputStatus(
     requestedMode,
     effectiveMode: (st?.effectiveMode as OutputMode) ?? requestedMode,
     volume: st?.volume ?? null,
-    conversionBadge: st?.conversionBadge ?? null,
+    conversionBadge: st ? localPathLabel(st) : null,
     audioBackend: requestedBackend,
     effectiveAudioBackend: String(be?.effective ?? requestedBackend),
     availableAudioBackends: String(be?.available ?? 'auto')

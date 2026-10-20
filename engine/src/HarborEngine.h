@@ -41,6 +41,12 @@ typedef struct HarborEngineState {
   double duration_secs; /* < 0 if unknown */
   HarborOutputMode effective_mode;
   char conversion_badge[128];
+  /* What the device gets: the rate the engine feeds it (the file's, the DSD→PCM rate, or the
+     DoP carrier at DSD rate / 16) and the rate and bits the device runs at. 0 = unknown. */
+  uint32_t stream_rate;
+  uint32_t device_rate;
+  int device_bits;
+  int is_dop;
   float volume; /* < 0 if unavailable */
   char error[256];
 } HarborEngineState;
