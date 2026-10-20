@@ -127,7 +127,7 @@ export class NowBar implements PlayerChrome {
         </div>
       </div>
       <div class="now-bar-aside">
-        <span class="now-bar-badge" data-now-badge>${escapeHtml(state.nowPlaying?.conversionBadge ?? '')}</span>
+        <span class="now-bar-badge" data-now-badge title="${escapeHtml(state.nowPlaying?.conversionBadge ?? '')}">${escapeHtml(state.nowPlaying?.conversionBadge ?? '')}</span>
         <div class="now-bar-vol">
           ${icons.volMin}
           <input data-vol type="range" min="0" max="1" step="0.01" value="${Number(volume ?? 0.8)}" aria-label="Volume" ${volume == null ? 'disabled' : ''} />

@@ -2371,7 +2371,8 @@ body.overlay-open .ah-toast {
 /* Desktop bottom player (Showboard-style) */
 .now-bar {
   display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(280px, 1.6fr) minmax(160px, 1fr);
+  /* The right column fits the longest path badge next to the volume. */
+  grid-template-columns: minmax(180px, 1.1fr) minmax(280px, 1.6fr) minmax(340px, 1fr);
   align-items: center;
   gap: 16px 24px;
   height: var(--bar-h, 88px);
@@ -2498,6 +2499,9 @@ body.overlay-open .ah-toast {
 }
 
 .now-bar-badge {
+  /* Takes its width; the volume gives way down to its minimum, then the text is cut. */
+  flex-shrink: 0;
+  max-width: calc(100% - 96px - 14px);
   font-size: 11px;
   font-weight: 600;
   color: var(--tint);
@@ -2505,13 +2509,16 @@ body.overlay-open .ah-toast {
   padding: 4px 8px;
   border-radius: 999px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .now-bar-vol {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(160px, 100%);
+  flex: 0 1 160px;
+  min-width: 96px;
   color: var(--secondary);
 }
 
@@ -2546,7 +2553,7 @@ body.overlay-open .ah-toast {
   }
 
   .now-bar-vol {
-    width: 110px;
+    flex-basis: 110px;
   }
 }
 

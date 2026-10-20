@@ -140,6 +140,17 @@ A UPnP / DLNA renderer on the home network — a streamer, an amp such as a Devi
   | DSF, DFF, SACD ISO (also DST) | by the player's **DSD** setting, below |
 
   WAV is made on the fly with a computed `Content-Length`, so `Range` requests map to frames and seeking works.
+- **Shown on the Deck** (and in the bottom player, and as Path under Settings → Output): what goes to the player and at what resolution:
+
+  | Badge | Means |
+  |---|---|
+  | `FLAC 44.1 kHz / 24-bit · Network` | the file untouched (`MP3 44.1 kHz · Network` for lossy files, which have no bit depth) |
+  | `PCM 48 kHz / 24-bit · Network` | a format the player does not list, as WAV |
+  | `DSD64 · Network` | the DSD file untouched |
+  | `DSD→PCM 88.2 kHz / 24-bit · Network` | DSD as PCM |
+  | `Wi‑Fi PCM 44.1 kHz / 16-bit · Network` | DSD on **Wi‑Fi** stream |
+  | `DoP DSD64 · Network` | DoP; the WAV runs at DSD rate / 16 (DSD64 → 176.4 kHz / 24-bit) |
+
 - **Network stream** (`output.network_stream`, shown under Output once a network player is picked): `full` sends the best the player takes; `wifi` turns only DSD / SACD into 44.1 kHz / 16-bit PCM (about 1.4 instead of 4.2 Mbit/s), whatever DSD is set to. Use it when DSD drops out over Wi‑Fi.
 - **DSD** (Settings → Output → DSD for a network player, stored per player in `network.dsd_modes`):
 

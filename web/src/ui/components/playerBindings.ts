@@ -85,6 +85,7 @@ export class PlayerBindings {
     });
     this.each(PlayerMarkup.badge, (el) => {
       el.textContent = state.nowPlaying?.conversionBadge ?? '';
+      el.title = el.textContent;
     });
     this.each(PlayerMarkup.shuffle, (el) => {
       el.setAttribute('aria-pressed', String(Boolean(state.nowPlaying?.shuffle)));

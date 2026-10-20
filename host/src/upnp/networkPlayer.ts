@@ -63,7 +63,7 @@ export class NetworkPlayer extends EventEmitter {
   state: PlaybackState = 'idle';
   error: string | null = null;
   durationSecs = 0;
-  /** Network · PCM · Network · DSD · Network · DoP · Network · DSD→PCM · Network · Wi‑Fi PCM · Network */
+  /** What goes to the player and at what resolution: "FLAC 44.1 kHz / 24-bit · Network", "DoP DSD64 · Network" … */
   pathLabel = 'Network';
   /** Renderer volume 0…1; null while unknown, without RenderingControl volume, or locked for DoP. */
   volume: number | null = null;
@@ -479,7 +479,8 @@ export class NetworkPlayer extends EventEmitter {
         channels,
         artworkUrl,
       });
-      return { stream, artwork, url, metadata, pathLabel: networkPathLabel(plan), durationSecs, via };
+      const pathLabel = networkPathLabel(plan, { format: track.format, sampleRate, bitsPerSample });
+      return { stream, artwork, url, metadata, pathLabel, durationSecs, via };
     } catch (err) {
       this.media.unregister(stream);
       this.media.unregister(artwork);

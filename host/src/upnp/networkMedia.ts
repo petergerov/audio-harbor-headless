@@ -113,12 +113,45 @@ export function planNetworkMedia(
   return { kind: 'wav', dsd: false, wifi: false };
 }
 
-/** What the Deck and the remote show as the path. */
-export function networkPathLabel(plan: NetworkMediaPlan): string {
-  if (plan.kind === 'dop') return 'DoP · Network';
-  if (plan.kind === 'file') return plan.dsd ? 'DSD · Network' : 'Network';
-  if (plan.dsd) return plan.wifi ? 'Wi‑Fi PCM · Network' : 'DSD→PCM · Network';
-  return 'PCM · Network';
+/** What the player gets: PCM rate and bits, or for DSD (bitsPerSample 1) the DSD rate. */
+export interface NetworkSignal {
+  format: AudioFormat;
+  sampleRate: number | null;
+  bitsPerSample: number | null;
+}
+
+/** 44100 → "44.1 kHz", 96000 → "96 kHz". */
+function kHz(rate: number): string {
+  return `${Number((rate / 1000).toFixed(1))} kHz`;
+}
+
+/** 2.8224 MHz → DSD64, twice that → DSD128 … */
+function dsdName(rate: number | null): string {
+  return rate ? `DSD${Math.round(rate / 44_100)}` : 'DSD';
+}
+
+/** "44.1 kHz / 24-bit"; lossy files have no bit depth: "44.1 kHz". */
+function resolution(signal: NetworkSignal): string {
+  const rate = signal.sampleRate ? kHz(signal.sampleRate) : '';
+  const bits = signal.bitsPerSample ? `${signal.bitsPerSample}-bit` : '';
+  return [rate, bits].filter(Boolean).join(' / ');
+}
+
+/**
+ * What the Deck and the remotes show as the path — what goes to the player and at what
+ * resolution: "FLAC 44.1 kHz / 24-bit · Network", "DSD→PCM 88.2 kHz / 24-bit · Network",
+ * "DSD64 · Network". DoP is named by the DSD inside it (its WAV runs at DSD rate / 16).
+ */
+export function networkPathLabel(plan: NetworkMediaPlan, signal: NetworkSignal): string {
+  let what: string;
+  if (plan.kind === 'dop') what = `DoP ${dsdName(signal.sampleRate ? signal.sampleRate * 16 : null)}`;
+  else if (plan.kind === 'file') {
+    what = plan.dsd ? dsdName(signal.sampleRate) : `${signal.format.toUpperCase()} ${resolution(signal)}`;
+  } else {
+    const kind = plan.dsd ? (plan.wifi ? 'Wi‑Fi PCM' : 'DSD→PCM') : 'PCM';
+    what = `${kind} ${resolution(signal)}`;
+  }
+  return `${what.trim()} · Network`;
 }
 
 /**
