@@ -114,7 +114,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive). Adding a folder does not scan it: **Library → Update Library → Rescan**, at the top of Sources once there is a folder, drive or share, reads it and shows the progress.
 4. Pick the DAC: Settings → Output → Device. Each output is listed once — `SMSL USB AUDIO`, `bcm2835 Headphones`, `vc4-hdmi-0` — as `aplay -l` shows them, not every ALSA alias of it. The mode decides how it is opened: **Shared** through `plughw` (converts format and rate), **Exclusive** / **DoP** directly as `hw:` (bit-perfect; a rate the DAC lacks is refused, not resampled).
 
-Settings → About shows the host: CPU load (on a Raspberry Pi with the SoC temperature), memory, and free space on the disk with Harbor's data and on each drive with library folders — refreshed every 3 s while open. An unplugged drive is left out.
+Settings → About shows the host: CPU load (on a Raspberry Pi with the SoC temperature), memory, and free space on the disk with Harbor's data and on each drive with library folders — refreshed every 3 s while open. An unplugged drive is left out. Below the version, **Software Update** installs a newer release, see [Update from the remote](#update-from-the-remote).
 
 The QR code the host prints at start is in the journal:
 
@@ -130,13 +130,14 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 | `/usr/bin/audioharbor` | symlink to `/opt/audio-harbor-headless/start.sh` |
 | `/usr/lib/systemd/system/audioharbor@.service` | service template, one instance per user |
 | `/usr/libexec/audio-harbor-headless/harbor-drive` | root helper that sets up drives in `/etc/fstab` (see [Music on a USB drive](#music-on-a-usb-drive)) |
-| `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run that helper, and nothing else, as root |
+| `/usr/libexec/audio-harbor-headless/harbor-update` | root helper that installs a newer release (see [Update from the remote](#update-from-the-remote)) |
+| `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run these two helpers, and nothing else, as root |
 | `/etc/audio-harbor-headless/<name>.cred` | login of an SMB share set up from the remote (root only), created then |
 | `~/.audio-harbor-headless/` | config, catalogue, artwork, PIN — of the service user, created on first start |
 
 ## The service
 
-`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra groups `audio` and `harbor-drives` (`SupplementaryGroups=`), so it can open ALSA devices and set up drives without changing the user account. It waits for `network-online.target` and `remote-fs.target` (network shares, see below) and restarts 5 s after a crash.
+`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra groups `audio` and `harbor-drives` (`SupplementaryGroups=`), so it can open ALSA devices, set up drives and install updates without changing the user account. It waits for `network-online.target` and `remote-fs.target` (network shares, see below) and restarts 5 s after a crash.
 
 Because it runs as a normal user, everything stays where a manual start puts it: `audioharbor pair` and `audioharbor rescan` in a terminal work on the same data, and folders the user can read are readable for the host.
 
@@ -318,7 +319,7 @@ Share the music from a Pi to the others with Samba (`sudo apt install samba`), r
 
 ## Update
 
-Run the installer again, or `sudo apt install ./<new>.deb`. Running instances restart with the new version; a disabled service stays disabled.
+From the remote (below), or run the installer again, or `sudo apt install ./<new>.deb`. Running instances restart with the new version; a disabled service stays disabled.
 
 A release rebuilt under the same version number (e.g. 1.0.2 again): apt sees the version as installed, so tell it to install anyway. With the installer — it downloads to `/tmp` itself:
 
@@ -351,7 +352,26 @@ Then in the remote:
 
 - Settings → Output lists each output once — compare with `aplay -l`. A DAC picked with an older version (as `plughw:…`, `sysdefault:…`, `front:…` and the like) stays picked: it is mapped to its `hw:CARD=…` entry.
 - Settings → Sources has Library → Update Library on top.
-- Settings → About shows the version and the host's CPU, memory and disks.
+- Settings → About shows the version, Software Update and the host's CPU, memory and disks.
+
+### Update from the remote
+
+Settings → About → **Software Update** shows whether GitHub has a newer release. Harbor asks GitHub when About opens, at most once an hour; **Check for Updates** asks now. With a newer one: **Install <version>** → **Install and Restart**.
+
+1. The remote calls `harbor-update install <tag>` through sudo. The helper starts the update as its own unit `audio-harbor-update` and returns — apt restarts `audioharbor@<user>`, and an update running inside the service would be stopped with it, halfway through apt.
+2. In that unit it looks up the release on GitHub, downloads the `.deb` for this CPU (`dpkg --print-architecture`) and its `.sha256`, and checks the checksum, the package name and CPU, and that the version is newer than the installed one. Anything else it refuses: no other repository, no downgrade, no reinstall of the same version.
+3. `apt-get update`, then `apt-get install` of the file — the same as the installer. The service restarts with the new version.
+4. The remote shows the steps (*Downloading …*, *Installing …*, *Restarting Harbor…*) and reloads itself once the host answers with the new version, usually after a minute or two. Playback stops meanwhile.
+
+It works for the `.deb` run as the `audioharbor@` service (the service has the group `harbor-drives`, see [The service](#the-service)), and from the first release after 1.0.2 on — 1.0.2 and older have no helper, so update those once by hand. A Mac or a portable `.tar.gz` gets the new version and **Release Notes** (the release page) in Settings, but no install button.
+
+Progress goes to `/run/audio-harbor-headless/update`, the whole run to the journal:
+
+```bash
+journalctl -u audio-harbor-update --no-pager | tail -30
+```
+
+A failure shows under Software Update (e.g. `could not look up v1.0.3 on GitHub`); **Install** tries again. A release rebuilt under the same version number is not offered — use the installer with `HARBOR_REINSTALL=1` above.
 
 ## Remove
 
@@ -392,6 +412,10 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 | Network share: `mount error(112)` / `Host is down` / timed out | server name or IP wrong, NAS asleep, or SMB1 only (switch the NAS to SMB2/3). `ping nas.local`. |
 | `N: Download is performed unsandboxed as root as file '…deb' couldn't be accessed by user '_apt'` at the end of `apt install` | harmless — the install went through. apt reads packages as user `_apt`, who cannot enter a home directory with mode 700 (Debian 12+, Raspberry Pi OS Bookworm), so it read the file as root. Download the `.deb` with `cd /tmp` first (or `mv` it there), or use the installer — it downloads to `/tmp`. |
 | `Invalid archive signature` / `could not locate member control.tar` | the `.deb` is no package — usually GitHub's `Not Found` page saved by `curl -LO` for a version or CPU that has no package (`cat` the file). Download with `curl -fLO`. |
+| Software Update: *Installing updates works when Harbor runs as the audioharbor@ service* | Harbor was started by hand, not as the service — or the service still runs from before the update that brought the helper: `sudo systemctl restart audioharbor@<user>`. |
+| Software Update: *… has no package for arm64 yet* | the release was built without your CPU (see [Which package](#which-package)); wait for one that has it. |
+| Software Update failed | the reason is under Software Update; the whole run: `journalctl -u audio-harbor-update`. A held apt lock (another `apt` running) is waited for up to 5 min. |
+| Remote stays at *Restarting Harbor…* | `systemctl status audioharbor@<user>` — the service did not come back; `journalctl -u audioharbor@<user> -b`. Reload the page once it runs. |
 | `Depends: libc6:amd64 … but it is not installable` | the package is for another CPU — `dpkg --print-architecture`, see [Which package](#which-package). |
 | Tracks of a share do not play | share not mounted: `ls /mnt/nas`, `systemctl status mnt-nas.automount`, `journalctl -b \| grep -i cifs`. |
 
@@ -407,12 +431,12 @@ Needs a Linux host with `dpkg-deb`; builds for the host CPU. Output: `dist/packa
 `create-deb.sh`:
 
 - unpacks the prebuilt archive into `/opt/audio-harbor-headless`, drops `install.sh`, `create-package.sh` and `start.cmd`,
-- adds the `audioharbor` symlink, the service template and the maintainer scripts from `packaging/linux/debian/`,
+- adds the `audioharbor` symlink, the service template, the root helpers `harbor-drive` and `harbor-update` with their sudoers file, and the maintainer scripts from `packaging/linux/debian/`,
 - reads the highest `GLIBC_x.y` symbol of `harbor_engine.node` and the bundled Node with `objdump` and puts it into `Depends: libc6 (>= x.y)`.
 
 Maintainer scripts:
 
-- `postinst` — creates the system group `harbor-drives` (drive helper through sudo). Fresh install: `systemctl enable --now audioharbor@<user>`, user from `HARBOR_USER`, else `SUDO_USER`, else the user with UID 1000. Upgrade: `try-restart` of running instances. Skips systemd when it is not running.
+- `postinst` — creates the system group `harbor-drives` (drive and update helpers through sudo). Fresh install: `systemctl enable --now audioharbor@<user>`, user from `HARBOR_USER`, else `SUDO_USER`, else the user with UID 1000. Upgrade: `try-restart` of running instances. Skips systemd when it is not running.
 - `prerm` — on removal: stop all instances and remove their `*.wants` links.
 
 ### Release workflow

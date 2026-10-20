@@ -13,7 +13,7 @@ pick_user() {
   fi
 }
 
-# The service gets this group; sudoers lets it run the drive helper.
+# The service gets this group; sudoers lets it run the drive and update helpers.
 if [ "$1" = "configure" ] && ! getent group harbor-drives >/dev/null; then
   groupadd --system harbor-drives
 fi

@@ -25,6 +25,7 @@ import { dataDir, webDistPath } from '../paths.js';
 import type { RemoteSettings } from '../remote/settings.js';
 import { systemStatus } from '../system.js';
 import type { BrowseScope, HarborConfig, OutputMode, QueueSource, Track } from '../types.js';
+import { UpdateError, type Updater } from '../update.js';
 import type { Sharing } from '../upnp/sharing.js';
 
 export interface AppContext {
@@ -34,6 +35,8 @@ export interface AppContext {
   /** The Settings snapshot the remotes show, and changes to it. */
   settings: RemoteSettings;
   sharing: Sharing;
+  /** The latest release, and installing it (Settings → About). */
+  updates: Updater;
   /** The URL the remotes should open (mDNS name or LAN IP); null until known. */
   remoteUrl?: () => string | null;
 }
@@ -213,6 +216,24 @@ export async function buildServer(ctx: AppContext) {
 
   // CPU, memory and disk space of the host, for Settings → About.
   app.get('/api/v1/system', async () => systemStatus(dataDir(), ctx.getConfig().library.roots));
+
+  // Software update: the latest release on GitHub (`check=1` asks now, else at most hourly).
+  // On a .deb install the root helper installs it in its own unit and apt restarts Harbor.
+  app.get<{ Querystring: { check?: string } }>('/api/v1/update', async (req) =>
+    ctx.updates.status(req.query.check === '1')
+  );
+
+  app.post<{ Body: { version?: string } }>('/api/v1/update', async (req, reply) => {
+    const tag = String(req.body?.version ?? '');
+    try {
+      const status = await ctx.updates.install(tag);
+      req.log.info({ tag }, 'Update started');
+      return status;
+    } catch (err) {
+      if (err instanceof UpdateError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
+  });
 
   app.get<{
     Querystring: { scope?: BrowseScope; path?: string; q?: string; limit?: string };

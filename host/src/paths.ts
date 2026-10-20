@@ -29,6 +29,11 @@ export function pairingPath(): string {
   return path.join(dataDir(), 'pairing.json');
 }
 
+export function appRootPath(): string {
+  // host/dist/paths.js → repo root (the install folder of a package)
+  return path.resolve(__dirname, '../..');
+}
+
 export function exampleConfigPath(): string {
   // host/dist/paths.js → repo root
   return path.resolve(__dirname, '../../config.example.toml');

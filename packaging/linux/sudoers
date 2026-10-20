@@ -1,3 +1,4 @@
 # Audio Harbor Headless: the service (group harbor-drives, given by audioharbor@.service)
-# may set up drives in /etc/fstab from the web remote. The helper checks its arguments.
-%harbor-drives ALL=(root) NOPASSWD: /usr/libexec/audio-harbor-headless/harbor-drive
+# may set up drives in /etc/fstab and install a newer release from the web remote.
+# The helpers check their arguments.
+%harbor-drives ALL=(root) NOPASSWD: /usr/libexec/audio-harbor-headless/harbor-drive, /usr/libexec/audio-harbor-headless/harbor-update

@@ -1,0 +1,133 @@
+#!/bin/bash
+# Root helper for the web remote: installs a newer release of the .deb from GitHub.
+# The service runs it through sudo (/etc/sudoers.d/audio-harbor-headless, group harbor-drives).
+#
+#   harbor-update install <tag>   starts the update as its own unit (audio-harbor-update) and
+#                                 returns — apt restarts the service, which would take an
+#                                 update running inside it down with it
+#   harbor-update run <tag>       the update itself, in that unit: download, check, apt install
+#
+# Only installs audio-harbor-headless from this repository's releases, for this CPU, and
+# only a version newer than the installed one. Progress goes to $STATUS (state=, version=,
+# message=); details are in the journal: journalctl -u audio-harbor-update.
+# Errors go to stderr, one line.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 022
+
+REPO="petergerov/audio-harbor-headless"
+PACKAGE="audio-harbor-headless"
+SELF=/usr/libexec/audio-harbor-headless/harbor-update
+UNIT=audio-harbor-update
+STATUS_DIR=/run/audio-harbor-headless
+STATUS="$STATUS_DIR/update"
+TMP=""
+
+die() { echo "$*" >&2; exit 1; }
+
+[[ "$(id -u)" -eq 0 ]] || die "harbor-update must run as root"
+[[ -d /run/systemd/system ]] || die "systemd is not running"
+
+valid_tag() { [[ "$1" =~ ^v[0-9][0-9A-Za-z.+~-]{0,31}$ ]]; }
+
+installed_version() {
+  dpkg-query -W -f='${db:Status-Status} ${Version}' "$PACKAGE" 2>/dev/null \
+    | awk '$1 == "installed" { print $2 }'
+}
+
+# state version message — one write, so a reader never sees half of it.
+status() {
+  mkdir -p "$STATUS_DIR"
+  chmod 755 "$STATUS_DIR"
+  printf 'state=%s\nversion=%s\nmessage=%s\nat=%s\n' "$1" "$2" "${3//$'\n'/ }" "$(date +%s)" > "$STATUS.tmp"
+  chmod 644 "$STATUS.tmp"
+  mv "$STATUS.tmp" "$STATUS"
+}
+
+cmd_install() {
+  local tag="${1:-}"
+  valid_tag "$tag" || die "invalid version"
+  [[ -n "$(installed_version)" ]] || die "$PACKAGE is not installed as a package"
+  command -v curl >/dev/null 2>&1 || die "updates need curl: sudo apt install curl"
+  systemctl is-active --quiet "$UNIT" && die "an update is already running"
+  status starting "$tag" ""
+  # --collect: a failed run does not block the next one.
+  systemd-run --quiet --collect --unit="$UNIT" --description="Audio Harbor Headless update to $tag" \
+    -p RuntimeMaxSec=30min "$SELF" run "$tag" \
+    || { status failed "$tag" "could not start the update"; die "could not start the update"; }
+}
+
+cmd_run() {
+  local tag="${1:-}"
+  # Not through sudo: inside the service it would be stopped with it, halfway through apt.
+  [[ -z "${SUDO_UID:-}" ]] || die "start it with: harbor-update install <tag>"
+  valid_tag "$tag" || die "invalid version"
+
+  exec 9>/run/lock/harbor-update.lock
+  flock -n 9 || die "an update is already running"
+
+  trap 'rm -rf "$TMP"' EXIT
+  fail() {
+    echo "$*" >&2
+    status failed "$tag" "$*"
+    exit 1
+  }
+  trap 'fail "unexpected failure (line $LINENO)"' ERR
+
+  local arch installed
+  arch="$(dpkg --print-architecture)"
+  installed="$(installed_version)"
+  [[ -n "$installed" ]] || fail "$PACKAGE is not installed as a package"
+
+  status downloading "$tag" "Looking up $tag"
+  local release
+  release="$(curl -fsSL --proto '=https' --max-time 30 \
+    -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/$REPO/releases/tags/$tag")" \
+    || fail "could not look up $tag on GitHub"
+  # Assets of this release only — no URL from outside.
+  local prefix="https://github.com/$REPO/releases/download/$tag/" url sum_url
+  url="$(grep -o '"browser_download_url": *"[^"]*_'"$arch"'\.deb"' <<<"$release" \
+    | sed 's/.*"\(https[^"]*\)"/\1/' | head -1 || true)"
+  [[ -n "$url" && "$url" == "$prefix"* ]] || fail "$tag has no package for $arch"
+  sum_url="$url.sha256"
+  grep -qF "\"$sum_url\"" <<<"$release" || fail "$tag has no checksum for its package"
+
+  # apt reads the file as user _apt — keep it in a world-readable directory.
+  TMP="$(mktemp -d)"
+  chmod 755 "$TMP"
+  local deb
+  deb="$TMP/$(basename "$url")"
+  status downloading "$tag" "Downloading $(basename "$url")"
+  curl -fsSL --proto '=https' --max-time 600 "$url" -o "$deb" || fail "download failed"
+  curl -fsSL --proto '=https' --max-time 30 "$sum_url" -o "$deb.sha256" || fail "checksum download failed"
+  chmod 644 "$deb"
+
+  local want got
+  want="$(awk 'NR == 1 { print $1 }' "$deb.sha256")"
+  got="$(sha256sum "$deb" | awk '{ print $1 }')"
+  [[ "$want" =~ ^[0-9a-f]{64}$ && "$want" == "$got" ]] || fail "the download does not match its checksum"
+
+  local name deb_arch version
+  name="$(dpkg-deb -f "$deb" Package)" || fail "the download is no Debian package"
+  deb_arch="$(dpkg-deb -f "$deb" Architecture)"
+  version="$(dpkg-deb -f "$deb" Version)"
+  [[ "$name" == "$PACKAGE" && "$deb_arch" == "$arch" ]] || fail "the download is not $PACKAGE for $arch"
+  dpkg --compare-versions "$version" gt "$installed" || fail "$version is not newer than the installed $installed"
+
+  status installing "$tag" "Installing $version"
+  apt-get update -q || echo "apt-get update failed — installing with the package lists there are" >&2
+  local log="$TMP/apt.log" why
+  # The package restarts the service (postinst try-restart); this unit keeps running.
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -q -o DPkg::Lock::Timeout=300 "$deb" 2>&1 | tee "$log"; then
+    why="$(grep -E '^(E|dpkg):' "$log" | tail -1 | sed 's/^E: //' || true)"
+    fail "${why:-apt-get install failed}"
+  fi
+  status "done" "$tag" "Installed $version"
+}
+
+case "${1:-}" in
+  install) shift; cmd_install "$@" ;;
+  run) shift; cmd_run "$@" ;;
+  *) die "usage: harbor-update install <tag>" ;;
+esac

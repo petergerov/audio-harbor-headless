@@ -5,6 +5,7 @@ import type {
   Mount,
   ScanProgress,
   SystemStatus,
+  UpdateStatus,
   NetworkPlayerFormats,
   OutputChange,
   OutputStatus,
@@ -34,6 +35,10 @@ export interface SettingsApi {
   removeDrive(name: string): Promise<void>;
   /** CPU, memory and disk space of the host. */
   system(): Promise<SystemStatus>;
+  /** The latest release and the update in progress; `check` asks GitHub now. */
+  update(check?: boolean): Promise<UpdateStatus>;
+  /** Starts installing `tag`; the host restarts with it. */
+  installUpdate(tag: string): Promise<UpdateStatus>;
   /** The host's current PIN, to pair another device. */
   pairingPin(): Promise<string>;
   /** A fresh PIN; the old one stops working. */
@@ -112,6 +117,14 @@ export class HttpSettingsApi implements SettingsApi {
 
   system(): Promise<SystemStatus> {
     return this.http.get('/api/v1/system');
+  }
+
+  update(check = false): Promise<UpdateStatus> {
+    return this.http.get(check ? '/api/v1/update?check=1' : '/api/v1/update');
+  }
+
+  installUpdate(tag: string): Promise<UpdateStatus> {
+    return this.http.post('/api/v1/update', { version: tag });
   }
 
   async pairingPin(): Promise<string> {

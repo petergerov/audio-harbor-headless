@@ -214,6 +214,24 @@ export interface SystemStatus {
   harborUptimeSecs: number;
 }
 
+/** The latest release on GitHub; `state` is the update the host runs, or ran last since boot. */
+export interface UpdateStatus {
+  current: string;
+  latest: string | null;
+  tag: string | null;
+  releaseUrl: string | null;
+  available: boolean;
+  /** The host installs it itself (Linux .deb, run as the service). */
+  canInstall: boolean;
+  /** Why not from here, or how to update instead. */
+  note: string | null;
+  checkedAt: number | null;
+  checkError: string | null;
+  state: 'idle' | 'starting' | 'downloading' | 'installing' | 'done' | 'failed';
+  target: string | null;
+  message: string | null;
+}
+
 /** Where the host's library scan is (pushed as `scan`); `lastScan` stays after it ends. */
 export interface ScanProgress {
   scanning: boolean;

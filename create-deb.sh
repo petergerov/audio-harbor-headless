@@ -6,7 +6,8 @@
 #   /usr/bin/audioharbor                       → start.sh
 #   /usr/lib/systemd/system/audioharbor@.service
 #   /usr/libexec/audio-harbor-headless/harbor-drive   root helper: drives → /etc/fstab
-#   /etc/sudoers.d/audio-harbor-headless              lets the service run it
+#   /usr/libexec/audio-harbor-headless/harbor-update  root helper: installs a newer release
+#   /etc/sudoers.d/audio-harbor-headless              lets the service run them
 #
 # The service runs as the installing user (audioharbor@<user>), so config,
 # catalogue and PIN stay in ~/.audio-harbor-headless like a manual start.
@@ -26,7 +27,7 @@ for arg in "$@"; do
   case "$arg" in
     --build|-b) DO_BUILD=1 ;;
     -h|--help)
-      sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
   esac
@@ -76,7 +77,8 @@ chmod 755 "$PKG$PREFIX/start.sh"
 
 ln -s "$PREFIX/start.sh" "$PKG/usr/bin/audioharbor"
 install -m 644 "$ROOT/packaging/linux/audioharbor@.service" "$PKG/usr/lib/systemd/system/"
-install -m 755 "$ROOT/packaging/linux/harbor-drive" "$PKG/usr/libexec/audio-harbor-headless/"
+install -m 755 "$ROOT/packaging/linux/harbor-drive" "$ROOT/packaging/linux/harbor-update" \
+  "$PKG/usr/libexec/audio-harbor-headless/"
 install -m 440 "$ROOT/packaging/linux/sudoers" "$PKG/etc/sudoers.d/audio-harbor-headless"
 if command -v visudo >/dev/null 2>&1; then
   visudo -cqf "$PKG/etc/sudoers.d/audio-harbor-headless" || { echo "sudoers file invalid" >&2; exit 1; }
@@ -97,7 +99,7 @@ Package: audio-harbor-headless
 Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Petar Gerov <peter@gerov.com>
-Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, sudo, util-linux
+Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, sudo, util-linux, curl, ca-certificates
 Recommends: cifs-utils
 Section: sound
 Priority: optional

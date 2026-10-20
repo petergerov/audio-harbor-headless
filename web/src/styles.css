@@ -862,6 +862,10 @@ button.cell:active {
   font-weight: 600;
 }
 
+a.cell {
+  text-decoration: none;
+}
+
 .btn-text {
   color: var(--tint);
   font-size: 17px;

@@ -16,6 +16,7 @@ import { MediaHttpServer } from './upnp/mediaHttp.js';
 import { NetworkPlayer } from './upnp/networkPlayer.js';
 import { Sharing } from './upnp/sharing.js';
 import { RendererBrowser } from './upnp/ssdp.js';
+import { Updater } from './update.js';
 
 /** The host's version, from its package.json. */
 function hostVersion(): string {
@@ -88,8 +89,18 @@ async function main(): Promise<void> {
     version: hostVersion() || 'unknown',
   });
 
+  const updates = new Updater(hostVersion() || '0.0.0');
+
   let remoteUrl: string | null = null;
-  const app = await buildServer({ catalogue, playback, getConfig, settings, sharing, remoteUrl: () => remoteUrl });
+  const app = await buildServer({
+    catalogue,
+    playback,
+    getConfig,
+    settings,
+    sharing,
+    updates,
+    remoteUrl: () => remoteUrl,
+  });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
   // mDNS: this host as http://audioharbor.local:<port> — nothing to type, and a new DHCP
