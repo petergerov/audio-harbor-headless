@@ -31,13 +31,13 @@ void applyStoredOutputLocked() {
 
 const char* harbor_engine_version(void) {
 #if defined(__APPLE__)
-  return "1.0.2-macos-coreaudio";
+  return "1.0.3-macos-coreaudio";
 #elif defined(__linux__)
-  return "1.0.2-linux-alsa";
+  return "1.0.3-linux-alsa";
 #elif defined(_WIN32)
-  return "1.0.2-windows-wasapi";
+  return "1.0.3-windows-wasapi";
 #else
-  return "1.0.2";
+  return "1.0.3";
 #endif
 }
 
