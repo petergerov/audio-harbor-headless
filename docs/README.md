@@ -2,7 +2,8 @@
 
 Product homepage (same visual system as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs)):
 
-- **[index.html](index.html)** — open locally or via GitHub Pages (Harbor Deck · Catalogue · Settings remote, platforms, releases)
+- **[index.html](index.html)** — open locally or via GitHub Pages (Harbor Deck · Catalogue · Settings remote, screenshots, platforms, releases)
+- **[images/web/shots/](images/web/shots/)** — the gallery's screenshots: `desktop-*` (1280×800 at 2×) and `phone-*` (390×844 at 3×) as WebP, the large lightbox versions under `lb/`
 
 ```bash
 open docs/index.html

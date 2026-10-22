@@ -15,7 +15,7 @@ Labels open as a drill-in (not a primary tab).
 | Deck | Stacked stage + controls; sized to fit above the tab bar without scrolling; Up Next is a sheet | Larger stacked Deck + optional **Up Next** rail on the right (macOS-style); no bottom player |
 | Catalogue / Settings | Full-screen lists | Content starts beside the sidebar (not a centered narrow column) |
 
-The Deck stage is Turntable or Reel-to-Reel (preference in `localStorage` under `ah.deckStyle`);
+The Deck stage is Turntable or Reel-to-Reel (preference in `localStorage` under `harbor.deckStyle`);
 photos live in `public/deck/` (`*-portrait.jpg` / `*-wide.jpg`). Queue rail open/closed is
 `ah.deck.queueRail`. Live player markup follows `PlayerMarkup` in `components/playerBindings.ts`.
 
@@ -32,7 +32,8 @@ src/
     shell.ts     layout (sidebar / tab bar, player chrome) and the current view
     views/       one View per tab (registry.ts), settings panes, media list, catalogueScopes
     components/  covers, rows, deck stage / chrome / queue rail, player bindings and controls
-    sheets/      organize, playlist picker, labels, collection menu, queue (phone)
+    sheets/      organize, playlist picker, labels, collection menu, item actions, queue (phone),
+                 folder picker and SMB share dialog (Settings → Sources)
     overlay.ts   sheets, dialogs and toasts
 ```
 
@@ -52,3 +53,6 @@ src/
   Lists therefore keep their scroll position while tracks change.
 - **Deck queue**: shared paint/bind lives in `components/queueList.ts`. Desktop mounts
   `deckQueueRail`; phone opens `sheets/queueSheet.ts`.
+- **Offline shell**: `public/sw.js` caches the shell (stale-while-revalidate) — only in a secure
+  context (`localhost`, `127.0.0.1`), not over plain `http` to a phone. After a Software Update the
+  About pane drops the caches before it reloads, so the new remote loads, not the cached one.

@@ -19,7 +19,7 @@ Audio Harbor Headless is the quiet host for folders you already own. It runs on 
 | **For** | People with a local high-res library and a DAC or network player |
 | **Against** | Silent resampling, subscription cores, and “play to UPnP” bolted on with bridges |
 | **Promise** | Hear the file. Know the path. |
-| **Proof** | Native Exclusive / DoP, conversion badge, SACD ISO → DSD / DoP / PCM to network players, optional DLNA server |
+| **Proof** | Native Exclusive / DoP, a path badge with the rate and bits that go out, SACD ISO → DSD / DoP / PCM to network players, optional DLNA server |
 
 **Not competing as:** a Roon clone, a streaming aggregator, a smart-home hub, or a DSP suite.
 
@@ -29,7 +29,7 @@ Audio Harbor Headless is the quiet host for folders you already own. It runs on 
 
 1. **Local-library audiophiles** — FLAC / DSD / SACD ISO on disk; USB DAC or network amp (Naim, Linn, Devialet, WiiM, …). Want Exclusive / DoP and honesty about conversion.
 2. **Roon-curious with UPnP gear** — like the headless-core + phone-remote idea, but their player is DLNA, not RAAT. Today they use bridges and lose metadata or setup time.
-3. **Raspberry Pi / always-on hosts** — library on a NAS or attached disk; phone remote; bit-perfect ALSA when a DAC is on the Pi.
+3. **Raspberry Pi / always-on hosts** — library on a NAS or attached disk (set up from the phone); phone remote; bit-perfect ALSA when a DAC is on the Pi; updates from Settings.
 
 ### Secondary
 
@@ -51,7 +51,7 @@ Audio Harbor Headless is the quiet host for folders you already own. It runs on 
    Same queue, same library. Files untouched when the player lists the type; DSD as DSD, PCM, or DoP per player; gapless when the player can.
 
 3. **Honest path**  
-   Conversion badge always. No silent resampling on Exclusive. DSD→PCM labelled, never faked into laptop speakers.
+   Path badge always, with the rate and bits that leave the host (`96 kHz / 24-bit · Exclusive`, `FLAC 96 kHz / 24-bit · Network`). No silent resampling on Exclusive. DSD→PCM labelled, never faked into laptop speakers.
 
 4. **Local first, no account**  
    Your folders. SQLite catalogue. Optional DLNA share. Nothing leaves the machine.
@@ -84,7 +84,8 @@ Use in “vs” threads and FAQ — not as attack copy on the homepage.
 | SACD without a separate rip step | ISO → catalogue tracks; DST decoded; DFF cache; same path to DAC or UPnP |
 | Phone is enough | Web remote at `audioharbor.local`; Bonjour for Audio Harbor iOS; PIN pairing |
 | Network player = output | SSDP discovery, `upnp:<UDN>`, Range-seekable WAV/DoP, SetNextAVTransportURI gapless |
-| No silent surprises | `conversion_badge` on every path |
+| No silent surprises | Path badge on every path: rate and bits the DAC or player gets, and the path (`44.1 → 48 kHz / 24-bit · Shared` when the system resamples) |
+| An appliance, not a project | `.deb` with systemd service, USB drives and SMB shares from the remote, Software Update in Settings |
 
 ## Taglines and headlines
 
@@ -127,7 +128,8 @@ Steer from Safari or the Audio Harbor iOS app. Outputs: USB DAC
 Highlights this release:
 - …
 
-Prebuilt: darwin-arm64, darwin-x64, linux-x64, linux-arm64, win32-x64
+Prebuilt: darwin-arm64, darwin-x64 (.pkg, .tar.gz), linux-arm64, linux-x64 (.deb, .tar.gz)
+Raspberry Pi on 1.0.3 or newer: Settings → About → Software Update
 Docs: https://petergerov.github.io/audio-harbor-headless/
 ```
 
@@ -168,9 +170,11 @@ Docs: https://petergerov.github.io/audio-harbor-headless/
 Screenshots / clips that sell:
 
 1. Terminal: `./start.sh` → `audioharbor.local` + QR  
-2. Phone: album play → now playing + conversion badge  
+2. Phone: album play → Deck + path badge — **done**: the gallery on the product page (`docs/images/web/shots/`, desktop and phone, `FLAC 96 kHz / 24-bit · Network`)  
 3. Settings: output list with `(Network player)` and DSD Auto / PCM / DoP  
 4. Badge strip: Shared → Exclusive → DoP (same track)
+
+Screenshots come from a real host playing to the silent renderer simulator; keep personal label names, the pairing PIN and the host name out of them.
 
 ## Launch checklist
 

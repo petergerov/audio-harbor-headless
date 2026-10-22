@@ -1,13 +1,13 @@
 # Tune (MozAIk Labs) vs Audio Harbor Headless
 
-Deep feature and product comparison. Sources: [mozaiklabs.fr](https://mozaiklabs.fr/) (Tune 1.0 RC claims, 2026) and Audio Harbor Headless **v1.1.2** (README, Architecture, shipped code). No listening-quality judgement — scope, architecture, and honesty of claims.
+Deep feature and product comparison. Sources: [mozaiklabs.fr](https://mozaiklabs.fr/) (Tune 1.0 RC claims, 2026) and Audio Harbor Headless **v1.0.6** (README, Architecture, shipped code). No listening-quality judgement — scope, architecture, and honesty of claims.
 
 | | **Tune** | **Audio Harbor Headless** |
 |---|---|---|
 | Maker | MozAIk Labs | Audio Harbor / Gerov |
 | Category | Multi-room music server + streaming hub | Headless audiophile media host |
 | Competes as | Roon / Audirvana / JRiver alternative | Quiet host + phone remote for local high-res |
-| Stage | 1.0 release candidate | v1.1.2 released |
+| Stage | 1.0 release candidate | v1.0.6 released |
 | One-liner | Your library + your streaming subs + every room | Your folders → DAC or UPnP player; phone is the remote |
 
 ---
@@ -30,7 +30,7 @@ They overlap on “self-hosted local library + web UI + DLNA out/in.” They div
 | Desktop UI on host | Native desktop software + optional server mode | **None** — host is GUI-less |
 | Web client | Svelte 5, served by server | Vanilla TS Harbor UI (Deck stage, Catalogue, Settings) |
 | Native remotes | SwiftUI iOS/macOS (TestFlight), Flutter Android | Audio Harbor iOS over Bonjour frame protocol v3 |
-| Audio engine | “Intelligent pipeline”, bit-perfect passthrough, native transcoding **without FFmpeg** | C++ N-API `harbor_engine.node`: Mac / Linux / Windows **native only** (JUCE removed in v1.1.2) |
+| Audio engine | “Intelligent pipeline”, bit-perfect passthrough, native transcoding **without FFmpeg** | C++ N-API `harbor_engine.node`: Mac / Linux / Windows **native only** (no JUCE) |
 | Catalogue | Local + SMB, MusicBrainz enrichment, quality-aware album versions | SQLite + FTS5 over library roots; playlists & labels as path sets |
 | Control plane | Zones / multi-room | One active output (local device **or** one `upnp:<UDN>`) |
 
@@ -52,8 +52,8 @@ They overlap on “self-hosted local library + web UI + DLNA out/in.” They div
 | | Tune | Harbor Headless |
 |---|---|---|
 | Host OS | macOS, Windows, Linux, **Docker** (recommended) | macOS (arm64/x64), Linux x64/arm64 (Pi), Windows |
-| Packaging | Docker one-liner, Homebrew, Windows installer | GitHub Release prebuilts (Node 22 bundled), or `npm` / `install.sh` |
-| Always-on NAS story | Strong (Docker + host network) | Strong on Pi/Linux; no first-class Docker image in the same marketing push |
+| Packaging | Docker one-liner, Homebrew, Windows installer | GitHub Release prebuilts (Node 22 bundled): signed `.pkg` + menu bar app on Mac, `.deb` + systemd service and one-line installer on Linux; or `npm` / `install.sh` |
+| Always-on NAS story | Strong (Docker + host network) | Strong on Pi/Linux: systemd service, updates from Settings → About; no Docker image |
 | Discovery | Web at `localhost:8888` | mDNS `audioharbor.local:8787` + QR / PIN pairing |
 
 ---
@@ -63,11 +63,11 @@ They overlap on “self-hosted local library + web UI + DLNA out/in.” They div
 | Capability | Tune | Harbor Headless |
 |---|---|---|
 | Local folders | Yes | Yes (`library.roots`) |
-| SMB / network shares | Yes (first-class) | Via OS mount into a root (not a dedicated SMB browser) |
+| SMB / network shares | Yes (first-class) | On the Linux package: SMB share or USB drive set up from the remote (fstab entry, read-only), then its folder is a root; elsewhere an OS mount |
 | Formats (local) | FLAC, DSD, WAV (marketing) | FLAC, ALAC, WAV, AIFF, AAC/M4A, MP3, DSF, DFF, **SACD ISO** (incl. DST) |
 | Metadata enrichment | MusicBrainz, hi-res artwork, edit in UI | Embedded tags + artwork hash cache; organize via remote |
 | Quality-aware albums (CD vs Hi-Res vs DSD) | Yes | Manual / path / tag reality; no MusicBrainz “edition split” product |
-| Live FS watch | Startup scan + real-time monitoring | Rescan / incremental by mtime |
+| Live FS watch | Startup scan + real-time monitoring | Startup scan in the background + Rescan, incremental by mtime, live progress; no watcher |
 | Federated search (local + streaming) | Yes | Local FTS only |
 | Internet radio | Yes (FIP, France Inter, … + ICY) | No |
 | Playlists | Hub across Tidal/Deezer/YouTube/local; transfer between services | Local playlists + labels; no cross-service transfer |
@@ -99,7 +99,7 @@ This is where Headless invests and Tune’s public site stays thinner.
 | Exclusive mode | Not detailed as Core Audio hog / ALSA `hw:` / WASAPI Exclusive | First-class: hog / `hw:` / WASAPI Exclusive; rate follows file |
 | DoP to USB DAC | Emphasised for **DLNA DSD renderers**; host-DAC DoP story not the hero | Native DoP on external DAC; otherwise labelled DSD→PCM |
 | Silent resampling | Pipeline claims passthrough when device allows | Exclusive path refuses silent resample; badge always |
-| Conversion badge | Implied by passthrough / transcoding story | Explicit `conversion_badge` on every path |
+| Conversion badge | Implied by passthrough / transcoding story | Explicit path badge on every path, with the rate and bits the device runs at (`44.1 → 48 kHz / 24-bit · Shared` when the system resamples) |
 | SACD ISO | Not featured | Catalogue tracks from ISO; DST decode; DFF cache; same path to DAC or UPnP |
 | Engine footprint | Not public | Native-only after JUCE removal — smaller build, no juceaide/X11 tax |
 
@@ -113,7 +113,7 @@ This is where Headless invests and Tune’s public site stays thinner.
 |---|---|---|
 | DLNA/UPnP **renderer** as output | Yes (SSDP), multi-room groups | Yes — one renderer as `upnp:<UDN>`; planner (passthrough / WAV / DSD modes) |
 | Gapless to renderer | Claimed native gapless | `SetNextAVTransportURI` when the player supports it |
-| DSD to renderer | Bit-perfect DSF/DFF to capable DLNA; else PCM 176.4/24 | Per-player Auto / PCM / DoP; `network_stream` full vs wifi |
+| DSD to renderer | Bit-perfect DSF/DFF to capable DLNA; else PCM 176.4/24 | Per-player Auto / PCM / DoP; `network_stream` full vs wifi; the badge names format and resolution sent (`FLAC 96 kHz / 24-bit · Network`) |
 | AirPlay | Yes (mDNS) | No |
 | Chromecast | Yes | No |
 | BluOS / OAAT | Yes | No |
@@ -132,7 +132,7 @@ This is where Headless invests and Tune’s public site stays thinner.
 | Web UI | Svelte 5, responsive | Harbor chassis/ivory/amber; Deck (Turntable/Reel), Catalogue, Settings |
 | Phone | Native iOS + Android | Web first; iOS Audio Harbor via Bonjour |
 | Desktop remote | Native apps + web | Wide web shell (sidebar, queue rail on Deck); no host desktop chrome |
-| Pairing | Install / open `:8888` | PIN → token; tokens shared web/iOS; rate-limited PIN |
+| Pairing | Install / open `:8888` | PIN → token; the first remote gets the PIN offered, later in Settings → About; tokens shared web/iOS; rate-limited PIN |
 | Now Playing metaphor | Zones / multi-service library | Deck stage + Up Next rail (desktop) / sheet (phone) |
 | Bottom player on Deck | N/A (different IA) | Hidden on Deck tab (full stage) |
 
@@ -146,6 +146,7 @@ This is where Headless invests and Tune’s public site stays thinner.
 | Telemetry of plays | Not stated on homepage | Product stance: no account / no “what you play” cloud |
 | Config | Docker volumes + app settings | `~/.audio-harbor-headless/config.toml` |
 | Build complexity | Closed/source-available product binary | Engine + host buildable; Release workflow per platform |
+| Updates | Docker pull / installer | `.deb`: Settings → About → Software Update (checksum checked, service restarts); Mac / portable by hand |
 | Maturity | RC, active tester community | Shipped releases; narrower feature surface |
 
 ---
@@ -201,6 +202,6 @@ Internal marketing already frames Tune Server as the closest OSS-shaped neighbou
 ## Sources
 
 - [MozAIk Labs — Tune](https://mozaiklabs.fr/) (public marketing, 2026)
-- [audio-harbor-headless](https://github.com/petergerov/audio-harbor-headless) README, Architecture, v1.1.2
+- [audio-harbor-headless](https://github.com/petergerov/audio-harbor-headless) README, Architecture, v1.0.6
 
 *Indicative only. Tune features as claimed publicly; Harbor features as implemented in-tree.*

@@ -98,16 +98,22 @@ host/src/
   upnp/              network players (control point, media HTTP, planner) and the DLNA server
   remote/            Bonjour remote for the iOS app (browse, settings, artwork), mDNS responder, wire DTOs
   engine/bridge.ts   typed wrapper around the addon; engine events
+  drives.ts          USB drives and SMB shares for the library (Linux package, through harbor-drive)
+  system.ts          CPU, memory and disk space for Settings → About
+  update.ts          Software Update: latest GitHub release, install through harbor-update
+  resolution.ts      the rate / bits part of the path badge
   config.ts, paths.ts, pairing.ts, power.ts, net.ts, types.ts
 web/src/             web remote (see web/README.md)
-docs/                product page, this document
+docs/                product page and its screenshots, this document
+packaging/linux/     .deb: systemd unit, sudoers, root helpers harbor-drive and harbor-update
+packaging/macos/     signed .pkg and the menu bar app
 config.example.toml  default config, copied on first start
-create-package.sh, install.sh, start.sh   packaging, setup on a device, launcher
+create-package.sh, create-deb.sh, create-macos-pkg.sh, install.sh, start.sh   packaging, setup on a device, launcher
 ```
 
 ## Runtime
 
-One process: `node host/dist/index.js serve` (or `./start.sh`). At start it loads the config, scans the library roots (only changed files), starts searching for network players, applies the stored output, opens the API, claims `audioharbor.local`, and starts the optional DLNA server and the Bonjour remote.
+One process: `node host/dist/index.js serve` (or `./start.sh`). At start it loads the config, scans the library roots in the background (only changed files; the remote shows the progress), starts searching for network players, applies the stored output, opens the API, claims `audioharbor.local`, and starts the optional DLNA server and the Bonjour remote.
 
 ### Ports and discovery
 
@@ -133,6 +139,14 @@ All state is under `~/.audio-harbor-headless/`. The music folders are only read.
 | `cache/sacd/*.dff` | SACD tracks extracted as plain DSD (DST decoded) | `library/sacd.ts` |
 | `cache/dst-dff/*.dff` | DST-compressed `.dff` decoded to plain DSD | `library/dstDff.ts` |
 
+On the Linux package the service also has, outside that folder:
+
+| Path | What | Written by |
+|---|---|---|
+| `/etc/fstab` entries under `/mnt/harbor/<name>` | USB drives and SMB shares set up from the remote, mounted read-only | `harbor-drive` (root, through sudo) |
+| `/etc/audio-harbor-headless/<name>.cred` | an SMB share's credentials, root only | `harbor-drive` |
+| `/run/audio-harbor-headless/update` | Software Update progress: `state=`, `version=`, `message=`, `at=` | `harbor-update` |
+
 ## Engine
 
 ```
@@ -155,6 +169,7 @@ binding.cpp (N-API)  →  FrameSource, AHDST (no player involved)
   | DoP | DoP on an external DAC | DoP on a `hw:` device | DoP over exclusive |
 
   When the device cannot do the mode, the player falls back and says so in `conversion_badge` (e.g. `Shared (pick hw: device for Exclusive/DoP)`).
+- **What the device runs at**: `getState` also reports the stream rate, the device rate and bits, and whether DoP is on. MacPlayer reads the device's nominal rate and the physical format of its first output stream; LinuxPlayer the `hw:` rate and significant bits, or behind `plughw` what the card runs at (`/proc/asound/card*/pcm*p/sub*/hw_params`). WinPlayer reports none. `resolution.ts` turns that into the badge the remotes show, e.g. `96 kHz / 24-bit · Exclusive` or `44.1 → 48 kHz / 24-bit · Shared`.
 - **Local decoding**: MacPlayer, LinuxPlayer and WinPlayer open a `FrameSource` through `PlaybackFeed` and fill PCM / DoP on a worker; playback starts after the first quantum (the buffer still grows to the full track). DSD becomes DoP or ~88.2 kHz PCM with `dsd_pcm_level` (0 / +3 / +6 dB).
 - **DSD→PCM**: multi-stage linear-phase FIR (`DsdPipeline.cpp`), DSD rate / 32, / 64 or / 128 → 88.2 kHz, one more 2:1 stage for 44.1 kHz (Wi‑Fi).
 - **FrameSource**: random access by frame (`readFloat` / `readDop` / `readPacked`), so the host can answer any `Range` request for network WAV and (soon) feed local playback without loading the whole file. Sources: `DsdSource` (DSD→PCM through `DsdPcmReader`), `DopSource` (DoP at DSD rate / 16), FLAC, WAV, MP3, AIFF, ExtAudioFile on macOS, and a decode-to-memory fallback. `DsdByteReader` reads DSF / DFF in 64 KiB chunks per channel for both DSD sources. `DsdPcmReader` pre-rolls after a jump, so a seek gives the same samples as playing through.
@@ -176,6 +191,9 @@ binding.cpp (N-API)  →  FrameSource, AHDST (no player involved)
 | `remote/bonjour.ts` | The Audio Harbor iOS app's protocol: `[u32 length][kind][payload]` frames, JSON envelopes v3 (hello / pair, subscribe to `nowPlaying` / `queue` / `settings`, transport, playSelection, browse, search, trackOptions, editTrack, getSettings / setSettings) and binary artwork. `browse.ts` pages and filters the library, `settings.ts` builds and applies the Settings snapshot, `artwork.ts` scales covers, `wire.ts` maps snapshots to its DTOs. Folder IDs are `rootUUID/rel/path`, never host paths. |
 | `remote/mdns.ts` | One mDNS responder (bonjour-service): probes and claims `audioharbor.local`, publishes `_http._tcp` and `_audioharbor._tcp`, answers AAAA with NSEC (IPv4 only), follows address changes, says goodbye on exit. |
 | `pairing.ts` | Six-digit PIN → random token (`POST /api/v1/pair` or the Bonjour hello). The PIN changes after each pairing; five wrong PINs in a row pause pairing for a minute. Web and iOS share the tokens. |
+| `drives.ts` | Lists disks (`lsblk`) and Harbor's fstab entries, and sets up, ejects or removes a USB drive or SMB share through the root helper `harbor-drive` (`sudo -n`, group `harbor-drives`; the SMB password goes on stdin). Only on Linux with the package's helper; elsewhere the remote hides it. |
+| `system.ts` | CPU model, cores and load, memory (and what Harbor uses), free space on the disks that hold Harbor's data and the library — Settings → About. |
+| `update.ts` | Software Update: asks GitHub for the latest release (cached an hour), compares versions, and on the `.deb` starts `harbor-update install <tag>`. The helper runs as a transient systemd unit, so the service restart during `apt install` does not stop it; it takes only this repo's releases, checks the `.sha256`, package name, architecture and that the version is newer. The remote follows the status file and reloads when the host comes back with the new version. |
 | `config.ts` | Loads `config.toml`, normalizes every value, writes it back on change. |
 | `power.ts` | `KeepAwake`: `caffeinate` (macOS) or `systemd-inhibit` (Linux) while a network player streams. |
 
@@ -234,7 +252,9 @@ The web remote talks only to the REST API and the WebSocket. Pairing stores the 
 
 **Change the output.** `PUT /api/v1/output` stores device, mode, backend, network stream and the player's DSD mode in `config.toml`. Moving between this host and a network player — or, on the same player, changing what DSD becomes — reloads the current track at the same position, playing if it was.
 
-**Pair.** The host prints the PIN at start (`harbor pair` shows it again, `--rotate` makes a new one). The web remote posts it to `/api/v1/pair`; the iOS app sends it in its hello. Both get a token for all later requests.
+**Pair.** The host prints the PIN at start (`harbor pair` shows it again, `--rotate` makes a new one). While nothing is paired yet, `GET /api/v1/pair/setup` hands the PIN to the first remote, so a host without a screen needs no terminal; later a paired remote shows it under Settings → About. The web remote posts it to `/api/v1/pair`; the iOS app sends it in its hello. Both get a token for all later requests.
+
+**Update (Linux package).** Settings → About → Install posts `/api/v1/update` with the tag. `update.ts` runs `harbor-update install` through sudo; the helper downloads the release `.deb` for this CPU, checks it and installs it with apt, which restarts the service. The remote polls `/api/v1/update`, shows the steps, and reloads once the host answers with the new version.
 
 ## Build, run, release
 
@@ -245,8 +265,9 @@ The web remote talks only to the REST API and the WebSocket. Pairing stores the 
 | `npm run build:host` | `tsc` → `host/dist` |
 | `npm run serve` | build all, then `harbor serve` |
 | `npm run package:prebuilt` | build, prune dev dependencies, `create-package.sh --prebuilt` → `dist/packages/audio-harbor-headless-<version>-<platform>.tar.gz` with Node 22 under `runtime/` |
+| `npm run package:deb` / `package:macos` | the `.deb` (`create-deb.sh`, on Linux) / the signed `.pkg` (`create-macos-pkg.sh`, see [packaging/macos/README.md](../packaging/macos/README.md)) |
 
-- **Release** (`.github/workflows/release-packages.yml`): started by hand with a tag. Builds darwin-arm64, darwin-x64, linux-x64, linux-arm64 and win32-x64 packages and attaches them to a GitHub Release. The version comes from `package.json`.
+- **Release** (`.github/workflows/release-packages.yml`): started by hand with a tag and the platforms to build — darwin-arm64, darwin-x64, linux-arm64, linux-x64 by default, win32-x64 when ticked. Builds the `.tar.gz` / `.zip`, the signed and notarized `.pkg` on macOS and the `.deb` on Linux, with `.sha256` checksums, and attaches them and `install-linux.sh` to a GitHub Release. The version comes from `package.json`.
 - **On a device**: `install.sh` installs build dependencies and builds from source (Raspberry Pi / Linux); `start.sh` picks the bundled Node, checks the addon's ABI, clears the macOS quarantine flag, creates the config on first start and runs `serve`, `pair` or `rescan`.
 
 ## Testing
@@ -256,6 +277,7 @@ There is no automated test suite yet. Changes are checked by hand:
 - **Network players**: the renderer simulator in Audio Harbor (`tools/upnp`, `upnp-renderer-sim --silent`, optional `--sink-file`, `--no-next`, `--max-rate`). Run the host with a scratch `HOME`, so `~/.audio-harbor-headless` stays untouched.
 - **Engine streams**: small Node scripts that open `netStreamOpen` / `netStreamRead` and compare jumps against continuous reads, or DoP bytes against the file.
 - **Web remote**: in a browser at phone and desktop widths.
+- **Linux package and Software Update**: build the `.deb` in a `debian:bookworm` container and install it in a container with systemd (see [LINUX.md](LINUX.md#testing-locally-docker)).
 
 ## Where to change what
 
@@ -267,3 +289,4 @@ There is no automated test suite yet. Changes are checked by hand:
 | add an output backend | an `IPlayer` in `engine/src/`, `PlayerFactory.cpp`, `CMakeLists.txt` |
 | add a web tab or settings pane | the view plus one entry in `web/src/ui/views/registry.ts` or `PANES` in `settingsView.ts` |
 | speak a new iOS remote command | `host/src/remote/bonjour.ts` (and `wire.ts` for DTOs) |
+| let the service do something as root (Linux) | a helper in `packaging/linux/`, its line in `packaging/linux/sudoers`, installed by `create-deb.sh` |

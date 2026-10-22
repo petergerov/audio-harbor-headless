@@ -156,6 +156,7 @@ You need three values: the key file (`.p8`), the **Key ID** and the **Issuer ID*
 GitHub → **Actions** → **Release packages** → **Run workflow**:
 
 - **tag**: e.g. `v1.0.6` (must start with `v` + a digit)
+- **platforms**: keep *macOS Apple Silicon* and *macOS Intel* ticked for the `.pkg` files (all but Windows are ticked by default)
 - **draft**: check it if you want to review the release before publishing
 - **skip_notary**: leave unchecked
 

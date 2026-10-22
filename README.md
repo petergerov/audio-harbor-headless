@@ -2,7 +2,7 @@
 
 GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Plays to UPnP / DLNA network players like to a DAC, and also acts as a DLNA music server.
 
-**Product page:** [docs/index.html](docs/index.html) — same brand design as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs).
+**Product page:** [docs/index.html](docs/index.html), with screenshots of the remote on desktop and phone — same brand design as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs).
 
 ## Stack
 
@@ -29,12 +29,14 @@ npm run build:web
 npm run serve          # or: npm run harbor -- serve
 ```
 
-Open `http://audioharbor.local:8787` on your iPhone (or scan the QR in the terminal; the IP URL printed next to it works too).
+Open `http://audioharbor.local:8787` on your iPhone (or scan the QR in the terminal; the IP URL printed next to it works too). While no device is paired, the remote fills in the PIN itself; after that, a paired remote shows it under Settings → About → Pair Another Device.
 
 ```bash
 npm run harbor -- pair     # show / rotate pairing PIN
 npm run harbor -- rescan   # re-index library roots
 ```
+
+At start the host scans the library roots in the background (only changed files); Settings → Sources → Rescan does it again with live progress.
 
 Config lives at `~/.audio-harbor-headless/config.toml` (created from `config.example.toml` on first run).
 
@@ -50,7 +52,7 @@ The host answers to **`audioharbor.local`** over mDNS / Bonjour, so the remote i
 
 ### Prebuilt packages (ready to start)
 
-GitHub Actions builds one archive **per platform** (native audio on Mac/Linux/Windows) and attaches them to [Releases](https://github.com/petergerov/audio-harbor-headless/releases):
+GitHub Actions builds one archive **per platform** (native audio on Mac/Linux/Windows) and attaches them to [Releases](https://github.com/petergerov/audio-harbor-headless/releases). A release holds the platforms ticked when it was built — all but Windows by default, so the `.zip` is only there when Windows was ticked:
 
 | Asset | Platform |
 |---|---|
@@ -79,7 +81,9 @@ Installs to `/opt/audio-harbor-headless` and runs as systemd service `audioharbo
 
 Later versions install from the remote: Settings → About → **Software Update** → Install (downloads the release `.deb` for this CPU from GitHub, checks its checksum and restarts the service). A Mac or a portable install sees the new version there and installs it by hand.
 
-Service, music on a network share (several hosts, one library), update, removal, portable `.tar.gz`, troubleshooting and building the `.deb`: **[docs/LINUX.md](docs/LINUX.md)**.
+On the `.deb`, Settings → Sources → **Drives & Network Shares** sets up a USB drive or an SMB share (an `/etc/fstab` entry under `/mnt/harbor`) and adds its music folder, without a terminal.
+
+Service, USB drives, music on a network share (several hosts, one library), update, removal, portable `.tar.gz`, troubleshooting and building the `.deb`: **[docs/LINUX.md](docs/LINUX.md)**.
 
 Windows: unpack the `.zip` and run `start.cmd` (bundled Node 22, or system Node 22+).
 
@@ -88,7 +92,7 @@ Publish a release (manual only):
 1. Push `main` with the commits you want
 2. Set macOS signing secrets (once) — see [packaging/macos/README.md](packaging/macos/README.md)
 3. GitHub → **Actions** → **Release packages** → **Run workflow**
-4. Enter tag (e.g. `v1.0.0`) — optional: draft / skip notarization
+4. Enter tag (e.g. `v1.0.6`), tick the platforms (all but Windows by default) — optional: draft / skip notarization
 
 The macOS jobs import **Developer ID** certificates from secrets, sign binaries, build a `.pkg`, and notarize when App Store Connect / Apple ID secrets are present.
 
@@ -111,6 +115,13 @@ macOS `.pkg` installs to `/usr/local/audio-harbor-headless`, adds `audioharbor` 
 ### Web remote (Deck · Catalogue · Settings)
 
 The Vite remote matches the Harbor look of the iOS / macOS app: Deck (Turntable or Reel-to-Reel stage), Catalogue (Dirs · Albums · Artists · Lists), and Settings. On a phone the Deck fits above the tab bar without scrolling; on a wide desktop the content sits beside the sidebar, Up Next is a right rail on Deck, and the bottom player stays off while you are on Deck. Details: [web/README.md](web/README.md).
+
+Settings has four panes:
+
+- **Sources** — music folders (add, remove, Update Library / Rescan with progress); on the Linux package also USB drives and SMB shares.
+- **Output** — device, mode, network stream and DSD for network players, DSD as PCM gain, and the current path.
+- **Sharing** — the DLNA music server.
+- **About** — the host's CPU, memory and disk space, the pairing PIN for another device, the version and **Software Update**.
 
 ### Playlists & labels
 

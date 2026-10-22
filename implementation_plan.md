@@ -2,13 +2,13 @@
 
 ## Ziel
 
-Ein **GUI-loser Media-Host** auf Mac und Linux: Ordner mounten, Output wählen, Library browsen, abspielen — alles vom iPhone. Zusätzlich als **DLNA Music Server**. Konzept wie [`../audio-harbor`](../audio-harbor), ohne SwiftUI-Shell.
+Ein **GUI-loser Media-Host** auf Mac, Linux und Windows: Ordner mounten, Output wählen, Library browsen, abspielen — alles vom iPhone. Zusätzlich als **DLNA Music Server**. Konzept wie [`../audio-harbor`](../audio-harbor), ohne SwiftUI-Shell.
 
 ### Produktentscheidungen
 
 | ID | Entscheidung |
 |---|---|
-| **1C** | Steuerung: **Web-Remote zuerst** (Safari auf dem iPhone); später Bonjour-Kompatibilität mit der Audio-Harbor-iOS-App |
+| **1C** | Steuerung: **Web-Remote zuerst** (Safari auf dem iPhone), dazu Bonjour-Kompatibilität mit der Audio-Harbor-iOS-App |
 | **2B** | Qualität: **Audiophile Parität** — Exclusive / DoP / DSD, bit-perfect wo möglich |
 | **Stack** | **C++ Audio-Engine** (native Core Audio / ALSA / WASAPI) + **TypeScript/Node Host** + **Vite Web-UI** |
 
@@ -22,7 +22,7 @@ Harbor-Swift bleibt Referenz für Regeln und Remote-Protokoll, nicht Runtime auf
 flowchart LR
   subgraph clients [Clients]
     Safari[iPhone_Safari]
-    HarborIOS[Harbor_iOS_later]
+    HarborIOS[Harbor_iOS]
     DLNAClient[DLNA_Players]
   end
   subgraph host [TypeScript_Host]
@@ -63,7 +63,8 @@ Ein Prozess. Die native Library wird über Node-API geladen:
 
 - `listDevices` / `setDevice` / `setOutputMode` / `setDsdPcmLevel`
 - `load` / `play` / `pause` / `seek` / `stop` / `setVolume`
-- `getState` / `version`
+- `getState` (inkl. Stream-Rate, Device-Rate / -Bits, DoP) / `version`
+- Network-Streams: `netStreamOpen` / `netStreamRead` (WAV / DoP für Netzwerk-Player), DST: `dstBegin` / `dstDecodeFrame` / `dstEnd`
 - Events: `state`, `ended`, `deviceChange`
 
 Domain-Typen (`Track`, `OutputMode`, Snapshots) leben in TypeScript; die Engine kennt Dateipfade, PCM/DSD-Buffers und Device-UIDs.
@@ -77,36 +78,37 @@ audio-harbor-headless/
   package.json                 # npm workspaces
   config.example.toml
   README.md
-  docs/                        # Product homepage (Audio Harbor visual system)
+  docs/                        # Product homepage + Screenshots, ARCHITECTURE, LINUX, …
   implementation_plan.md
   host/                        # TypeScript daemon
     src/
       index.ts                 # CLI: serve | pair | rescan
-      config.ts
-      paths.ts
-      pairing.ts
-      types.ts
+      config.ts, paths.ts, pairing.ts, types.ts, power.ts, net.ts
+      drives.ts                # USB-Laufwerke + SMB-Shares (Linux-Paket)
+      system.ts                # CPU / Speicher / Platten für Settings → About
+      update.ts                # Software Update aus der Remote
+      resolution.ts            # Rate / Bits im Pfad-Badge
       api/server.ts            # Fastify REST + WebSocket
-      library/catalogue.ts     # Scan, metadata, SQLite FTS
+      library/                 # catalogue.ts (SQLite FTS), sacd.ts, dstDff.ts
       playback/service.ts      # Queue, transport, routing
       engine/bridge.ts         # N-API wrapper
-      upnp/                    # MediaServer + Renderer CP
-      remote/bonjour.ts        # Protocol v2
+      upnp/                    # MediaServer + Renderer-Control-Point
+      remote/                  # bonjour.ts (Protokoll v3), browse, settings, artwork, wire, mdns
   engine/                      # C++ + CMake + cmake-js
     CMakeLists.txt
     napi/binding.cpp
     src/
       HarborEngine.h/.cpp      # C ABI
-      Player.h
+      Player.h, PlayerFactory.cpp
       MacPlayer.cpp            # Core Audio Exclusive/DoP
       LinuxPlayer.cpp          # ALSA Exclusive/DoP
-      DsdPipeline.cpp          # DSF load, DoP pack, DSD→PCM
+      WinPlayer.cpp            # WASAPI Exclusive/DoP
+      DsdPipeline.cpp          # DSF / DFF, DoP pack, DSD→PCM
+      PcmDecoder, FrameSource, PlaybackFeed, AHDSTDecoder
       StubPlayer.cpp           # Fallback
-  web/                         # Vite mobile remote → host serves dist/
-    src/main.ts
-    src/styles.css
-    src/api.ts
-    src/icons.ts
+  web/                         # Vite mobile remote → host serves dist/ (siehe web/README.md)
+    src/main.ts, app/, core/, api/, state/, services/, ui/
+  packaging/                   # linux/ (.deb, systemd, Root-Helper), macos/ (.pkg, Menüleisten-App)
 ```
 
 Config: `~/.audio-harbor-headless/config.toml` (aus `config.example.toml`).  
@@ -116,16 +118,16 @@ CLI: `harbor serve` · `harbor pair` · `harbor rescan`.
 
 ## TypeScript-Host
 
-- **Runtime:** Node 20+ (getestet mit Node 26); Fastify REST + WebSocket
+- **Runtime:** Node ≥ 22.5 (`node:sqlite`; Releases bringen Node 22 unter `runtime/` mit); Fastify REST + WebSocket
 - **DB:** `node:sqlite` + FTS5 (Catalogue)
 - **Metadata:** `music-metadata`
 - **DLNA/SSDP:** eigenes Modul (ContentDirectory + HTTP Range)
-- **Bonjour:** `bonjour-service`; Frame-Protokoll analog Harbor Remote v2 (`_audioharbor._tcp`)
-- **Web:** statische Files aus `web/dist`; Pairing-PIN + QR in der Konsole
+- **Bonjour:** `bonjour-service`; Frame-Protokoll analog Harbor Remote v3 (`_audioharbor._tcp`)
+- **Web:** statische Files aus `web/dist`; Pairing-PIN + QR in der Konsole, die PIN auch in der Remote (erstes Gerät, danach Settings → About)
 
 ### REST (Auszug)
 
-`/api/v1/{health,pair,now-playing,queue,mounts,browse,search,play,transport,output,devices,sharing,artwork,ws}`
+`/api/v1/{health,pair,now-playing,queue,mounts,folders,drives,library,system,update,remotes/pin,browse,search,settings,play,transport,output,devices,playlists,labels,track-options,sharing,artwork,ws}`
 
 ---
 
@@ -136,13 +138,17 @@ CLI: `harbor serve` · `harbor pair` · `harbor rescan`.
 - **Shared:** HAL Output Unit, ExtAudioFile Decode (PCM)
 - **Exclusive:** Device hog + Nominal Sample Rate = Track; nur externe Interfaces (USB/TB/FW/PCI)
 - **DoP:** DSD → High-Rate-PCM mit Markern; sonst DSD→PCM
-- Hardware-Volume wo möglich; Conversion-Badge an den Host
+- Hardware-Volume wo möglich; Conversion-Badge an den Host, dazu Nominal-Rate und physisches Format des Geräts
 
 ### Linux (`LinuxPlayer`)
 
-- **Shared:** ALSA `default` (PipeWire/Pulse)
-- **Exclusive / DoP:** ALSA `hw:` / `plughw:`
-- WAV + DSF Pfade; PCM-Formate erweitert über Engine später
+- **Shared:** ALSA `default` (PipeWire/Pulse) oder das gewählte Gerät
+- **Exclusive / DoP:** ALSA `hw:` / `plughw:`; schreibt das Sample-Format, das das Gerät nimmt
+- FLAC / MP3 / WAV / AIFF über `dr_libs`, ALAC / AAC über ffmpeg; Rate / Bits des Geräts aus `hw_params` (hinter `plughw` aus `/proc/asound`)
+
+### Windows (`WinPlayer`)
+
+- **Shared / Exclusive / DoP** über WASAPI
 
 ### DSD-Pipeline
 
@@ -161,15 +167,13 @@ backend = "auto"   # auto | native → Core Audio / ALSA / WASAPI
 
 ## Web-Remote (iPhone)
 
-Zielgefühl: native iOS-App.
+Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Details: [web/README.md](web/README.md).
 
-- System-Font, Light/Dark (`prefers-color-scheme`)
-- Tab Bar: Library · Playing · Folders · Output
-- Large Titles, Segmented Control, Search
-- Grouped inset lists
-- Now Playing (Artwork, Scrubber, Transport, Volume)
-- Mini Player über der Tab Bar
-- Pairing als Sheet mit 6-digit PIN
+- Tabs: **Deck · Catalogue · Settings**; Catalogue mit Dirs · Albums · Artists · Lists
+- Deck: Turntable- oder Reel-to-Reel-Bühne, Scrubber, Transport, Volume, Pfad-Badge; Up Next als Sheet (Phone) oder rechte Leiste (Desktop)
+- Mini Player über der Tab Bar, auf dem Desktop Seitenleiste + Bottom-Bar (nicht auf Deck)
+- Settings: Sources (Ordner, Laufwerke, SMB, Rescan), Output, Sharing, About (Host-Status, PIN, Software Update)
+- Pairing mit 6-stelliger PIN
 - Safe Areas (Notch / Home Indicator)
 
 ---
@@ -186,7 +190,12 @@ Zielgefühl: native iOS-App.
 | 6 | Linux Exclusive/hw + DoP/PCM-Fallback | done (Basis) |
 | 7 | DLNA Music Server — Sharing an/aus | done |
 | 8 | UPnP Renderer als Output | done (Discovery + SetNext) |
-| 9 | Bonjour Remote v2 für Harbor-iOS | done (artwork + trackOptions/edit) |
+| 9 | Bonjour Remote für Harbor-iOS | done (Protokoll v3, artwork + trackOptions/edit, Settings) |
+| 10 | Windows WASAPI, JUCE entfernt — nur native Stacks | done |
+| 11 | Pakete: signiertes macOS-`.pkg` + Menüleisten-App, Linux-`.deb` + systemd + Installer | done |
+| 12 | Laufwerke + SMB-Shares aus der Remote (Linux-Paket) | done |
+| 13 | Software Update aus der Remote (Linux-Paket) | done (ab 1.0.3) |
+| 14 | Pfad-Badge mit Rate / Bits — lokaler DAC und Netzwerk-Player | done (1.0.5 / 1.0.6) |
 
 ---
 
@@ -207,7 +216,7 @@ Zielgefühl: native iOS-App.
 - Linux: Playback + Output-Wahl; Exclusive wo `hw:` verfügbar
 - iPhone Safari: Folder → Browse → Play unter 60 s
 - DLNA-Client sieht dieselbe Library
-- Harbor-iOS kann per Bonjour denselben Host steuern (Protokoll v2)
+- Harbor-iOS kann per Bonjour denselben Host steuern (Protokoll v3)
 
 ---
 
@@ -243,10 +252,12 @@ Config: `~/.audio-harbor-headless/config.toml` — DLNA via `sharing.enabled = t
 - ALAC/AAC: Mac via ExtAudioFile; Linux via ffmpeg/ffprobe Fallback
 - UPnP DIDL: bitrate / sampleFrequency / bitsPerSample / nrAudioChannels + DLNA flags
 - Web: Service Worker offline shell (`sw.js`)
+- DST-komprimierte `.dff` → dekodierter DFF-Cache (`cache/dst-dff`)
+- Renderer-HTTP: MIME aus dem Format des Catalogue-Tracks
 
 ### Noch offen
 
 1. Harbor-FIR Feintuning (flat to 25 kHz, ≥ 120 dB Stopband-Messung)
 2. Native ALAC ohne ffmpeg auf Linux (libalac)
-3. DFF-embedded DST Chunks (nicht nur SACD ISO)
-4. Renderer-HTTP: korrekte MIME aus Catalogue-Track statt nur Dateiendung
+3. Windows: Rate / Bits des Geräts im Pfad-Badge (heute nur der Pfad)
+4. Software Update für macOS-`.pkg` und portable Installationen (heute nur Hinweis + Release Notes)
