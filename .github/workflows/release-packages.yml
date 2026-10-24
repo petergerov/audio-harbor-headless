@@ -197,7 +197,7 @@ jobs:
           apt-get update -y
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             build-essential cmake ninja-build pkg-config python3 \
-            libasound2-dev liblilv-dev lv2-dev curl ca-certificates git rsync
+            libasound2-dev liblilv-dev lv2-dev libsndfile1-dev curl ca-certificates git rsync
 
       - uses: actions/checkout@v4
 
@@ -211,6 +211,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Plugins shipped for the rack (LSP, CLAP without UI)
+        run: packaging/linux/build-plugins.sh "$PWD"
 
       - name: Production prune
         run: npm prune --omit=dev

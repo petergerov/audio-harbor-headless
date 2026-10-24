@@ -100,9 +100,8 @@ Package: audio-harbor-headless
 Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Petar Gerov <peter@gerov.com>
-Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, liblilv-0-0, sudo, util-linux, curl, ca-certificates
+Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, liblilv-0-0, libsndfile1, sudo, util-linux, curl, ca-certificates
 Recommends: cifs-utils
-Suggests: lsp-plugins-lv2, x42-plugins
 Section: sound
 Priority: optional
 Homepage: https://github.com/petergerov/audio-harbor-headless

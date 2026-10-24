@@ -28,6 +28,9 @@ install_apt_deps() {
     ninja-build \
     pkg-config \
     libasound2-dev \
+    liblilv-dev \
+    lv2-dev \
+    libsndfile1-dev \
     curl \
     ca-certificates
 }
@@ -68,6 +71,9 @@ npm install
 
 log "Build engine + web + host (native engine for this CPU)"
 npm run build
+
+log "Plugins for the rack (LSP: EQs, compressors, limiter — a few minutes on a Pi)"
+"$ROOT/packaging/linux/build-plugins.sh" "$ROOT" || echo "Plugins not built — the rack still takes plugins you install yourself"
 
 log "Ensure config"
 mkdir -p "$HOME/.audio-harbor-headless"

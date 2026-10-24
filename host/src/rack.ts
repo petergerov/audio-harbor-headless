@@ -11,7 +11,7 @@ import {
   engineHasRack,
   fxBinaryPath,
 } from './engine/bridge.js';
-import { dataDir } from './paths.js';
+import { appRootPath, dataDir } from './paths.js';
 
 /** A plugin installed on this machine, as harbor-fx describes it. */
 export interface RackPlugin {
@@ -25,6 +25,25 @@ export interface RackPlugin {
   features: string[];
   /** A stereo effect — what the rack takes. */
   stereo: boolean;
+  /** Shipped with Audio Harbor and picked for a job ("Graphic EQ"); listed first. */
+  role?: string;
+}
+
+/**
+ * The plugins the Linux package ships (LSP Plugins as one CLAP file, built without UI by
+ * packaging/linux/build-plugins.sh), in the order the picker shows them.
+ */
+const INCLUDED: Array<[id: string, role: string]> = [
+  ['in.lsp-plug.graph_equalizer_x16_stereo', 'Graphic EQ'],
+  ['in.lsp-plug.para_equalizer_x16_stereo', 'Parametric EQ'],
+  ['in.lsp-plug.mb_compressor_stereo', 'Mastering Compressor'],
+  ['in.lsp-plug.limiter_stereo', 'Mastering Limiter'],
+  ['in.lsp-plug.loud_comp_stereo', 'Loudness Compensation'],
+];
+
+/** Where the shipped plugins sit in an install; harbor-fx finds them through CLAP_PATH. */
+export function bundledPluginDir(): string {
+  return path.join(appRootPath(), 'plugins', 'clap');
 }
 
 /** One parameter, in the plugin's own units, with the plugin's own text for the value. */
@@ -174,6 +193,12 @@ export class Rack extends EventEmitter {
   }
 
   async start(): Promise<void> {
+    // Before harbor-fx first starts (it inherits the environment) and before any scan.
+    const bundled = bundledPluginDir();
+    if (fs.existsSync(bundled)) {
+      const paths = (process.env.CLAP_PATH ?? '').split(path.delimiter).filter(Boolean);
+      if (!paths.includes(bundled)) process.env.CLAP_PATH = [bundled, ...paths].join(path.delimiter);
+    }
     const loaded = readJson<Partial<StoredRack>>(rackPath(), {});
     this.stored = {
       inserts: Array.isArray(loaded.inserts) ? loaded.inserts : [],
@@ -298,9 +323,15 @@ export class Rack extends EventEmitter {
       }
     }
     writeJson(scanCachePath(), next);
+    const bundled = bundledPluginDir();
+    const rank = (p: RackPlugin) => (p.role ? INCLUDED.findIndex(([id]) => id === p.id) : INCLUDED.length);
     return Object.values(next.entries)
       .flatMap((e) => e.plugins)
-      .sort((a, b) => a.vendor.localeCompare(b.vendor) || a.name.localeCompare(b.name));
+      .map((p) => {
+        const role = p.path.startsWith(bundled) ? INCLUDED.find(([id]) => id === p.id)?.[1] : undefined;
+        return role ? { ...p, role } : p;
+      })
+      .sort((a, b) => rank(a) - rank(b) || a.vendor.localeCompare(b.vendor) || a.name.localeCompare(b.name));
   }
 
   async addInsert(format: string, pluginPath: string, pluginId: string): Promise<RackSnapshot> {

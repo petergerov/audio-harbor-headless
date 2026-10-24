@@ -156,7 +156,18 @@ macOS reads the device's rate and physical format; Linux the `hw:` format (signi
 
 Inserts on the local output, steered from the remote — the plugins you already own: EQ, headphone or room correction, a limiter.
 
-- **Formats**: **CLAP** on macOS and Linux (`~/Library/Audio/Plug-Ins/CLAP`, `/Library/Audio/Plug-Ins/CLAP`; `~/.clap`, `/usr/lib/clap`; plus `CLAP_PATH`). **LV2** on Linux and the Pi — `sudo apt install lsp-plugins-lv2 x42-plugins` gives parametric EQs, compressors and limiters. Stereo effects only (2 in, 2 out). VST3, AU and Windows come later.
+- **Included on Linux** (`.deb`, `.tar.gz`, `install.sh`): [LSP Plugins](https://lsp-plug.in), free (LGPL), built without their UI so they need only `libsndfile` — one 11 MB file instead of ~240 MB of desktop libraries from the distribution packages. **Settings → Rack → Add Plugin** lists five first, by their job:
+
+  | Job | Plugin |
+  |---|---|
+  | Graphic EQ | LSP Graphic Equalizer x16 Stereo |
+  | Parametric EQ | LSP Parametric Equalizer x16 Stereo |
+  | Mastering Compressor | LSP Multiband Compressor Stereo x8 |
+  | Mastering Limiter | LSP Limiter Stereo (true peak, oversampling) |
+  | Loudness Compensation | LSP Loudness Compensator Stereo — equal-loudness curves, so quiet listening keeps its bass and treble |
+
+  The other ~110 LSP stereo effects (crossovers, clippers, dynamics, …) follow under *LSP*.
+- **Formats**: **CLAP** on macOS and Linux (`~/Library/Audio/Plug-Ins/CLAP`, `/Library/Audio/Plug-Ins/CLAP`; `~/.clap`, `/usr/lib/clap`; plus `CLAP_PATH`). **LV2** on Linux and the Pi (e.g. `sudo apt install x42-plugins`; the distribution packages bring their desktop libraries along). Stereo effects only (2 in, 2 out). VST3, AU and Windows come later.
 - **Remote**: the fader button on the Deck (amber while plugins shape the sound) opens the rack — the path, one key that takes the whole rack out and back in for an **A/B** without a gap, each plugin's power key and up to six pinned knobs. **Settings → Rack** adds plugins from the ones installed on the host, orders and removes them, and shows every parameter with the plugin's own value text (with a search for plugins with hundreds); the star pins a knob to the Deck sheet. Plugin editors (their own windows) are not shown: the host has no screen.
 - **Sound**: with plugins the DAC stays exclusive at the file's rate (`… · Exclusive · FX`); the plugins change the sound, so it is not bit-perfect. DSD plays as PCM while the rack holds plugins (from the next track). **An empty rack is bit-perfect and plays DoP**, as before. Network players get the file without plugins for now (`Network · no FX`).
 - **Safe**: plugins run in **harbor-fx**, a process of their own. A plugin that crashes does not stop the music — it plays on dry and the rack comes back by itself; three crashes in half a minute stop the rack until you change it. Changes are heard after about 0.2 s (the rack renders ahead, so a slow plugin causes no dropouts); latency is compensated.

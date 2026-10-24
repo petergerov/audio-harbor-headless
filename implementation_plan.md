@@ -197,6 +197,7 @@ Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Detail
 | 13 | Software Update aus der Remote (Linux-Paket) | done (ab 1.0.3) |
 | 14 | Pfad-Badge mit Rate / Bits — lokaler DAC und Netzwerk-Player | done (1.0.5 / 1.0.6) |
 | 15 | Plugin-Rack Stufe 1: `harbor-fx` (CLAP, LV2), Vorausrechnen, A/B, Absturz-Neustart, Web-Remote | done (Mac + Linux; Windows folgt) |
+| 16 | Mitgelieferte Plugins (Linux): LSP Plugins als CLAP ohne UI — Graphic EQ, Parametric EQ, Mastering-Kompressor, Limiter, Loudness Compensator | done |
 
 ---
 

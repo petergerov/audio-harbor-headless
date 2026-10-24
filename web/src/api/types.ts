@@ -316,6 +316,8 @@ export interface RackPlugin {
   features: string[];
   /** A stereo effect — what the rack takes. */
   stereo: boolean;
+  /** Shipped with Audio Harbor and picked for a job ("Graphic EQ"). */
+  role?: string;
 }
 
 /** One plugin parameter, in its own units, with its own text for the value. */
