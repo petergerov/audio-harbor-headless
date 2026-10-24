@@ -1,5 +1,7 @@
 #if defined(__linux__)
 
+#include "FxClient.h"
+#include "FxStage.h"
 #include "PlaybackFeed.h"
 #include "Player.h"
 
@@ -223,6 +225,10 @@ public:
       badge_ = "Exclusive (PCM, DoP N/A)";
     }
 
+    // Plugins work on PCM: with inserts in the rack, DSD is converted, not sent as DoP.
+    if (isDsd && effectiveMode_ == HARBOR_MODE_DOP && FxClient::instance().engaged()) {
+      effectiveMode_ = HARBOR_MODE_EXCLUSIVE;
+    }
     FrameSourceOptions options;
     options.dsdLevelDb = dsdLevel_;
     options.dop = isDsd && effectiveMode_ == HARBOR_MODE_DOP;
@@ -251,6 +257,7 @@ public:
       }
       cancelDecodeFlag_.store(false);
       feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
+      fx_.attach(pcm_.data(), &readyFrames_, totalFrames_.load(), sampleRate_, channels_);
     }
 
     const size_t want = std::min<size_t>(4096, totalFrames_.load());
@@ -322,6 +329,7 @@ public:
       s.is_dop = isDop_ ? 1 : 0;
     }
     s.volume = volume_;
+    s.fx_applied = fx_.engaged() ? 1 : 0;
     std::snprintf(s.error, sizeof(s.error), "%s", error_.c_str());
     return s;
   }
@@ -456,6 +464,7 @@ private:
     cancelDecode_();
     feed_.close();
     closeAlsa_();
+    fx_.detach();
     path_.clear();
     pcm_.clear();
     dop_.clear();
@@ -471,6 +480,7 @@ private:
     std::thread([this] {
       constexpr size_t block = 1024;
       std::vector<uint8_t> out;
+      std::vector<float> fxBuf;
       while (true) {
         HarborPlaybackState st;
         {
@@ -492,17 +502,26 @@ private:
           threadRunning_ = false;
           break;
         }
-        if (idx >= ready) {
+        size_t n = 0;
+        const bool viaFx = !isDop_ && fx_.engaged();
+        if (viaFx) {
+          // Through the plugin rack, which renders ahead of this loop.
+          fxBuf.resize(block * channels_);
+          n = fx_.read(idx, fxBuf.data(), block);
+        } else if (idx < ready) {
+          n = std::min(block, ready - idx);
+        }
+        if (n == 0) {
           std::this_thread::sleep_for(std::chrono::milliseconds(2));
           continue;
         }
-        const size_t n = std::min(block, ready - idx);
         bool ok = true;
         if (isDop_) {
           ok = writeFrames_(dop_.data() + idx * channels_, n);
         } else {
           out.resize(n * frameBytes_);
-          convertFloat(pcm_.data() + idx * channels_, n * channels_, volume_, format_, out.data());
+          const float* src = viaFx ? fxBuf.data() : pcm_.data() + idx * channels_;
+          convertFloat(src, n * channels_, volume_, format_, out.data());
           ok = writeFrames_(out.data(), n);
         }
         if (!ok) {
@@ -550,6 +569,7 @@ private:
   int deviceBits_ = 0;
   size_t frameBytes_ = 8;
   bool threadRunning_ = false;
+  FxStage fx_;
 };
 
 } // namespace

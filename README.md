@@ -1,6 +1,6 @@
 # Audio Harbor Headless
 
-GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Plays to UPnP / DLNA network players like to a DAC, and also acts as a DLNA music server.
+GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Plays to UPnP / DLNA network players like to a DAC, and also acts as a DLNA music server. Runs the plugins you already have — CLAP, and LV2 on Linux / Raspberry Pi — in a rack you steer from the phone.
 
 **Product page:** [docs/index.html](docs/index.html), with screenshots of the remote on desktop and phone — same brand design as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs).
 
@@ -9,6 +9,7 @@ GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Contro
 | Layer | Tech |
 |---|---|
 | Audio engine | **C++ via Node-API** — native Core Audio / ALSA / WASAPI |
+| Plugin rack | **harbor-fx**, its own process — CLAP, LV2 (lilv) on Linux |
 | Host | **TypeScript / Node** (Fastify) |
 | Remote UI | **Vite + TypeScript** (mobile web) |
 
@@ -116,10 +117,11 @@ macOS `.pkg` installs to `/usr/local/audio-harbor-headless`, adds `audioharbor` 
 
 The Vite remote matches the Harbor look of the iOS / macOS app: Deck (Turntable or Reel-to-Reel stage), Catalogue (Dirs · Albums · Artists · Lists), and Settings. On a phone the Deck fits above the tab bar without scrolling; on a wide desktop the content sits beside the sidebar, Up Next is a right rail on Deck, and the bottom player stays off while you are on Deck. Details: [web/README.md](web/README.md).
 
-Settings has four panes:
+Settings has five panes:
 
 - **Sources** — music folders (add, remove, Update Library / Rescan with progress); on the Linux package also USB drives and SMB shares.
 - **Output** — device, mode, network stream and DSD for network players, DSD as PCM gain, and the current path.
+- **Rack** — the plugin rack: add, order, switch and remove plugins, their knobs, and the A/B bypass (see [Plugin rack](#plugin-rack)).
 - **Sharing** — the DLNA music server.
 - **About** — the host's CPU, memory and disk space, the pairing PIN for another device, the version and **Software Update**.
 
@@ -146,8 +148,20 @@ The Deck badge (also the bottom player and Settings → Output → Path) shows w
 | `DSD→PCM 88.2 kHz / 24-bit · Exclusive` | DSD as PCM |
 | `DoP DSD64` | DoP into the DAC |
 | `… · Shared (no external DAC)` | Exclusive / DoP asked for, but the device is not an external DAC |
+| `… · FX` / `… · FX bypassed` | the [plugin rack](#plugin-rack) shapes the sound / holds plugins but passes the sound on (A/B) |
 
 macOS reads the device's rate and physical format; Linux the `hw:` format (significant bits, e.g. 24 in a 32-bit sample), or in Shared what the card runs at behind `plughw` (`/proc/asound/card*/pcm*p/sub*/hw_params`, the sample width). Windows shows the path only.
+
+### Plugin rack
+
+Inserts on the local output, steered from the remote — the plugins you already own: EQ, headphone or room correction, a limiter.
+
+- **Formats**: **CLAP** on macOS and Linux (`~/Library/Audio/Plug-Ins/CLAP`, `/Library/Audio/Plug-Ins/CLAP`; `~/.clap`, `/usr/lib/clap`; plus `CLAP_PATH`). **LV2** on Linux and the Pi — `sudo apt install lsp-plugins-lv2 x42-plugins` gives parametric EQs, compressors and limiters. Stereo effects only (2 in, 2 out). VST3, AU and Windows come later.
+- **Remote**: the fader button on the Deck (amber while plugins shape the sound) opens the rack — the path, one key that takes the whole rack out and back in for an **A/B** without a gap, each plugin's power key and up to six pinned knobs. **Settings → Rack** adds plugins from the ones installed on the host, orders and removes them, and shows every parameter with the plugin's own value text (with a search for plugins with hundreds); the star pins a knob to the Deck sheet. Plugin editors (their own windows) are not shown: the host has no screen.
+- **Sound**: with plugins the DAC stays exclusive at the file's rate (`… · Exclusive · FX`); the plugins change the sound, so it is not bit-perfect. DSD plays as PCM while the rack holds plugins (from the next track). **An empty rack is bit-perfect and plays DoP**, as before. Network players get the file without plugins for now (`Network · no FX`).
+- **Safe**: plugins run in **harbor-fx**, a process of their own. A plugin that crashes does not stop the music — it plays on dry and the rack comes back by itself; three crashes in half a minute stop the rack until you change it. Changes are heard after about 0.2 s (the rack renders ahead, so a slow plugin causes no dropouts); latency is compensated.
+- **Kept** in `~/.audio-harbor-headless/rack.json`: the plugins, their order, switches, pinned knobs and every setting.
+- **API**: `GET /api/v1/rack`, `PUT /api/v1/rack/bypass`, `GET /api/v1/rack/plugins[?rescan=1]`, `POST /api/v1/rack/inserts`, `DELETE /api/v1/rack/inserts/:id`, `POST …/:id/move`, `PUT …/:id/bypass`, `GET …/:id/params`, `PUT …/:id/params/:param`, `PUT …/:id/pinned`; the WebSocket pushes `rack`.
 
 ### Network players (UPnP / DLNA)
 

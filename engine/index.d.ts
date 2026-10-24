@@ -30,6 +30,23 @@ export interface EngineState {
   dop: boolean;
   volume: number | null;
   error: string | null;
+  fx: EngineFxState;
+}
+
+/** The plugin rack as the engine runs it. */
+export interface EngineFxState {
+  /** This track plays through the rack (inserts loaded, PCM). */
+  applied: boolean;
+  /** Some insert is in circuit: the plugins shape the sound. */
+  processing: boolean;
+  /** Whole rack bypassed for A/B. */
+  bypassed: boolean;
+  /** Frames, compensated. */
+  latency: number;
+  /** harbor-fx is running. */
+  running: boolean;
+  /** Why the rack is not running, or null. */
+  error: string | null;
 }
 
 /** PCM for a network player: random access by frame, little-endian, interleaved. */
@@ -76,6 +93,12 @@ export interface HarborEngine {
   /** Packed frames [startFrame, startFrame + frameCount); shorter at the end. */
   netStreamRead(handle: unknown, startFrame: number, frameCount: number): Promise<Buffer>;
   netStreamClose(handle: unknown): void;
+  /** One JSON request to harbor-fx (started on first use); resolves to its JSON reply. */
+  fxRequest(json: string): Promise<string>;
+  /** Whole-rack bypass for A/B, faded in ~10 ms. */
+  fxSetBypass(bypassed: boolean): void;
+  /** harbor-fx path; null = next to harbor_engine.node (or $HARBOR_FX). */
+  fxSetBinary(path: string | null): void;
 }
 
 declare const engine: HarborEngine;

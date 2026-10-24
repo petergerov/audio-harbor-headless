@@ -49,6 +49,14 @@ typedef struct HarborEngineState {
   int is_dop;
   float volume; /* < 0 if unavailable */
   char error[256];
+  /* Plugin rack: this track runs through it; plugins shape the sound (some insert in circuit);
+     the whole rack is bypassed for A/B; its latency; harbor-fx is running; why it is not. */
+  int fx_applied;
+  int fx_processing;
+  int fx_bypassed;
+  uint32_t fx_latency;
+  int fx_running;
+  char fx_error[192];
 } HarborEngineState;
 
 typedef void (*HarborEventCallback)(const char* event, const char* json_payload, void* user_data);
@@ -79,6 +87,15 @@ int harbor_engine_seek(double seconds);
 int harbor_engine_set_volume(float level_0_1);
 
 void harbor_engine_get_state(HarborEngineState* out);
+
+/* --- Plugin rack (harbor-fx) --- */
+/** Path of the harbor-fx binary; NULL or "" = next to harbor_engine.node. */
+void harbor_engine_fx_set_binary(const char* path);
+/** One JSON request to harbor-fx (blocking). Returns a malloc'ed JSON reply; free with harbor_engine_free. */
+char* harbor_engine_fx_request(const char* json);
+/** Whole-rack bypass for A/B, faded in ~10 ms. */
+void harbor_engine_fx_set_bypass(int bypassed);
+void harbor_engine_free(void* p);
 
 #ifdef __cplusplus
 }

@@ -304,3 +304,55 @@ export interface OutputChange {
   networkDsd?: NetworkDsd;
   dsdPcmLevel?: DsdPcmLevel;
 }
+
+/** A plugin installed on the host. */
+export interface RackPlugin {
+  format: 'clap' | 'lv2';
+  path: string;
+  id: string;
+  name: string;
+  vendor: string;
+  version: string;
+  features: string[];
+  /** A stereo effect — what the rack takes. */
+  stereo: boolean;
+}
+
+/** One plugin parameter, in its own units, with its own text for the value. */
+export interface RackParam {
+  id: string;
+  name: string;
+  module?: string;
+  min: number;
+  max: number;
+  default: number;
+  value: number;
+  text: string;
+  stepped: boolean;
+  isBypass?: boolean;
+}
+
+export interface RackInsert {
+  id: string;
+  name: string;
+  vendor: string;
+  format: string;
+  bypassed: boolean;
+  loaded: boolean;
+  error: string | null;
+  /** Up to six parameters for the rack sheet. */
+  pinned: RackParam[];
+}
+
+/** The host's plugin rack. */
+export interface RackSnapshot {
+  /** The host can run plugins. */
+  available: boolean;
+  /** Whole rack bypassed for A/B. */
+  bypassed: boolean;
+  inserts: RackInsert[];
+  /** What leaves the rack; lit while plugins shape the sound. */
+  path: { label: string; lit: boolean; note: string };
+  latencyMs: number;
+  error: string | null;
+}

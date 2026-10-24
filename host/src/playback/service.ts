@@ -706,6 +706,16 @@ export class PlaybackService extends EventEmitter {
     this.emit('nowPlaying', this.snapshot());
   }
 
+  /** Something the badge shows changed outside playback (the plugin rack). */
+  refreshNowPlaying(): void {
+    this.emitNowPlaying();
+  }
+
+  /** The stored pick is a network player. */
+  isNetworkOutput(): boolean {
+    return this.usingNetwork();
+  }
+
   /** Now playing always; the queue only when its tracks, position or source changed. */
   private emitUpdate(): void {
     this.emit('nowPlaying', this.snapshot());

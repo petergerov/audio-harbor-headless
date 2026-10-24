@@ -1,3 +1,4 @@
+import type { RackApi } from '../api/rackApi';
 import type { SettingsApi } from '../api/settingsApi';
 import type { Store } from '../core/store';
 import type { CollectionsService } from '../services/collectionsService';
@@ -18,6 +19,8 @@ export interface AppContext {
   clock: PlaybackClock;
   collections: CollectionsService;
   settings: SettingsApi;
+  /** The host's plugin rack; its snapshot lives in the store. */
+  rack: RackApi;
   /** The Settings snapshot the iOS app shares (sharing, scanning, about), kept in the store. */
   hostSettings: HostSettings;
   covers: Covers;

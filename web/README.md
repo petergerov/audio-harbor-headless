@@ -19,6 +19,12 @@ The Deck stage is Turntable or Reel-to-Reel (preference in `localStorage` under 
 photos live in `public/deck/` (`*-portrait.jpg` / `*-wide.jpg`). Queue rail open/closed is
 `ah.deck.queueRail`. Live player markup follows `PlayerMarkup` in `components/playerBindings.ts`.
 
+The plugin rack's snapshot comes over the WebSocket (`rack`) into `AppState.rack`. The Deck toolbar
+shows the fader button when the host has a rack (amber while plugins shape the sound); its sheet and
+Settings → Rack repaint from the store, but not while a knob is held. `components/rackControls.ts`
+holds the shared parts: path badge, insert head with power key, parameter sliders (sent at most every
+60 ms while dragged, the last value always).
+
 ```
 src/
   main.ts        composition root — the only place that names concrete classes
@@ -33,7 +39,8 @@ src/
     views/       one View per tab (registry.ts), settings panes, media list, catalogueScopes
     components/  covers, rows, deck stage / chrome / queue rail, player bindings and controls
     sheets/      organize, playlist picker, labels, collection menu, item actions, queue (phone),
-                 folder picker and SMB share dialog (Settings → Sources)
+                 folder picker and SMB share dialog (Settings → Sources), plugin rack (Deck),
+                 plugin picker and parameters (Settings → Rack)
     overlay.ts   sheets, dialogs and toasts
 ```
 

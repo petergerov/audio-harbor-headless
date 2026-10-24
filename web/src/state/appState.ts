@@ -6,12 +6,13 @@ import type {
   NowPlaying,
   PlaylistSummary,
   QueueSnapshot,
+  RackSnapshot,
   ScanProgress,
   SettingsSnapshot,
 } from '../api/types';
 
 export type Tab = 'library' | 'collections' | 'now' | 'settings';
-export type SettingsPane = 'sources' | 'output' | 'sharing' | 'about';
+export type SettingsPane = 'sources' | 'output' | 'rack' | 'sharing' | 'about';
 
 export interface AlbumRef {
   id: string;
@@ -59,6 +60,8 @@ export interface AppState {
   settings: SettingsSnapshot | null;
   /** The library scan, as the host pushes it. */
   scan: ScanProgress | null;
+  /** The plugin rack, as the host pushes it. */
+  rack: RackSnapshot | null;
 }
 
 export const initialState: AppState = {
@@ -80,4 +83,5 @@ export const initialState: AppState = {
   queue: null,
   settings: null,
   scan: null,
+  rack: null,
 };

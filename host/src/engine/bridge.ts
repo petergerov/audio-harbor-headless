@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import type {
   AudioBackendInfo,
@@ -35,6 +37,8 @@ type NativeEngine = {
   netStreamOpen?(path: string, options?: NetStreamOptions): Promise<NetStreamInfo>;
   netStreamRead?(handle: unknown, startFrame: number, frameCount: number): Promise<Buffer>;
   netStreamClose?(handle: unknown): void;
+  fxRequest?(json: string): Promise<string>;
+  fxSetBypass?(bypassed: boolean): void;
 };
 
 let native: NativeEngine | null = null;
@@ -161,6 +165,40 @@ export async function engineNetStreamRead(
 
 export function engineNetStreamClose(handle: unknown): void {
   loadNative()?.netStreamClose?.(handle);
+}
+
+/** The engine has a plugin rack (harbor-fx next to it, a platform that runs it). */
+export function engineHasRack(): boolean {
+  const eng = loadNative();
+  return typeof eng?.fxRequest === 'function' && process.platform !== 'win32' && fxBinaryPath() !== null;
+}
+
+/** One JSON request to harbor-fx; the parsed reply. */
+export async function engineFxRequest<T = Record<string, unknown>>(request: Record<string, unknown>): Promise<T> {
+  const eng = loadNative();
+  if (!eng?.fxRequest) throw new Error(loadError ?? 'This engine has no plugin rack');
+  return JSON.parse(await eng.fxRequest(JSON.stringify(request))) as T;
+}
+
+export function engineFxSetBypass(bypassed: boolean): void {
+  loadNative()?.fxSetBypass?.(bypassed);
+}
+
+/** harbor-fx beside harbor_engine.node — the engine starts it itself; the host scans with it. */
+export function fxBinaryPath(): string | null {
+  if (process.env.HARBOR_FX) return process.env.HARBOR_FX;
+  let dir: string;
+  try {
+    dir = path.dirname(require.resolve('@harbor/engine'));
+  } catch {
+    return null;
+  }
+  const exe = process.platform === 'win32' ? 'harbor-fx.exe' : 'harbor-fx';
+  for (const sub of ['build/Release', 'build/Debug', 'build']) {
+    const candidate = path.join(dir, sub, exe);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 /** What the engine knows; the playback service adds the pick and the network side. */

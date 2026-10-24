@@ -57,6 +57,7 @@ export class App {
       if (message.type === 'nowPlaying') playback.receive(message.payload);
       else if (message.type === 'queue') playback.receiveQueue(message.payload);
       else if (message.type === 'settings') settings.receive(message.payload);
+      else if (message.type === 'rack') this.deps.store.update({ rack: message.payload });
       else if (message.type === 'scan') {
         const finished = Boolean(this.deps.store.get().scan?.scanning) && !message.payload.scanning;
         this.deps.store.update({ scan: message.payload });

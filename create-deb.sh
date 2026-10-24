@@ -88,7 +88,8 @@ install -m 755 "$ROOT/packaging/linux/debian/postinst" "$ROOT/packaging/linux/de
 # Lowest glibc the shipped binaries accept (bundled Node needs 2.28).
 GLIBC_MIN="2.28"
 if command -v objdump >/dev/null 2>&1; then
-  found="$(objdump -T "$PKG$PREFIX/engine/build/Release/harbor_engine.node" "$PKG$PREFIX/runtime/bin/node" 2>/dev/null \
+  found="$(objdump -T "$PKG$PREFIX/engine/build/Release/harbor_engine.node" "$PKG$PREFIX/engine/build/Release/harbor-fx" \
+    "$PKG$PREFIX/runtime/bin/node" 2>/dev/null \
     | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1 || true)"
   [[ -n "$found" ]] && GLIBC_MIN="$found"
 fi
@@ -99,8 +100,9 @@ Package: audio-harbor-headless
 Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Petar Gerov <peter@gerov.com>
-Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, sudo, util-linux, curl, ca-certificates
+Depends: libc6 (>= ${GLIBC_MIN}), libstdc++6, libasound2t64 | libasound2, liblilv-0-0, sudo, util-linux, curl, ca-certificates
 Recommends: cifs-utils
+Suggests: lsp-plugins-lv2, x42-plugins
 Section: sound
 Priority: optional
 Homepage: https://github.com/petergerov/audio-harbor-headless

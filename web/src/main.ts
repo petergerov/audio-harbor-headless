@@ -12,6 +12,7 @@ import { HttpClient, LocalTokenStore } from './api/http';
 import { HttpLibraryApi } from './api/libraryApi';
 import { LiveUpdates } from './api/liveUpdates';
 import { HttpPlaybackApi } from './api/playbackApi';
+import { HttpRackApi } from './api/rackApi';
 import { HttpSettingsApi } from './api/settingsApi';
 import { required } from './core/html';
 import { Store } from './core/store';
@@ -55,6 +56,7 @@ const ctx: AppContext = {
   clock,
   collections,
   settings: settingsApi,
+  rack: new HttpRackApi(http),
   hostSettings,
   covers,
   bindings,

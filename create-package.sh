@@ -226,6 +226,12 @@ if [[ "$MODE" == "prebuilt" ]]; then
   # Ensure engine binary is where index.js expects it
   mkdir -p "$STAGE/engine/build/Release"
   cp -f "$ENGINE" "$STAGE/engine/build/Release/harbor_engine.node"
+  # The plugin rack's process sits next to the engine, which starts it from there.
+  for fx in harbor-fx harbor-fx.exe; do
+    if [[ -f "$(dirname "$ENGINE")/$fx" ]]; then
+      cp -f "$(dirname "$ENGINE")/$fx" "$STAGE/engine/build/Release/$fx"
+    fi
+  done
 
   # Ship a matching Node runtime so users need no system Node (and ABI always matches).
   mkdir -p "$STAGE/runtime"

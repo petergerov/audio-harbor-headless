@@ -1,5 +1,7 @@
 #if defined(__APPLE__)
 
+#include "FxClient.h"
+#include "FxStage.h"
 #include "PlaybackFeed.h"
 #include "Player.h"
 
@@ -140,6 +142,10 @@ public:
       badge_ = "Exclusive (PCM, DoP N/A)";
     }
 
+    // Plugins work on PCM: with inserts in the rack, DSD is converted, not sent as DoP.
+    if (isDsd && effectiveMode_ == HARBOR_MODE_DOP && FxClient::instance().engaged()) {
+      effectiveMode_ = HARBOR_MODE_EXCLUSIVE;
+    }
     FrameSourceOptions options;
     options.dsdLevelDb = dsdLevel_;
     options.dop = isDsd && effectiveMode_ == HARBOR_MODE_DOP;
@@ -170,6 +176,7 @@ public:
       }
       cancelDecodeFlag_.store(false);
       feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
+      fx_.attach(pcm_.data(), &readyFrames_, totalFrames_.load(), sampleRate_, channels_);
     }
 
     // Wait for the first quantum so the device can start immediately.
@@ -242,6 +249,7 @@ public:
       deviceFormat_(s.device_rate, s.device_bits);
     }
     s.volume = volume_;
+    s.fx_applied = fx_.engaged() ? 1 : 0;
     std::snprintf(s.error, sizeof(s.error), "%s", error_.c_str());
     return s;
   }
@@ -423,6 +431,7 @@ private:
     cancelDecode_();
     feed_.close();
     closeUnit_();
+    fx_.detach();
     path_.clear();
     pcm_.clear();
     dop_.clear();
@@ -473,6 +482,20 @@ private:
         for (size_t c = 0; c < ch; ++c) out[i * ch + c] = self->dop_[idx * ch + c];
         ++idx;
       }
+      self->frameIndex_.store(idx);
+      if (total > 0 && idx >= total && self->state_ == HARBOR_STATE_PLAYING) {
+        self->state_ = HARBOR_STATE_IDLE;
+        self->emit_("ended", "{}");
+        self->emit_("state", nullptr);
+      }
+    } else if (self->fx_.engaged()) {
+      // Through the plugin rack: what is not rendered yet plays as silence, position held.
+      auto* out = static_cast<float*>(buf.mData);
+      const size_t total = self->totalFrames_.load(std::memory_order_acquire);
+      size_t got = 0;
+      if (total == 0 || idx < total) got = self->fx_.read(idx, out, inNumberFrames);
+      std::fill(out + got * ch, out + size_t(inNumberFrames) * ch, 0.0f);
+      idx += got;
       self->frameIndex_.store(idx);
       if (total > 0 && idx >= total && self->state_ == HARBOR_STATE_PLAYING) {
         self->state_ = HARBOR_STATE_IDLE;
@@ -531,6 +554,7 @@ private:
   std::atomic<bool> cancelDecodeFlag_ { false };
   AudioUnit audioUnit_ = nullptr;
   AudioDeviceID hoggedId_ = kAudioObjectUnknown;
+  FxStage fx_;
 };
 
 } // namespace

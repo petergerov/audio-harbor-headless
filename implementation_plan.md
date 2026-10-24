@@ -196,21 +196,74 @@ Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Detail
 | 12 | Laufwerke + SMB-Shares aus der Remote (Linux-Paket) | done |
 | 13 | Software Update aus der Remote (Linux-Paket) | done (ab 1.0.3) |
 | 14 | Pfad-Badge mit Rate / Bits — lokaler DAC und Netzwerk-Player | done (1.0.5 / 1.0.6) |
+| 15 | Plugin-Rack Stufe 1: `harbor-fx` (CLAP, LV2), Vorausrechnen, A/B, Absturz-Neustart, Web-Remote | done (Mac + Linux; Windows folgt) |
 
 ---
 
 ## Bewusst raus (v1)
 
 - SwiftUI / StoreKit
-- Plugin-Rack (AU / VST3 / LV2) und Plugin-Steuerung aus der Remote. Gründe: Headless hat keinen Bildschirm
-  für die Editoren der Hersteller, die Formate unterscheiden sich je Plattform (auf dem Pi gibt es kaum
-  Plugins), ein abstürzendes Plugin nähme den Dienst mit, und die Remote würde fremden nativen Code in einen
-  Daemon laden. Die Mac-App hat das Rack (AU / AUv3, ab 1.1.3 mit Presets und A/B vom iPhone,
-  Bonjour-Protokoll 4). Headless bleibt bei Protokoll 3, die iOS-App blendet das Rack hier deshalb aus.
 - Streaming-Services (Qobuz, Tidal, …)
 - iPhone als lokaler Player („Listen on iPhone“)
 - Rust- oder Go-Host
 - App-Sandbox-Bookmarks (Daemon: Host-Rechte + Config-Pfade)
+
+---
+
+## Plugin-Rack (fremde Plugins)
+
+Ziel: die Plugins, die der Nutzer schon hat, im Signalweg von Headless — bedient aus der Web-Remote
+und aus der iOS-App, ohne Bildschirm am Host. Eigene Module (EQ mit AutoEQ-Import, Faltung) kommen
+später ins selbe Rack.
+
+| Format | Plattform | Host-Bibliothek |
+|---|---|---|
+| LV2 | Linux / Pi (LSP, x42, Calf, ZAM per `apt`, auch ARM) | lilv |
+| CLAP | alle | Header (MIT, vendored) |
+| VST3 | Mac, Windows, Linux x64 | VST3-SDK (Stufe 2) |
+| AU | Mac | AudioToolbox (Stufe 2) |
+
+Kein JUCE — jedes Format bekommt einen schlanken eigenen Host.
+
+**Prozess `harbor-fx`:** Die Plugins laufen in einem eigenen Programm neben der Engine, nicht in Node
+und nicht im Audio-Thread. Die Engine startet es und spricht über stdin / stdout (Frames mit Länge und
+Typ): Audio-Blöcke als Float, Steuerung als JSON. Stürzt ein Plugin ab, stirbt nur `harbor-fx`; die
+Engine spielt trocken weiter, das Badge sagt es, und der nächste Befehl startet `harbor-fx` mit der
+gespeicherten Kette neu. Der Plugin-Scan läuft in einem eigenen kurzlebigen `harbor-fx --scan`.
+
+**Vorausrechnen:** Der Track liegt dekodiert im Speicher (`PlaybackFeed`). Ein FX-Worker in der Engine
+rechnet ~200 ms vor der Wiedergabe in einen Ringpuffer; die Player lesen von dort statt aus dem
+trockenen Puffer. Prozessgrenze und langsame Plugins machen so keine Aussetzer; ein Regler wirkt nach
+~200 ms. Seek leert den Ring und setzt die Plugins zurück. Plugin-Latenz wird ausgeglichen (die ersten
+`latency` Frames verworfen, am Ende mit Stille nachgefüttert).
+
+**A/B:** Trocken und bearbeitet liegen beide bereit; die Engine blendet am Ausgang in ~10 ms um. Die
+Plugins laufen beim Umgehen weiter, damit das Zurückschalten ohne Einschwingen klingt.
+
+**Regeln wie in der Mac-App:** Exclusive bleibt auf der Rate der Datei („· Exclusive · FX“); jeder
+neue Track bereitet die Plugins auf seine Rate vor. Mit Inserts im Rack wird DSD zu PCM (kein DoP).
+Leeres Rack = bit-perfect, unverändert wie heute. Netzwerk-Player bekommen in Stufe 1 die Datei ohne
+FX („Network · no FX“); der bearbeitete WAV-Stream folgt.
+
+**Host:** `rack.ts` hält Kette, Zustand der Plugins und Presets in `rack.json` (Config-Ordner).
+REST `/api/v1/rack` (lesen, Kette setzen, Bypass, Parameter, Plugin-Liste, Presets), Änderungen per
+WebSocket. Die Remote setzt nur gescannte, installierte Plugins ein — nichts wird hochgeladen.
+
+**Web-Remote:** Rack-Knopf auf dem Deck (bernstein, solange Plugins den Klang formen) → Sheet mit Pfad,
+A/B-Taste, Inserts mit Power-Taste, Presets. Settings → Rack: Plugins hinzufügen / sortieren / entfernen,
+automatische Parameter-Seite pro Plugin (Wertetext vom Plugin), bis zu sechs angepinnte Regler.
+
+### Stufen
+
+1. **done** — `harbor-fx` (CLAP überall, LV2 auf Linux), Vorausrechnen, Absturz-Neustart; REST + WebSocket;
+   Web-Remote mit Rack-Sheet und Parameter-Seite. Mac + Linux; Windows (Prozess-Start, WinPlayer) folgt.
+   Geprüft: `npm run test:fx -w @harbor/engine`; CLAP mit FabFilter Pro-Q 4, TAL-Chorus-LX, Octaver 82 (Mac);
+   LV2 mit LSP Parametric EQ / Limiter und x42-eq im Container (arm64).
+2. VST3 (alle), AU (Mac).
+3. Rack-Presets + Werks-Presets der Plugins; Bonjour-Protokoll 4 (`getRack` / `setRack` /
+   `loadRackPreset`, Topic `rack`) für die iOS-App; bearbeiteter WAV-Stream für Netzwerk-Player.
+4. Original-Editoren auf dem Bildschirm des Hosts (Mac, Windows, Linux-Desktop).
+5. Eigene Module: parametrischer EQ (AutoEQ / REW-Import), Gain / Balance, Crossfeed, Faltung.
 
 ---
 
@@ -266,10 +319,4 @@ Config: `~/.audio-harbor-headless/config.toml` — DLNA via `sharing.enabled = t
 2. Native ALAC ohne ffmpeg auf Linux (libalac)
 3. Windows: Rate / Bits des Geräts im Pfad-Badge (heute nur der Pfad)
 4. Software Update für macOS-`.pkg` und portable Installationen (heute nur Hinweis + Release Notes)
-5. Eingebaute DSP-Stufe statt Plugins (Idee, nicht beschlossen): parametrischer EQ im Engine, gleich auf
-   Mac, Linux und Windows (Biquads, ~10 Bänder, Preamp gegen Clipping), Import von Kopfhörer-Profilen
-   (AutoEQ), später FIR-Faltung mit einer Impulsantwort als `.wav` (z. B. aus REW). Bedienung in der
-   Web-Remote unter Settings → Sound: Hauptschalter, Kurve, Bänder, Presets. Regeln: standardmäßig aus;
-   aus oder leer = bit-perfect wie heute; das Pfad-Badge zeigt es („96 kHz / 24-bit · Exclusive · EQ“);
-   DSD wird dafür PCM, DoP pausiert. Auch für Netzwerk-Player möglich, weil der Host den WAV-Stream
-   selbst baut — dann „PCM · EQ · Network“ statt „Datei unverändert“.
+5. Plugin-Rack Stufen 2–5 — siehe [Plugin-Rack (fremde Plugins)](#plugin-rack-fremde-plugins); Windows für Stufe 1

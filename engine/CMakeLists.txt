@@ -52,6 +52,8 @@ set(ENGINE_SOURCES
   src/PcmDecoder.cpp
   src/FrameSource.cpp
   src/PlaybackFeed.cpp
+  src/FxClient.cpp
+  src/FxStage.cpp
   src/AHDSTDecoder.c
   napi/binding.cpp
 )
@@ -74,6 +76,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 target_include_directories(${PROJECT_NAME} PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party
   ${CMAKE_JS_INC}
 )
 
@@ -100,4 +103,56 @@ endif()
 
 if(CMAKE_JS_LIB)
   target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB})
+endif()
+
+# --- harbor-fx: the plugin rack's own process (CLAP everywhere, LV2 where lilv is installed) ---
+add_executable(harbor-fx fx/main.cpp fx/FxSupport.cpp fx/ClapHost.cpp)
+target_include_directories(harbor-fx PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/fx
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
+)
+# Next to harbor_engine.node, where the engine looks for it.
+set_target_properties(harbor-fx PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:${PROJECT_NAME}>
+)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND AND NOT APPLE AND NOT WIN32)
+  pkg_check_modules(LILV QUIET IMPORTED_TARGET lilv-0)
+endif()
+if(LILV_FOUND)
+  target_sources(harbor-fx PRIVATE fx/Lv2Host.cpp)
+  target_compile_definitions(harbor-fx PRIVATE HARBOR_FX_LV2=1)
+  target_link_libraries(harbor-fx PRIVATE PkgConfig::LILV)
+  message(STATUS "harbor-fx: LV2 via lilv ${LILV_VERSION}")
+else()
+  message(STATUS "harbor-fx: CLAP only (lilv-0 not found)")
+endif()
+if(APPLE)
+  target_link_libraries(harbor-fx PRIVATE "-framework CoreFoundation")
+elseif(UNIX)
+  target_link_libraries(harbor-fx PRIVATE Threads::Threads dl)
+endif()
+if(MSVC)
+  target_compile_definitions(harbor-fx PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# A gain plugin for tests (not shipped): `harbor-test-gain.clap`, -6.02 dB by default.
+add_library(harbor-test-gain MODULE fx/test/TestGain.cpp)
+target_include_directories(harbor-test-gain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include)
+set_target_properties(harbor-test-gain PROPERTIES
+  PREFIX ""
+  SUFFIX ".clap"
+  LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test-plugins
+)
+
+# FxStage against harbor-fx and the test plugins (not shipped): build/fx-stage-test
+add_executable(fx-stage-test fx/test/StageTest.cpp src/FxClient.cpp src/FxStage.cpp)
+target_include_directories(fx-stage-test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+set_target_properties(fx-stage-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+if(UNIX AND NOT APPLE)
+  target_link_libraries(fx-stage-test PRIVATE Threads::Threads dl)
 endif()

@@ -22,4 +22,8 @@ export const icons = {
   repeat: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>`,
   repeatOne: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/></svg>`,
   queue: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>`,
+  /** The plugin rack: three faders, as on a channel strip. */
+  rack: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3h2v5H5V3zm-1.5 6h5v3h-5V9zM5 13h2v8H5v-8zm6-10h2v9h-2V3zm-1.5 10h5v3h-5v-3zM11 17h2v4h-2v-4zm6-14h2v2h-2V3zm-1.5 3h5v3h-5V6zM17 10h2v11h-2V10z"/></svg>`,
+  power: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 3h2v10h-2V3zm5.6 2.4 1.4 1.4A8 8 0 1 1 6 6.8l1.4-1.4A6 6 0 1 0 16.6 5.4z"/></svg>`,
+  pin: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 2.5 2.9 6.2 6.6.6-5 4.5 1.5 6.6L12 17l-6 3.4 1.5-6.6-5-4.5 6.6-.6L12 2.5z"/></svg>`,
 };

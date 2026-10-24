@@ -133,7 +133,8 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 | `/usr/libexec/audio-harbor-headless/harbor-update` | root helper that installs a newer release (see [Update from the remote](#update-from-the-remote)) |
 | `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run these two helpers, and nothing else, as root |
 | `/etc/audio-harbor-headless/<name>.cred` | login of an SMB share set up from the remote (root only), created then |
-| `~/.audio-harbor-headless/` | config, catalogue, artwork, PIN — of the service user, created on first start |
+| `/opt/audio-harbor-headless/engine/build/Release/harbor-fx` | the plugin rack's process (CLAP, LV2 through `liblilv-0-0`), started by the engine when the rack holds plugins |
+| `~/.audio-harbor-headless/` | config, catalogue, artwork, PIN, plugin rack — of the service user, created on first start |
 
 ## The service
 
@@ -159,6 +160,17 @@ Terminal commands:
 | `audioharbor stop` | stops the server; the service stays stopped until restart or reboot |
 | `audioharbor pair` | shows the PIN (`--rotate` for a new one) |
 | `audioharbor rescan` | re-indexes the library folders |
+
+## Plugins
+
+The rack (Settings → Rack, and the fader button on the Deck) runs LV2 and CLAP effects. Install them with apt — on the Pi too:
+
+```bash
+sudo apt install lsp-plugins-lv2 x42-plugins   # EQs, compressors, limiters (LSP, x42)
+sudo systemctl restart audioharbor@pi           # or: Settings → Rack → Add Plugin → Look Again
+```
+
+LV2 is found where lilv looks (`/usr/lib/lv2`, `/usr/local/lib/lv2`, `~/.lv2` of the service user, or `LV2_PATH`), CLAP in `/usr/lib/clap`, `~/.clap` and `CLAP_PATH`. Only stereo effects can go in the rack. Plugins run in `harbor-fx`, not in the host: one that crashes does not stop the music.
 
 ## Music on a USB drive
 

@@ -67,6 +67,15 @@ Napi::Object stateToJs(Napi::Env env, const HarborEngineState& s) {
   else o.Set("volume", env.Null());
   if (s.error[0]) o.Set("error", s.error);
   else o.Set("error", env.Null());
+  auto fx = Napi::Object::New(env);
+  fx.Set("applied", s.fx_applied != 0);
+  fx.Set("processing", s.fx_processing != 0);
+  fx.Set("bypassed", s.fx_bypassed != 0);
+  fx.Set("latency", double(s.fx_latency));
+  fx.Set("running", s.fx_running != 0);
+  if (s.fx_error[0]) fx.Set("error", s.fx_error);
+  else fx.Set("error", env.Null());
+  o.Set("fx", fx);
   return o;
 }
 
@@ -334,6 +343,58 @@ private:
   std::vector<uint8_t> data_;
 };
 
+/** A JSON request to harbor-fx on the libuv pool: loading a plugin can take a while. */
+class FxRequestWorker : public Napi::AsyncWorker {
+public:
+  FxRequestWorker(Napi::Env env, std::string request)
+    : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)), request_(std::move(request)) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    char* reply = harbor_engine_fx_request(request_.c_str());
+    if (reply) {
+      reply_ = reply;
+      harbor_engine_free(reply);
+    }
+  }
+
+  void OnOK() override { deferred_.Resolve(Napi::String::New(Env(), reply_)); }
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+private:
+  Napi::Promise::Deferred deferred_;
+  std::string request_;
+  std::string reply_;
+};
+
+Napi::Value FxRequest(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "JSON request required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto* worker = new FxRequestWorker(env, info[0].As<Napi::String>());
+  auto promise = worker->Promise();
+  worker->Queue();
+  return promise;
+}
+
+Napi::Value FxSetBypass(const Napi::CallbackInfo& info) {
+  harbor_engine_fx_set_bypass(info.Length() > 0 && info[0].ToBoolean().Value() ? 1 : 0);
+  return info.Env().Undefined();
+}
+
+Napi::Value FxSetBinary(const Napi::CallbackInfo& info) {
+  if (info.Length() > 0 && info[0].IsString()) {
+    std::string path = info[0].As<Napi::String>();
+    harbor_engine_fx_set_binary(path.c_str());
+  } else {
+    harbor_engine_fx_set_binary(nullptr);
+  }
+  return info.Env().Undefined();
+}
+
 NetStreamHolder* netStreamArg(const Napi::CallbackInfo& info) {
   if (info.Length() < 1 || !info[0].IsExternal()) return nullptr;
   return info[0].As<Napi::External<NetStreamHolder>>().Data();
@@ -433,6 +494,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("netStreamOpen", Napi::Function::New(env, NetStreamOpen));
   exports.Set("netStreamRead", Napi::Function::New(env, NetStreamRead));
   exports.Set("netStreamClose", Napi::Function::New(env, NetStreamClose));
+  exports.Set("fxRequest", Napi::Function::New(env, FxRequest));
+  exports.Set("fxSetBypass", Napi::Function::New(env, FxSetBypass));
+  exports.Set("fxSetBinary", Napi::Function::New(env, FxSetBinary));
   return exports;
 }
 

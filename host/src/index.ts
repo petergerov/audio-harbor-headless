@@ -9,6 +9,7 @@ import { lanBaseUrl } from './net.js';
 import { hostPackagePath } from './paths.js';
 import { PlaybackService } from './playback/service.js';
 import { KeepAwake } from './power.js';
+import { Rack } from './rack.js';
 import { startBonjourRemote } from './remote/bonjour.js';
 import { Mdns } from './remote/mdns.js';
 import { RemoteSettings } from './remote/settings.js';
@@ -79,6 +80,10 @@ async function main(): Promise<void> {
   const playback = new PlaybackService(catalogue, getConfig, persist, browser, network);
   playback.applyConfigOutput();
 
+  const rack = new Rack(() => playback.isNetworkOutput());
+  rack.on('change', () => playback.refreshNowPlaying());
+  await rack.start().catch((err) => console.warn('Plugin rack could not start:', err));
+
   const sharing = new Sharing(catalogue, getConfig, persist);
   const settings = new RemoteSettings({
     playback,
@@ -100,6 +105,7 @@ async function main(): Promise<void> {
     sharing,
     updates,
     remoteUrl: () => remoteUrl,
+    rack,
   });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
@@ -112,14 +118,13 @@ async function main(): Promise<void> {
     // a clash of service names must not take them down (the name itself was probed).
     mdns.publish({ name: cfg.server.name, type: 'http', port: cfg.server.port, probe: false });
   }
-  if (mdns) {
-    const shutdown = () => {
-      setTimeout(() => process.exit(0), 1000).unref();
-      void mdns.close().then(() => process.exit(0));
-    };
-    process.once('SIGINT', shutdown);
-    process.once('SIGTERM', shutdown);
-  }
+  // Plugin settings go to rack.json before the process ends.
+  const shutdown = () => {
+    setTimeout(() => process.exit(0), 1500).unref();
+    void Promise.allSettled([rack.flush(), mdns?.close()]).then(() => process.exit(0));
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 
   const lan = lanBaseUrl(cfg.server.port);
   const url = localName ? `http://${localName}:${cfg.server.port}` : lan;

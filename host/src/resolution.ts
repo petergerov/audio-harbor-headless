@@ -20,6 +20,13 @@ export function resolution(sampleRate: number | null, bits: number | null): stri
   return [rate, bits ? `${bits}-bit` : ''].filter(Boolean).join(' / ');
 }
 
+/** " · FX" while plugins shape the sound, " · FX bypassed" while the rack only passes it on. */
+export function rackSuffix(st: EngineState): string {
+  const fx = st.fx;
+  if (!fx?.applied) return '';
+  return fx.processing && !fx.bypassed ? ' · FX' : ' · FX bypassed';
+}
+
 /**
  * What the DAC gets, then the engine's path — like a network player's badge, so a narrow
  * badge cuts the path, not the resolution: "96 kHz / 24-bit · Exclusive", "44.1 → 48 kHz /
@@ -28,6 +35,11 @@ export function resolution(sampleRate: number | null, bits: number | null): stri
  * format (Windows), the badge as the engine has it.
  */
 export function localPathLabel(st: EngineState): string | null {
+  const label = deviceLabel(st);
+  return label === null ? null : label + rackSuffix(st);
+}
+
+function deviceLabel(st: EngineState): string | null {
   const badge = st.conversionBadge;
   if (!st.streamRate || !st.deviceRate) return badge;
   if (st.dop) return `DoP ${dsdName(st.streamRate * 16)}`;

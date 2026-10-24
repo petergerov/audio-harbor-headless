@@ -16,6 +16,7 @@ import { REPEAT_LABELS, repeatButton } from '../components/playerBindings';
 import { bindPlayerControls } from '../components/playerControls';
 import { icons } from '../icons';
 import { openQueueSheet } from '../sheets/queueSheet';
+import { openRackSheet } from '../sheets/rackSheet';
 import type { View } from './view';
 
 /** Deck: photoreal stage (Turntable / Reel-to-Reel), cover chip, hardware transport. */
@@ -25,12 +26,14 @@ export class NowPlayingView implements View {
   private railOpen = loadQueueRailOpen();
   private disposeStage: (() => void) | null = null;
   private disposeRail: (() => void) | null = null;
+  private disposeRack: (() => void) | null = null;
 
   constructor(private readonly ctx: AppContext) {}
 
   render(root: HTMLElement): void {
     this.disposeStage?.();
     this.disposeRail?.();
+    this.disposeRack?.();
     this.root = root;
     this.style = loadDeckStyle();
     const desktop = isDesktopUi();
@@ -47,7 +50,14 @@ export class NowPlayingView implements View {
     const repeatLook = repeatButton(repeat);
     const subtitle = track ? artistAlbumLine(track.artist, track.album) : 'Choose something from Catalogue';
     const showRail = desktop && this.railOpen;
+    const rack = state.rack;
     const actions = `
+      ${
+        rack?.available
+          ? `<button type="button" class="deck-pill rack-pill ${rack.path.lit ? 'is-lit' : ''}" data-rack
+              aria-label="Plugin rack" title="${escapeHtml(rack.path.label)}">${icons.rack}</button>`
+          : ''
+      }
       ${
         volume != null
           ? `<button type="button" class="deck-pill" data-vol-toggle aria-label="Volume" aria-pressed="false">${icons.volMax}</button>`
@@ -123,6 +133,19 @@ export class NowPlayingView implements View {
     if (showRail) {
       this.disposeRail = bindDeckQueueRail(root, this.ctx, () => this.setRailOpen(false));
     }
+    root.querySelector('[data-rack]')?.addEventListener('click', () => openRackSheet(this.ctx));
+    // The dial glows amber while plugins shape the sound; it appears once the host says it has a rack.
+    this.disposeRack = this.ctx.store.subscribe((next, previous) => {
+      if (next.rack === previous.rack) return;
+      if (Boolean(next.rack?.available) !== Boolean(previous.rack?.available)) {
+        if (this.root?.isConnected) this.render(this.root);
+        return;
+      }
+      const pill = root.querySelector<HTMLElement>('[data-rack]');
+      if (!pill) return;
+      pill.classList.toggle('is-lit', Boolean(next.rack?.path.lit));
+      pill.title = next.rack?.path.label ?? '';
+    });
     root.querySelector('[data-queue]')?.addEventListener('click', () => {
       if (isDesktopUi()) {
         this.setRailOpen(!this.railOpen);
@@ -141,6 +164,8 @@ export class NowPlayingView implements View {
     this.disposeStage = null;
     this.disposeRail?.();
     this.disposeRail = null;
+    this.disposeRack?.();
+    this.disposeRack = null;
     this.root = null;
   }
 

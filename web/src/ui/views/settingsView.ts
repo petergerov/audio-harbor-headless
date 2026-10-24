@@ -3,6 +3,7 @@ import { required } from '../../core/html';
 import type { SettingsPane } from '../../state/appState';
 import { AboutPane } from './settings/aboutPane';
 import { OutputPane } from './settings/outputPane';
+import { RackPane } from './settings/rackPane';
 import { SharingPane } from './settings/sharingPane';
 import { SourcesPane } from './settings/sourcesPane';
 import type { View } from './view';
@@ -17,6 +18,7 @@ export interface Pane {
 const PANES: Record<SettingsPane, { label: string; create(ctx: AppContext): Pane }> = {
   sources: { label: 'Sources', create: (ctx) => new SourcesPane(ctx.settings, ctx.store) },
   output: { label: 'Output', create: (ctx) => new OutputPane(ctx.settings) },
+  rack: { label: 'Rack', create: (ctx) => new RackPane(ctx.store, ctx.rack) },
   sharing: { label: 'Sharing', create: (ctx) => new SharingPane(ctx.store, ctx.hostSettings) },
   about: { label: 'About', create: (ctx) => new AboutPane(ctx.store, ctx.hostSettings, ctx.settings) },
 };

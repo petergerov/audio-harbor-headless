@@ -1,7 +1,10 @@
 #include "HarborEngine.h"
+#include "FxClient.h"
+#include "FxStage.h"
 #include "Player.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -55,6 +58,7 @@ static void recreatePlayerLocked() {
 
 int harbor_engine_init(HarborEventCallback cb, void* user_data) {
   std::lock_guard lock(g_mutex);
+  FxClient::instance().setEventCallback([](const char* json) { forwardEvent("fx", json); });
   g_cb = cb;
   g_user = user_data;
   if (!g_player) recreatePlayerLocked();
@@ -169,6 +173,32 @@ void harbor_engine_get_state(HarborEngineState* out) {
     return;
   }
   *out = g_player->getState();
+  FxClient& fx = FxClient::instance();
+  out->fx_processing = fx.processing() ? 1 : 0;
+  out->fx_bypassed = FxStage::bypassed() ? 1 : 0;
+  out->fx_latency = fx.latency();
+  out->fx_running = fx.alive() ? 1 : 0;
+  std::snprintf(out->fx_error, sizeof(out->fx_error), "%s", fx.error().c_str());
+}
+
+void harbor_engine_fx_set_binary(const char* path) {
+  FxClient::instance().setBinary(path ? path : "");
+}
+
+char* harbor_engine_fx_request(const char* json) {
+  // Not under g_mutex: a slow plugin load must not stall transport calls.
+  const std::string reply = FxClient::instance().control(json ? json : "{}");
+  char* out = static_cast<char*>(std::malloc(reply.size() + 1));
+  if (out) std::memcpy(out, reply.c_str(), reply.size() + 1);
+  return out;
+}
+
+void harbor_engine_fx_set_bypass(int bypassed) {
+  FxStage::setBypassed(bypassed != 0);
+}
+
+void harbor_engine_free(void* p) {
+  std::free(p);
 }
 
 void harbor_player_factory_set_requested(HarborAudioBackend backend);

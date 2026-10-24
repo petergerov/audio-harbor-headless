@@ -9,6 +9,7 @@ The sound rules come from [Audio Harbor](https://github.com/petergerov/audio-har
 | Layer | Tech | Lives in |
 |---|---|---|
 | Audio engine | C++17 Node-API addon `harbor_engine.node`: native Core Audio / ALSA / WASAPI | `engine/` |
+| Plugin rack | `harbor-fx`, a C++17 process next to the addon: CLAP (vendored headers), LV2 through lilv on Linux | `engine/fx/` |
 | Host | TypeScript (ES modules) on Node ≥ 22.5: Fastify, `node:sqlite`, music-metadata, bonjour-service, @iarna/toml | `host/` |
 | Web remote | Vite + TypeScript, no framework | `web/` |
 | Build & release | npm workspaces, cmake-js, GitHub Actions | root, `.github/` |
@@ -89,7 +90,11 @@ engine/            C++ addon (harbor_engine.node)
   src/FrameSource.*  random-access PCM or DoP (network WAV + local PlaybackFeed)
   src/PlaybackFeed.* progressive fill from FrameSource for local players
   src/AHDSTDecoder.* MPEG-4 DST decoder (SACD)
-  third_party/       dr_flac, dr_mp3, dr_wav
+  src/FxClient.*     starts harbor-fx, one request / reply over its pipes, restarts it after a crash
+  src/FxStage.*      the rack between a player's PCM and its device: renders ahead, A/B fade
+  fx/                harbor-fx: main.cpp (chain, protocol loop), ClapHost, Lv2Host, FxProtocol.h
+  fx/test/           TestGain.cpp (test CLAP plugins), StageTest.cpp (fx-stage-test)
+  third_party/       dr_flac, dr_mp3, dr_wav, clap (headers), json.hpp
 host/src/
   index.ts           composition root and CLI: serve | pair | rescan
   api/server.ts      Fastify REST + WebSocket + web remote files
@@ -101,7 +106,8 @@ host/src/
   drives.ts          USB drives and SMB shares for the library (Linux package, through harbor-drive)
   system.ts          CPU, memory and disk space for Settings → About
   update.ts          Software Update: latest GitHub release, install through harbor-update
-  resolution.ts      the rate / bits part of the path badge
+  resolution.ts      the rate / bits part of the path badge, and its " · FX"
+  rack.ts            the plugin rack: rack.json, plugin scan, chain to harbor-fx
   config.ts, paths.ts, pairing.ts, power.ts, net.ts, types.ts
 web/src/             web remote (see web/README.md)
 docs/                product page and its screenshots, this document
@@ -138,6 +144,8 @@ All state is under `~/.audio-harbor-headless/`. The music folders are only read.
 | `pairing.json` | pairing PIN, paired tokens, server id | `pairing.ts` |
 | `cache/sacd/*.dff` | SACD tracks extracted as plain DSD (DST decoded) | `library/sacd.ts` |
 | `cache/dst-dff/*.dff` | DST-compressed `.dff` decoded to plain DSD | `library/dstDff.ts` |
+| `rack.json` | the plugin rack: inserts in order, their switches, pinned knobs and each plugin's saved state; the A/B bypass | `rack.ts` |
+| `plugins.json` | the plugin scan by file and mtime, so only new or changed plugins are described again | `rack.ts` |
 
 On the Linux package the service also has, outside that folder:
 
@@ -174,7 +182,26 @@ binding.cpp (N-API)  →  FrameSource, AHDST (no player involved)
 - **DSD→PCM**: multi-stage linear-phase FIR (`DsdPipeline.cpp`), DSD rate / 32, / 64 or / 128 → 88.2 kHz, one more 2:1 stage for 44.1 kHz (Wi‑Fi).
 - **FrameSource**: random access by frame (`readFloat` / `readDop` / `readPacked`), so the host can answer any `Range` request for network WAV and (soon) feed local playback without loading the whole file. Sources: `DsdSource` (DSD→PCM through `DsdPcmReader`), `DopSource` (DoP at DSD rate / 16), FLAC, WAV, MP3, AIFF, ExtAudioFile on macOS, and a decode-to-memory fallback. `DsdByteReader` reads DSF / DFF in 64 KiB chunks per channel for both DSD sources. `DsdPcmReader` pre-rolls after a jump, so a seek gives the same samples as playing through.
 - **DST**: the host feeds DST frames from an SACD ISO or a DST-compressed `.dff` through `dstBegin` / `dstDecodeFrame` / `dstEnd` and writes plain DSD into the DFF cache (`cache/sacd`, `cache/dst-dff`).
+- **Plugin rack**: see [Plugin rack](#plugin-rack).
 - **Threads and events**: players run their own audio threads and report `state` and `ended` through an N-API ThreadSafeFunction; `bridge.ts` re-emits them as `engineEvents`. Network stream open and read run as AsyncWorkers, so a renderer's read never blocks the event loop. `load` itself runs on the calling thread.
+
+## Plugin rack
+
+The plugins the user already has — CLAP everywhere, LV2 on Linux (LSP, x42, Calf, ZAM from apt, on the Pi too) — run in **`harbor-fx`**, a process of their own next to `harbor_engine.node`. A plugin that crashes takes only `harbor-fx` down; the music goes on dry and the rack comes back with its chain. VST3 and AU, presets, Bonjour protocol 4 and the processed stream for network players are the next stages ([implementation_plan.md](../implementation_plan.md#plugin-rack-fremde-plugins)).
+
+```
+web remote ──REST──▶ rack.ts ──fxRequest(JSON)──▶ FxClient ──stdin/stdout──▶ harbor-fx ─┬─ ClapHost (dlopen .clap)
+                                                     ▲                                  └─ Lv2Host  (lilv)
+player ◀── FxStage.read() ◀── ring ◀── worker ───────┘ Process(block)
+```
+
+- **Protocol** (`fx/FxProtocol.h`): frames `[u32 length][u8 type][body]`; the engine sends one request and reads one reply. `Prepare` (rate, channels, max block), `Process` (float32 interleaved), `Reset`, `Control` (JSON: `setChain`, `setBypass`, `params`, `setParam`, `getState(s)`, `inserts`). Every reply starts with the chain's latency and flags (engaged = units loaded; processing = one in circuit). harbor-fx moves fd 1 to stderr at start, so a plugin's `printf` cannot break a frame.
+- **harbor-fx**: a `Rack` of inserts. `setChain` keeps running units whose id, file and plugin id match (the live unit is the truth; the host's saved state is applied only to new units). Plugins are created and activated on the main thread and processed on an `AudioThread` (CLAP's thread rules). A bypassed insert is replaced by a delay of its latency, so the chain's latency does not move. Only stereo effects (2 in, 2 out on the main ports) are taken; other ports get silence. CLAP: every audio port gets a buffer (Pro-Q 4 has a sidechain), parameter changes go in as events or through `flush`, state through `clap.state`. LV2: instantiated when the rate is known (state kept across a rate change), control ports as parameters (`lv2:enabled` is the bypass switch), atom ports sized by `rsz:minimumSize`, the worker run at once, state through lilv.
+- **FxClient** (engine): starts `harbor-fx` on the first request that needs it (none for an empty rack), replays the last chain and format after a restart, and kills it when a reply takes longer than 10 s. Three crashes within 30 s stop the rack until the host sends a new chain. Events go to the host as `fx` (`running`, `error`, `stopped`).
+- **FxStage** (engine): the player's track is decoded into memory (`PlaybackFeed`), so the rack need not keep pace in real time — a worker renders ~200 ms ahead of the playhead through harbor-fx into a ring, and the device thread reads the ring without locks. A jump in position is a request the worker answers (prepare, refill). The plugins' latency is compensated: the first `latency` frames after a start are dropped and the end is fed silence, so ring frame k is processed dry frame k. **A/B** fades between the ring and the dry PCM in 10 ms; the plugins keep running, so switching back is instant. A new latency or a restarted harbor-fx starts the ring over at the playhead. With no inserts `read()` hands out the PCM untouched — bit-perfect as before.
+- **Players**: MacPlayer and LinuxPlayer read through `FxStage` when it is engaged; with inserts in the rack, DSD loads as PCM instead of DoP (the next track — as in the Mac app). WinPlayer is not wired yet; FxClient refuses to start on Windows.
+- **Host** (`rack.ts`): `rack.json`, the plugin scan (`harbor-fx --list`, then `--describe <format> <path>` per new or changed file with a 20 s timeout, cached in `plugins.json`), REST `/api/v1/rack…`, the `rack` WebSocket message. Settings are read back from harbor-fx 1.5 s after a knob moves, written to `rack.json` and sent as the chain the engine replays after a crash. On `fx` `running:false` the host sends the chain again, which starts harbor-fx anew.
+- **Badge**: `rackSuffix` adds ` · FX` while plugins shape the sound, ` · FX bypassed` while the rack only passes it on. The rack's own path label follows the Mac app: `Exclusive · FX`, `Shared · FX`, `Bypassed`, `Network · no FX`, `Bit-perfect`.
 
 ## Host
 
@@ -182,18 +209,19 @@ binding.cpp (N-API)  →  FrameSource, AHDST (no player involved)
 
 | Module | Job |
 |---|---|
-| `api/server.ts` | Fastify: REST under `/api/v1`, WebSocket `/api/v1/ws` (pushes `nowPlaying`, `queue` and `settings`), the web remote from `web/dist`. `GET` / `PUT /api/v1/settings` read and change the same Settings snapshot the iOS app gets. Every API route except health and pairing needs a token (`Authorization: Bearer` or `?token=`). |
+| `api/server.ts` | Fastify: REST under `/api/v1`, WebSocket `/api/v1/ws` (pushes `nowPlaying`, `queue`, `settings`, `scan` and `rack`), the web remote from `web/dist`. `GET` / `PUT /api/v1/settings` read and change the same Settings snapshot the iOS app gets. Every API route except health and pairing needs a token (`Authorization: Bearer` or `?token=`). |
 | `playback/service.ts` | Queue (album, artist, folder, playlist or label, with that source for the remotes), repeat, transport, output pick, DSD→PCM level. Routes to the engine or the `NetworkPlayer`. A tap on the track already loaded pauses or resumes it; a pause while a track loads keeps it from starting. Moving between this host and a network player, or changing what DSD becomes on one, reloads the current track at the same position. Emits `nowPlaying`, `queue` and `settings`. |
 | `library/catalogue.ts` | SQLite catalogue: `tracks`, `labels`, `playlists`, `tracks_fts`. A scan walks the roots, skips unchanged files by mtime, reads tags with music-metadata and stores cover art by hash. A root that is missing, or empty while it still has tracks (an unmounted share), is skipped, so its tracks, labels and playlist entries stay. A track's identity is its absolute path; an SACD track is `disc.iso#sacd/N`. Playlists and labels are sets of paths. |
 | `library/sacd.ts` | Scarlet Book: reads the TOC into catalogue tracks; extracts a track to an uncompressed DFF on first play (DST decoded by the engine), asynchronously with yields, one extraction per file; prefetches the next tracks. |
 | `upnp/*` (network players) | SSDP discovery, SOAP control, media HTTP, the media planner and `NetworkPlayer` — see below. |
 | `upnp/mediaServer.ts`, `upnp/sharing.ts` | DLNA MediaServer: device description, ContentDirectory Browse / Search, WAV transcoding for DSD, files under the library roots by `Range`, SSDP announcements. `Sharing` starts and stops it while the host runs. |
-| `remote/bonjour.ts` | The Audio Harbor iOS app's protocol: `[u32 length][kind][payload]` frames, JSON envelopes v3 (hello / pair, subscribe to `nowPlaying` / `queue` / `settings`, transport, playSelection, browse, search, trackOptions, editTrack, getSettings / setSettings) and binary artwork. `browse.ts` pages and filters the library, `settings.ts` builds and applies the Settings snapshot, `artwork.ts` scales covers, `wire.ts` maps snapshots to its DTOs. Folder IDs are `rootUUID/rel/path`, never host paths. It stays on version 3: protocol 4 (Mac app 1.1.3) adds the plugin rack (`getRack` / `setRack` / `loadRackPreset`, topic `rack`), and the iOS app asks for it only from a version-4 host, so its rack dial stays hidden here. Unknown topics in a subscribe are dropped; unknown requests get `unsupported`. Raising the version means answering those, at least with an empty rack. |
+| `remote/bonjour.ts` | The Audio Harbor iOS app's protocol: `[u32 length][kind][payload]` frames, JSON envelopes v3 (hello / pair, subscribe to `nowPlaying` / `queue` / `settings`, transport, playSelection, browse, search, trackOptions, editTrack, getSettings / setSettings) and binary artwork. `browse.ts` pages and filters the library, `settings.ts` builds and applies the Settings snapshot, `artwork.ts` scales covers, `wire.ts` maps snapshots to its DTOs. Folder IDs are `rootUUID/rel/path`, never host paths. Version 3 for now: protocol 4 (Mac app 1.1.3) adds the plugin rack (`getRack` / `setRack` / `loadRackPreset`, topic `rack`), and the iOS app asks for it only from a version-4 host, so its rack dial stays hidden until Headless answers those (plugin rack, stage 3). Unknown topics in a subscribe are dropped; unknown requests get `unsupported`. |
 | `remote/mdns.ts` | One mDNS responder (bonjour-service): probes and claims `audioharbor.local`, publishes `_http._tcp` and `_audioharbor._tcp`, answers AAAA with NSEC (IPv4 only), follows address changes, says goodbye on exit. |
 | `pairing.ts` | Six-digit PIN → random token (`POST /api/v1/pair` or the Bonjour hello). The PIN changes after each pairing; five wrong PINs in a row pause pairing for a minute. Web and iOS share the tokens. |
 | `drives.ts` | Lists disks (`lsblk`) and Harbor's fstab entries, and sets up, ejects or removes a USB drive or SMB share through the root helper `harbor-drive` (`sudo -n`, group `harbor-drives`; the SMB password goes on stdin). Only on Linux with the package's helper; elsewhere the remote hides it. |
 | `system.ts` | CPU model, cores and load, memory (and what Harbor uses), free space on the disks that hold Harbor's data and the library — Settings → About. |
 | `update.ts` | Software Update: asks GitHub for the latest release (cached an hour), compares versions, and on the `.deb` starts `harbor-update install <tag>`. The helper runs as a transient systemd unit, so the service restart during `apt install` does not stop it; it takes only this repo's releases, checks the `.sha256`, package name, architecture and that the version is newer. The remote follows the status file and reloads when the host comes back with the new version. |
+| `rack.ts` | The plugin rack — see [Plugin rack](#plugin-rack). |
 | `config.ts` | Loads `config.toml`, normalizes every value, writes it back on change. |
 | `power.ts` | `KeepAwake`: `caffeinate` (macOS) or `systemd-inhibit` (Linux) while a network player streams. |
 
@@ -254,13 +282,16 @@ The web remote talks only to the REST API and the WebSocket. Pairing stores the 
 
 **Pair.** The host prints the PIN at start (`harbor pair` shows it again, `--rotate` makes a new one). While nothing is paired yet, `GET /api/v1/pair/setup` hands the PIN to the first remote, so a host without a screen needs no terminal; later a paired remote shows it under Settings → About. The web remote posts it to `/api/v1/pair`; the iOS app sends it in its hello. Both get a token for all later requests.
 
+**Change the rack.** The web remote posts `/api/v1/rack/inserts` with a plugin from `/api/v1/rack/plugins`. `rack.ts` adds it to `rack.json` and sends the whole chain to harbor-fx (`setChain` through `fxRequest`), which loads the new unit and keeps the others; the engine learns from the reply that the rack is engaged. The playing track's `FxStage` asks the worker to start at the playhead, and the next blocks come back processed. Knobs (`PUT …/params/:param`) go straight to harbor-fx and are heard ~200 ms later; A/B (`PUT /api/v1/rack/bypass`) fades at once.
+
 **Update (Linux package).** Settings → About → Install posts `/api/v1/update` with the tag. `update.ts` runs `harbor-update install` through sudo; the helper downloads the release `.deb` for this CPU, checks it and installs it with apt, which restarts the service. The remote polls `/api/v1/update`, shows the steps, and reloads once the host answers with the new version.
 
 ## Build, run, release
 
 | Command | Does |
 |---|---|
-| `npm run build:engine` | `engine/scripts/build.js` → cmake-js (or plain CMake): `engine/build/Release/harbor_engine.node` (native Core Audio / ALSA / WASAPI). |
+| `npm run build:engine` | `engine/scripts/build.js` → cmake-js (or plain CMake): `engine/build/Release/harbor_engine.node` (native Core Audio / ALSA / WASAPI) and `harbor-fx` beside it; LV2 when `pkg-config` finds `lilv-0` (Linux). |
+| `npm run test:fx -w @harbor/engine` | `fx-stage-test`: the rack end to end without a device, against the test plugins — see Testing |
 | `npm run build:web` | Vite → `web/dist` (served by the host; restart the host after a rebuild) |
 | `npm run build:host` | `tsc` → `host/dist` |
 | `npm run serve` | build all, then `harbor serve` |
@@ -272,8 +303,9 @@ The web remote talks only to the REST API and the WebSocket. Pairing stores the 
 
 ## Testing
 
-There is no automated test suite yet. Changes are checked by hand:
+One automated test so far; everything else is checked by hand:
 
+- **Plugin rack**: `npm run test:fx -w @harbor/engine` runs `fx-stage-test` against `harbor-fx` and the test plugins (`build/test-plugins/harbor-test-gain.clap`: a gain and a 64-frame delay): empty rack untouched, gain from frame 0 and after a seek, latency compensated to the frame, A/B fade without a step, harbor-fx killed mid-play and back. Real plugins: CLAP on the Mac (`CLAP_PATH` adds folders); LV2 in an `ubuntu:24.04` container with `liblilv-dev`, `lsp-plugins-lv2` and `x42-plugins`.
 - **Network players**: the renderer simulator in Audio Harbor (`tools/upnp`, `upnp-renderer-sim --silent`, optional `--sink-file`, `--no-next`, `--max-rate`). Run the host with a scratch `HOME`, so `~/.audio-harbor-headless` stays untouched.
 - **Engine streams**: small Node scripts that open `netStreamOpen` / `netStreamRead` and compare jumps against continuous reads, or DoP bytes against the file.
 - **Web remote**: in a browser at phone and desktop widths.
@@ -289,4 +321,6 @@ There is no automated test suite yet. Changes are checked by hand:
 | add an output backend | an `IPlayer` in `engine/src/`, `PlayerFactory.cpp`, `CMakeLists.txt` |
 | add a web tab or settings pane | the view plus one entry in `web/src/ui/views/registry.ts` or `PANES` in `settingsView.ts` |
 | speak a new iOS remote command | `host/src/remote/bonjour.ts` (and `wire.ts` for DTOs) |
+| host another plugin format | a `…Host.cpp` in `engine/fx/` with list / describe / load (`FxPlugin.h`), its branch in `fx/main.cpp`, `CMakeLists.txt` |
+| change what the rack does with audio | `engine/src/FxStage.cpp` (ahead-rendering, A/B), `fx/main.cpp` (`Rack::process`) |
 | let the service do something as root (Linux) | a helper in `packaging/linux/`, its line in `packaging/linux/sudoers`, installed by `create-deb.sh` |

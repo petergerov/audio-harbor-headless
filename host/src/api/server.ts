@@ -22,6 +22,7 @@ import { Catalogue } from '../library/catalogue.js';
 import { isAuthorized, isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { dataDir, webDistPath } from '../paths.js';
+import { RackError, type Rack } from '../rack.js';
 import type { RemoteSettings } from '../remote/settings.js';
 import { systemStatus } from '../system.js';
 import type { BrowseScope, HarborConfig, OutputMode, QueueSource, Track } from '../types.js';
@@ -39,6 +40,8 @@ export interface AppContext {
   updates: Updater;
   /** The URL the remotes should open (mDNS name or LAN IP); null until known. */
   remoteUrl?: () => string | null;
+  /** The plugin rack. */
+  rack: Rack;
 }
 
 function authOk(header: string | undefined): boolean {
@@ -95,6 +98,57 @@ export async function buildServer(ctx: AppContext) {
     if (authOk(headerToken) || isAuthorized(queryToken || null)) return;
     return reply.code(401).send({ error: 'unauthorized' });
   });
+
+  // --- Plugin rack ---
+  const rackCall = async <T>(reply: FastifyReply, fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof RackError) return reply.code(err.status).send({ error: err.message });
+      throw err;
+    }
+  };
+  app.get('/api/v1/rack', async () => ctx.rack.snapshot());
+  app.put<{ Body: { bypassed?: boolean } }>('/api/v1/rack/bypass', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.setBypass(Boolean(req.body?.bypassed)))
+  );
+  app.get<{ Querystring: { rescan?: string } }>('/api/v1/rack/plugins', async (req, reply) =>
+    rackCall(reply, async () => ({ plugins: await ctx.rack.plugins(req.query.rescan === '1') }))
+  );
+  app.post<{ Body: { format?: string; path?: string; pluginId?: string } }>(
+    '/api/v1/rack/inserts',
+    async (req, reply) =>
+      rackCall(reply, () =>
+        ctx.rack.addInsert(String(req.body?.format ?? ''), String(req.body?.path ?? ''), String(req.body?.pluginId ?? ''))
+      )
+  );
+  app.delete<{ Params: { id: string } }>('/api/v1/rack/inserts/:id', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.removeInsert(req.params.id))
+  );
+  app.post<{ Params: { id: string }; Body: { offset?: number } }>('/api/v1/rack/inserts/:id/move', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.moveInsert(req.params.id, Number(req.body?.offset ?? 0)))
+  );
+  app.put<{ Params: { id: string }; Body: { bypassed?: boolean } }>(
+    '/api/v1/rack/inserts/:id/bypass',
+    async (req, reply) => rackCall(reply, () => ctx.rack.setInsertBypass(req.params.id, Boolean(req.body?.bypassed)))
+  );
+  app.get<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/params', async (req, reply) =>
+    rackCall(reply, async () => ({ params: await ctx.rack.params(req.params.id) }))
+  );
+  app.put<{ Params: { id: string; param: string }; Body: { value?: number } }>(
+    '/api/v1/rack/inserts/:id/params/:param',
+    async (req, reply) =>
+      rackCall(reply, async () => ({
+        param: await ctx.rack.setParam(req.params.id, req.params.param, Number(req.body?.value)),
+      }))
+  );
+  app.put<{ Params: { id: string }; Body: { params?: string[] } }>(
+    '/api/v1/rack/inserts/:id/pinned',
+    async (req, reply) =>
+      rackCall(reply, () =>
+        ctx.rack.setPinned(req.params.id, Array.isArray(req.body?.params) ? req.body.params : [])
+      )
+  );
 
   app.get('/api/v1/now-playing', async () => ctx.playback.snapshot());
   app.get('/api/v1/queue', async () => ctx.playback.queueSnapshot());
@@ -694,6 +748,9 @@ export async function buildServer(ctx: AppContext) {
       send('queue', ctx.playback.queueSnapshot());
       send('settings', ctx.settings.snapshot());
       send('scan', ctx.catalogue.progress);
+      void ctx.rack.snapshot().then((p) => send('rack', p), () => {});
+      const onRack = (p: unknown) => send('rack', p);
+      ctx.rack.on('change', onRack);
       const onNp = (p: unknown) => send('nowPlaying', p);
       const onQ = (p: unknown) => send('queue', p);
       const onScan = (p: unknown) => send('scan', p);
@@ -705,6 +762,7 @@ export async function buildServer(ctx: AppContext) {
         ctx.playback.off('nowPlaying', onNp);
         ctx.playback.off('queue', onQ);
         ctx.catalogue.off('progress', onScan);
+        ctx.rack.off('change', onRack);
         unwatch();
       });
     });
