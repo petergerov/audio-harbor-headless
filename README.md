@@ -156,7 +156,7 @@ macOS reads the device's rate and physical format; Linux the `hw:` format (signi
 
 Inserts on the local output, steered from the remote — the plugins you already own: EQ, headphone or room correction, a limiter.
 
-- **Included on Linux** (`.deb`, `.tar.gz`, `install.sh`): [LSP Plugins](https://lsp-plug.in), free (LGPL), built without their UI so they need only `libsndfile` — one 11 MB file instead of ~240 MB of desktop libraries from the distribution packages. **Settings → Rack → Add Plugin** lists five first, by their job:
+- **Included** on Linux (`.deb`, `.tar.gz`, `install.sh`) and macOS (`.pkg`, `.tar.gz`): [LSP Plugins](https://lsp-plug.in), free (LGPL), built without their UI — one CLAP file (8–11 MB) that needs only `libsndfile` on Linux (instead of ~240 MB of desktop libraries from the distribution packages) and only system frameworks on macOS. **Settings → Rack → Add Plugin** lists five first, by their job:
 
   | Job | Plugin |
   |---|---|

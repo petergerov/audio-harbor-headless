@@ -108,6 +108,12 @@ jobs:
         shell: bash
         run: npm run build
 
+      - name: Plugins shipped for the rack (LSP, CLAP without UI)
+        if: matrix.macos
+        run: |
+          brew install make
+          packaging/build-plugins.sh "$PWD"
+
       - name: Production prune
         shell: bash
         run: npm prune --omit=dev
@@ -213,7 +219,7 @@ jobs:
         run: npm run build
 
       - name: Plugins shipped for the rack (LSP, CLAP without UI)
-        run: packaging/linux/build-plugins.sh "$PWD"
+        run: packaging/build-plugins.sh "$PWD"
 
       - name: Production prune
         run: npm prune --omit=dev

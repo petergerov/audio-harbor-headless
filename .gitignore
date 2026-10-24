@@ -18,5 +18,5 @@ JUCE/
 .idea/
 .gstack/
 /api/
-# Plugins built for the Linux package (packaging/linux/build-plugins.sh)
+# Plugins built for the Linux and macOS packages (packaging/build-plugins.sh)
 /plugins/

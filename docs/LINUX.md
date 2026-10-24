@@ -166,7 +166,7 @@ Terminal commands:
 
 The rack (Settings → Rack, and the fader button on the Deck) runs LV2 and CLAP effects.
 
-**Included:** the package ships [LSP Plugins](https://lsp-plug.in) 1.2.35 as one CLAP file, `/opt/audio-harbor-headless/plugins/clap/lsp-plugins.clap`, built without the UI (only `libsndfile` needed; licence in `plugins/LICENSES/`). Add Plugin lists five of them first: **Graphic EQ** (Graphic Equalizer x16), **Parametric EQ** (Parametric Equalizer x16), **Mastering Compressor** (Multiband Compressor x8), **Mastering Limiter** (Limiter) and **Loudness Compensation** (Loudness Compensator). `install.sh` builds the same file (`packaging/linux/build-plugins.sh`, a few minutes on a Pi).
+**Included:** the package ships [LSP Plugins](https://lsp-plug.in) 1.2.35 as one CLAP file, `/opt/audio-harbor-headless/plugins/clap/lsp-plugins.clap`, built without the UI (only `libsndfile` needed; licence in `plugins/LICENSES/`). Add Plugin lists five of them first: **Graphic EQ** (Graphic Equalizer x16), **Parametric EQ** (Parametric Equalizer x16), **Mastering Compressor** (Multiband Compressor x8), **Mastering Limiter** (Limiter) and **Loudness Compensation** (Loudness Compensator). `install.sh` builds the same file (`packaging/build-plugins.sh`, a few minutes on a Pi).
 
 **More** from apt — note that the distribution's plugin packages pull in X11 / OpenGL libraries (~240 MB on a Pi without a desktop):
 

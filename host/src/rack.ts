@@ -30,8 +30,8 @@ export interface RackPlugin {
 }
 
 /**
- * The plugins the Linux package ships (LSP Plugins as one CLAP file, built without UI by
- * packaging/linux/build-plugins.sh), in the order the picker shows them.
+ * The plugins the Linux and macOS packages ship (LSP Plugins as one CLAP file, built without
+ * UI by packaging/build-plugins.sh), in the order the picker shows them.
  */
 const INCLUDED: Array<[id: string, role: string]> = [
   ['in.lsp-plug.graph_equalizer_x16_stereo', 'Graphic EQ'],

@@ -73,7 +73,7 @@ log "Build engine + web + host (native engine for this CPU)"
 npm run build
 
 log "Plugins for the rack (LSP: EQs, compressors, limiter — a few minutes on a Pi)"
-"$ROOT/packaging/linux/build-plugins.sh" "$ROOT" || echo "Plugins not built — the rack still takes plugins you install yourself"
+"$ROOT/packaging/build-plugins.sh" "$ROOT" || echo "Plugins not built — the rack still takes plugins you install yourself"
 
 log "Ensure config"
 mkdir -p "$HOME/.audio-harbor-headless"
