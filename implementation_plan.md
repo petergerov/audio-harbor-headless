@@ -201,7 +201,12 @@ Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Detail
 
 ## Bewusst raus (v1)
 
-- SwiftUI / AU-Plugin-Rack / StoreKit
+- SwiftUI / StoreKit
+- Plugin-Rack (AU / VST3 / LV2) und Plugin-Steuerung aus der Remote. Gründe: Headless hat keinen Bildschirm
+  für die Editoren der Hersteller, die Formate unterscheiden sich je Plattform (auf dem Pi gibt es kaum
+  Plugins), ein abstürzendes Plugin nähme den Dienst mit, und die Remote würde fremden nativen Code in einen
+  Daemon laden. Die Mac-App hat das Rack (AU / AUv3, ab 1.1.3 mit Presets und A/B vom iPhone,
+  Bonjour-Protokoll 4). Headless bleibt bei Protokoll 3, die iOS-App blendet das Rack hier deshalb aus.
 - Streaming-Services (Qobuz, Tidal, …)
 - iPhone als lokaler Player („Listen on iPhone“)
 - Rust- oder Go-Host
@@ -261,3 +266,10 @@ Config: `~/.audio-harbor-headless/config.toml` — DLNA via `sharing.enabled = t
 2. Native ALAC ohne ffmpeg auf Linux (libalac)
 3. Windows: Rate / Bits des Geräts im Pfad-Badge (heute nur der Pfad)
 4. Software Update für macOS-`.pkg` und portable Installationen (heute nur Hinweis + Release Notes)
+5. Eingebaute DSP-Stufe statt Plugins (Idee, nicht beschlossen): parametrischer EQ im Engine, gleich auf
+   Mac, Linux und Windows (Biquads, ~10 Bänder, Preamp gegen Clipping), Import von Kopfhörer-Profilen
+   (AutoEQ), später FIR-Faltung mit einer Impulsantwort als `.wav` (z. B. aus REW). Bedienung in der
+   Web-Remote unter Settings → Sound: Hauptschalter, Kurve, Bänder, Presets. Regeln: standardmäßig aus;
+   aus oder leer = bit-perfect wie heute; das Pfad-Badge zeigt es („96 kHz / 24-bit · Exclusive · EQ“);
+   DSD wird dafür PCM, DoP pausiert. Auch für Netzwerk-Player möglich, weil der Host den WAV-Stream
+   selbst baut — dann „PCM · EQ · Network“ statt „Datei unverändert“.
