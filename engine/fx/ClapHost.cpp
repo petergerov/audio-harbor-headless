@@ -388,6 +388,11 @@ public:
 
   bool loadState(const std::vector<uint8_t>& in) override {
     if (!state_) return false;
+    {
+      // Values set before but not yet processed would undo the state on the next block.
+      std::lock_guard lock(pendingMutex_);
+      pending_.clear();
+    }
     struct Reader {
       const std::vector<uint8_t>* data;
       size_t pos;

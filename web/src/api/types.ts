@@ -307,7 +307,7 @@ export interface OutputChange {
 
 /** A plugin installed on the host. */
 export interface RackPlugin {
-  format: 'clap' | 'lv2';
+  format: 'clap' | 'lv2' | 'vst3' | 'au';
   path: string;
   id: string;
   name: string;

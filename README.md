@@ -1,6 +1,6 @@
 # Audio Harbor Headless
 
-GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Plays to UPnP / DLNA network players like to a DAC, and also acts as a DLNA music server. Runs the plugins you already have — CLAP, and LV2 on Linux / Raspberry Pi — in a rack you steer from the phone.
+GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Plays to UPnP / DLNA network players like to a DAC, and also acts as a DLNA music server. Runs the plugins you already have — CLAP and VST3, AU on the Mac, LV2 on Linux / Raspberry Pi — in a rack you steer from the phone.
 
 **Product page:** [docs/index.html](docs/index.html), with screenshots of the remote on desktop and phone — same brand design as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs).
 
@@ -9,7 +9,7 @@ GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Contro
 | Layer | Tech |
 |---|---|
 | Audio engine | **C++ via Node-API** — native Core Audio / ALSA / WASAPI |
-| Plugin rack | **harbor-fx**, its own process — CLAP, LV2 (lilv) on Linux |
+| Plugin rack | **harbor-fx**, its own process — CLAP, VST3 (SDK subset, MIT), AU (AudioToolbox) on macOS, LV2 (lilv) on Linux |
 | Host | **TypeScript / Node** (Fastify) |
 | Remote UI | **Vite + TypeScript** (mobile web) |
 
@@ -167,7 +167,16 @@ Inserts on the local output, steered from the remote — the plugins you already
   | Loudness Compensation | LSP Loudness Compensator Stereo — equal-loudness curves, so quiet listening keeps its bass and treble |
 
   The other ~110 LSP stereo effects (crossovers, clippers, dynamics, …) follow under *LSP*.
-- **Formats**: **CLAP** on macOS and Linux (`~/Library/Audio/Plug-Ins/CLAP`, `/Library/Audio/Plug-Ins/CLAP`; `~/.clap`, `/usr/lib/clap`; plus `CLAP_PATH`). **LV2** on Linux and the Pi (e.g. `sudo apt install x42-plugins`; the distribution packages bring their desktop libraries along). Stereo effects only (2 in, 2 out). VST3, AU and Windows come later.
+- **Formats**:
+
+  | Format | Where | Found in |
+  |---|---|---|
+  | CLAP | macOS, Linux | `~/Library/Audio/Plug-Ins/CLAP`, `/Library/Audio/Plug-Ins/CLAP`; `~/.clap`, `/usr/lib/clap`; `CLAP_PATH` |
+  | VST3 | macOS, Linux | `~/Library/Audio/Plug-Ins/VST3`, `/Library/Audio/Plug-Ins/VST3`; `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3`; `VST3_PATH` |
+  | AU | macOS | every installed effect Audio Unit (AUv2 and AUv3 app extensions) |
+  | LV2 | Linux, Pi | where lilv looks (`/usr/lib/lv2`, `~/.lv2`, `LV2_PATH`), e.g. `sudo apt install x42-plugins` |
+
+  Stereo effects only (2 in, 2 out). A plugin installed in several formats is listed once, in the first of CLAP, VST3, AU, LV2 (*also AU, VST3* below it). The first scan opens every plugin once, each in its own harbor-fx, six at a time — about two minutes for 1,000 plugins; later scans open only new or updated ones (`~/.audio-harbor-headless/plugins.json`). A plugin built only for Intel Macs, one that crashes, or one that waits for a licence window (no answer in 20 s) is left out. Windows comes later.
 - **Remote**: the fader button on the Deck (amber while plugins shape the sound) opens the rack — the path, one key that takes the whole rack out and back in for an **A/B** without a gap, the presets, each plugin's power key and up to six pinned knobs as rotary knobs. **Settings → Rack** adds plugins from the ones installed on the host, orders and removes them, and keeps the **presets** (*Headphones*, *Speakers* — the whole rack under a name: Save as New, Save when *Edited*, Rename, Delete). Plugin editors (their own windows) are not shown: the host has no screen.
 - **A plugin's sheet** (*Open*): the five shipped plugins have their own **panel** — the graphic EQ as faders, the parametric EQ as a curve with points to drag (frequency sideways, gain up and down), the compressor with a tab per band, the limiter with its knobs, and a live **meter** (in, out, gain change) for the dynamics. **All** shows every parameter with the control its kind wants: switches, choices with the plugin's names, sliders on the right scale (log for Hz, a detent at the default) with − / +, a value to tap and type ("-3.5 dB", "1.2 kHz"), double tap for the default; display-only parameters hidden, bands grouped, unused bands behind *+ Band*. Above both: **A/B** (before ↔ now since the sheet opened), **Undo**, **Reset** to the plugin's defaults. While a knob moves, the rack renders with a short lead, so the change is heard within a moment.
 - **Sound**: with plugins the DAC stays exclusive at the file's rate (`… · Exclusive · FX`); the plugins change the sound, so it is not bit-perfect. DSD plays as PCM while the rack holds plugins (from the next track). **An empty rack is bit-perfect and plays DoP**, as before. Network players get the file without plugins for now (`Network · no FX`).

@@ -199,6 +199,8 @@ Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Detail
 | 15 | Plugin-Rack Stufe 1: `harbor-fx` (CLAP, LV2), Vorausrechnen, A/B, Absturz-Neustart, Web-Remote | done (Mac + Linux; Windows folgt) |
 | 16 | Mitgelieferte Plugins (Linux, macOS): LSP Plugins als CLAP ohne UI — Graphic EQ, Parametric EQ, Mastering-Kompressor, Limiter, Loudness Compensator | done |
 | 17 | Parameter-UX: Bedienelement je Art, Bänder, getippte Werte, Drehregler (A); eigene Panels für die mitgelieferten Plugins mit EQ-Kurve, Fadern, Band-Tabs, Pegel (B); A/B pro Plugin, Undo, Reset, Live-Modus, Rack-Presets (C) | done |
+| 18 | Verbinden ohne Code als Standard; Code in Settings einschaltbar | done |
+| 19 | Plugin-Rack Stufe 2: VST3 (Mac + Linux), AU (Mac); Scan parallel im Hintergrund; ein Eintrag je Plugin über die Formate | done |
 
 ---
 
@@ -222,8 +224,8 @@ später ins selbe Rack.
 |---|---|---|
 | LV2 | Linux / Pi (LSP, x42, Calf, ZAM per `apt`, auch ARM) | lilv |
 | CLAP | alle | Header (MIT, vendored) |
-| VST3 | Mac, Windows, Linux x64 | VST3-SDK (Stufe 2) |
-| AU | Mac | AudioToolbox (Stufe 2) |
+| VST3 | Mac, Linux (x64, arm64); Windows folgt | VST3-SDK, nur Interfaces + Hosting-Helfer (MIT, vendored) |
+| AU | Mac (AUv2, AUv3) | AudioToolbox |
 
 Kein JUCE — jedes Format bekommt einen schlanken eigenen Host.
 
@@ -261,7 +263,11 @@ automatische Parameter-Seite pro Plugin (Wertetext vom Plugin), bis zu sechs ang
    Web-Remote mit Rack-Sheet und Parameter-Seite. Mac + Linux; Windows (Prozess-Start, WinPlayer) folgt.
    Geprüft: `npm run test:fx -w @harbor/engine`; CLAP mit FabFilter Pro-Q 4, TAL-Chorus-LX, Octaver 82 (Mac);
    LV2 mit LSP Parametric EQ / Limiter und x42-eq im Container (arm64).
-2. VST3 (alle), AU (Mac).
+2. **done** — VST3 (Mac, Linux), AU (Mac, AUv2 + AUv3). Scan: sechs Plugins parallel, je in eigenem
+   Prozess, nur neue / geänderte; Start im Hintergrund. Im Picker ein Eintrag je Plugin (CLAP vor VST3 vor
+   AU vor LV2). Geprüft: Pro-Q 4 / Pro-L 2 (VST3, AU), BritChannel, AUPeakLimiter, voller Scan von ~1000
+   Plugins in ~2 min (Intel-only, abstürzende und auf Lizenzfenster wartende bleiben draußen); VST3 auf
+   Linux arm64 mit LSP als VST3 im Container.
 3. Rack-Presets (**done**) + Werks-Presets der Plugins; Bonjour-Protokoll 4 (`getRack` / `setRack` /
    `loadRackPreset`, Topic `rack`) für die iOS-App; bearbeiteter WAV-Stream für Netzwerk-Player.
 4. Original-Editoren auf dem Bildschirm des Hosts (Mac, Windows, Linux-Desktop).

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileException } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
@@ -17,7 +17,7 @@ import { insertsOf, presetName, presetOf, summaryOf, type RackPreset, type RackP
 
 /** A plugin installed on this machine, as harbor-fx describes it. */
 export interface RackPlugin {
-  format: 'clap' | 'lv2';
+  format: 'clap' | 'lv2' | 'vst3' | 'au';
   path: string;
   /** CLAP plugin id or LV2 URI. */
   id: string;
@@ -29,6 +29,8 @@ export interface RackPlugin {
   stereo: boolean;
   /** Shipped with Audio Harbor and picked for a job ("Graphic EQ"); listed first. */
   role?: string;
+  /** Listed without being opened: harbor-fx describes it apart (an AU's stereo check). */
+  describe?: boolean;
 }
 
 /**
@@ -137,12 +139,15 @@ interface InsertStatus {
 }
 
 interface ScanCache {
-  entries: Record<string, { mtimeMs: number; plugins: RackPlugin[]; error?: string }>;
+  /** By format and file (or AU id); `stamp` is the file's mtime or the plugin's version. */
+  entries: Record<string, { stamp: string; plugins: RackPlugin[]; error?: string }>;
 }
 
 export const MAX_PINNED = 6;
 const STATE_SAVE_MS = 1500;
 const DESCRIBE_TIMEOUT_MS = 20000;
+/** Plugin files described at once (each in its own harbor-fx). */
+const DESCRIBE_PARALLEL = 6;
 
 export class RackError extends Error {
   constructor(
@@ -175,6 +180,25 @@ function readJson<T>(file: string, fallback: T): T {
   }
 }
 
+/** A file's mtime, or for a plugin without its own file (an AU) its version; null when gone. */
+function stampOf(item: RackPlugin): string | null {
+  if (!item.path) return `v${item.version}`;
+  try {
+    return String(fs.statSync(item.path).mtimeMs);
+  } catch {
+    return null;
+  }
+}
+
+/** Runs `work` over `items`, at most `limit` at a time. */
+async function inParallel<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) await work(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+}
+
 /** Runs harbor-fx in a tool mode and parses the JSON line it prints. */
 function runFx(args: string[], timeout: number): Promise<{ plugins?: RackPlugin[]; error?: string }> {
   const bin = fxBinaryPath();
@@ -190,9 +214,17 @@ function runFx(args: string[], timeout: number): Promise<{ plugins?: RackPlugin[
           // fall through
         }
       }
-      reject(err ?? new Error('harbor-fx printed nothing'));
+      reject(fxFailure(err, timeout));
     });
   });
+}
+
+/** Why harbor-fx gave no answer, worded for a plugin that hangs or crashes while opening. */
+function fxFailure(err: ExecFileException | null, timeout: number): Error {
+  if (!err) return new Error('harbor-fx printed nothing');
+  if (err.killed) return new Error(`No answer within ${timeout / 1000} s (it may be waiting for a licence window)`);
+  if (err.signal) return new Error(`Crashed while opening (${err.signal})`);
+  return err;
 }
 
 /**
@@ -234,6 +266,9 @@ export class Rack extends EventEmitter {
     engineFxSetBypass(this.stored.bypassed);
     engineEvents.on('fx', (ev: { running?: boolean; stopped?: boolean }) => this.onFxEvent(ev));
     if (this.stored.inserts.length && this.available) await this.pushChain();
+    // The plugin list ready before anyone asks: the first look at a Mac with many plugins
+    // takes minutes, later ones only describe what changed.
+    if (this.available) void this.plugins().catch((err) => console.warn('Plugin scan failed:', err));
   }
 
   /** Settings of every plugin to rack.json now (quit). */
@@ -326,33 +361,32 @@ export class Rack extends EventEmitter {
     const cache = rescan ? { entries: {} } : readJson<ScanCache>(scanCachePath(), { entries: {} });
     const listed = (await runFx(['--list'], DESCRIBE_TIMEOUT_MS)).plugins ?? [];
     const next: ScanCache = { entries: {} };
+    const toDescribe: Array<{ key: string; stamp: string; item: RackPlugin }> = [];
     for (const item of listed) {
-      if (item.id) {
+      const key = `${item.format}:${item.path || item.id}`;
+      if (item.id && !item.describe) {
         // LV2: lilv already knows the plugin.
-        const entry = next.entries[item.path] ?? { mtimeMs: 0, plugins: [] };
+        const entry = next.entries[key] ?? { stamp: '', plugins: [] };
         entry.plugins.push(item);
-        next.entries[item.path] = entry;
+        next.entries[key] = entry;
         continue;
       }
-      let mtimeMs = 0;
-      try {
-        mtimeMs = fs.statSync(item.path).mtimeMs;
-      } catch {
-        continue;
-      }
-      const known = cache.entries[item.path];
-      if (known && known.mtimeMs === mtimeMs) {
-        next.entries[item.path] = known;
-        continue;
-      }
-      try {
-        const described = await runFx(['--describe', item.format, item.path], DESCRIBE_TIMEOUT_MS);
-        next.entries[item.path] = { mtimeMs, plugins: described.plugins ?? [], error: described.error };
-      } catch (err) {
-        // A plugin that crashes or hangs while describing itself stays out of the list.
-        next.entries[item.path] = { mtimeMs, plugins: [], error: err instanceof Error ? err.message : String(err) };
-      }
+      const stamp = stampOf(item);
+      if (stamp === null) continue;
+      const known = cache.entries[key];
+      if (known && known.stamp === stamp) next.entries[key] = known;
+      else toDescribe.push({ key, stamp, item });
     }
+    // Several at once, each in its own process: a plugin that crashes or hangs while
+    // describing itself stays out of the list and takes nothing else with it.
+    await inParallel(toDescribe, DESCRIBE_PARALLEL, async ({ key, stamp, item }) => {
+      try {
+        const described = await runFx(['--describe', item.format, item.path || item.id], DESCRIBE_TIMEOUT_MS);
+        next.entries[key] = { stamp, plugins: described.plugins ?? [], error: described.error };
+      } catch (err) {
+        next.entries[key] = { stamp, plugins: [], error: err instanceof Error ? err.message : String(err) };
+      }
+    });
     writeJson(scanCachePath(), next);
     const bundled = bundledPluginDir();
     const rank = (p: RackPlugin) => (p.role ? INCLUDED.findIndex(([id]) => id === p.id) : INCLUDED.length);

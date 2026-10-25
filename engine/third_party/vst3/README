@@ -1,0 +1,3 @@
+VST 3 SDK 3.8.0 (build 66), MIT — https://github.com/steinbergmedia/vst3sdk
+Only what a host needs: pluginterfaces, and from public.sdk the hosting helpers
+(host classes, parameter changes, process data, events), string conversion and memory stream.

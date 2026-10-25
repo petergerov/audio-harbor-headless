@@ -53,9 +53,11 @@ void printJson(const json& j) {
 }
 
 json descriptorJson(const FxDescriptor& d) {
-  return json {{"format", d.format}, {"path", d.path},       {"id", d.id},
-               {"name", d.name},     {"vendor", d.vendor},   {"version", d.version},
-               {"features", d.features}, {"stereo", d.stereo}};
+  json j {{"format", d.format}, {"path", d.path},       {"id", d.id},
+          {"name", d.name},     {"vendor", d.vendor},   {"version", d.version},
+          {"features", d.features}, {"stereo", d.stereo}};
+  if (d.needsDescribe) j["describe"] = true;
+  return j;
 }
 
 /**
@@ -247,6 +249,14 @@ private:
 #if defined(HARBOR_FX_LV2)
     } else if (ins.format == "lv2") {
       ins.plugin = lv2Load(ins.pluginId, audio_, error);
+#endif
+#if defined(HARBOR_FX_VST3)
+    } else if (ins.format == "vst3") {
+      ins.plugin = vst3Load(ins.path, ins.pluginId, audio_, error);
+#endif
+#if defined(__APPLE__)
+    } else if (ins.format == "au") {
+      ins.plugin = auLoad(ins.pluginId, audio_, error);
 #endif
     } else {
       error = "Unsupported plugin format: " + ins.format;
@@ -466,6 +476,12 @@ int main(int argc, char** argv) {
 #if defined(HARBOR_FX_LV2)
     for (const auto& d : lv2List()) plugins.push_back(descriptorJson(d));
 #endif
+#if defined(HARBOR_FX_VST3)
+    for (const auto& d : vst3List()) plugins.push_back(descriptorJson(d));
+#endif
+#if defined(__APPLE__)
+    for (const auto& d : auList()) plugins.push_back(descriptorJson(d));
+#endif
     printJson({{"plugins", plugins}});
     return 0;
   }
@@ -475,6 +491,12 @@ int main(int argc, char** argv) {
     if (!std::strcmp(argv[2], "clap")) found = clapDescribe(argv[3], error);
 #if defined(HARBOR_FX_LV2)
     else if (!std::strcmp(argv[2], "lv2")) found = lv2Describe(argv[3], error);
+#endif
+#if defined(HARBOR_FX_VST3)
+    else if (!std::strcmp(argv[2], "vst3")) found = vst3Describe(argv[3], error);
+#endif
+#if defined(__APPLE__)
+    else if (!std::strcmp(argv[2], "au")) found = auDescribe(argv[3], error);
 #endif
     else error = std::string("Unsupported plugin format: ") + argv[2];
     json plugins = json::array();

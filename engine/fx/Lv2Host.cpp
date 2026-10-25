@@ -425,6 +425,11 @@ public:
       pendingState_ = in;
       return true;
     }
+    {
+      // Values set before but not yet processed would undo the state on the next block.
+      std::lock_guard lock(controlMutex_);
+      pendingControls_.clear();
+    }
     const std::string text(in.begin(), in.end());
     LilvState* state = lilv_state_new_from_string(world().world, &urids().mapFeature, text.c_str());
     if (!state) return false;

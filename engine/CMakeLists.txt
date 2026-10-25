@@ -128,8 +128,35 @@ if(LILV_FOUND)
 else()
   message(STATUS "harbor-fx: CLAP only (lilv-0 not found)")
 endif()
+# VST3 (MIT SDK, only the hosting parts in third_party/vst3) — macOS and Linux; Windows later.
+if(NOT WIN32)
+  set(VST3_SDK ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vst3)
+  target_sources(harbor-fx PRIVATE
+    fx/Vst3Host.cpp
+    ${VST3_SDK}/pluginterfaces/base/coreiids.cpp
+    ${VST3_SDK}/pluginterfaces/base/funknown.cpp
+    ${VST3_SDK}/public.sdk/source/vst/vstinitiids.cpp
+    ${VST3_SDK}/public.sdk/source/common/memorystream.cpp
+    ${VST3_SDK}/public.sdk/source/common/commonstringconvert.cpp
+    ${VST3_SDK}/public.sdk/source/vst/hosting/hostclasses.cpp
+    ${VST3_SDK}/public.sdk/source/vst/hosting/parameterchanges.cpp
+    ${VST3_SDK}/public.sdk/source/vst/hosting/processdata.cpp
+    ${VST3_SDK}/public.sdk/source/vst/hosting/eventlist.cpp
+    ${VST3_SDK}/public.sdk/source/vst/hosting/pluginterfacesupport.cpp
+    ${VST3_SDK}/public.sdk/source/vst/utility/stringconvert.cpp
+  )
+  target_include_directories(harbor-fx PRIVATE ${VST3_SDK})
+  # The SDK's own UTF-16 conversion uses std::wstring_convert, deprecated in C++17.
+  set_source_files_properties(
+    ${VST3_SDK}/public.sdk/source/common/commonstringconvert.cpp
+    ${VST3_SDK}/public.sdk/source/vst/utility/stringconvert.cpp
+    fx/Vst3Host.cpp
+    PROPERTIES COMPILE_OPTIONS "-Wno-deprecated-declarations")
+  target_compile_definitions(harbor-fx PRIVATE HARBOR_FX_VST3=1 RELEASE=1)
+endif()
 if(APPLE)
-  target_link_libraries(harbor-fx PRIVATE "-framework CoreFoundation")
+  target_sources(harbor-fx PRIVATE fx/AuHost.cpp)
+  target_link_libraries(harbor-fx PRIVATE "-framework CoreFoundation" "-framework AudioToolbox" "-framework CoreAudio")
 elseif(UNIX)
   target_link_libraries(harbor-fx PRIVATE Threads::Threads dl)
 endif()

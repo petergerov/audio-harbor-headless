@@ -133,7 +133,7 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 | `/usr/libexec/audio-harbor-headless/harbor-update` | root helper that installs a newer release (see [Update from the remote](#update-from-the-remote)) |
 | `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run these two helpers, and nothing else, as root |
 | `/etc/audio-harbor-headless/<name>.cred` | login of an SMB share set up from the remote (root only), created then |
-| `/opt/audio-harbor-headless/engine/build/Release/harbor-fx` | the plugin rack's process (CLAP, LV2 through `liblilv-0-0`), started by the engine when the rack holds plugins |
+| `/opt/audio-harbor-headless/engine/build/Release/harbor-fx` | the plugin rack's process (CLAP, VST3, LV2 through `liblilv-0-0`), started by the engine when the rack holds plugins |
 | `/opt/audio-harbor-headless/plugins/` | shipped plugins: `clap/lsp-plugins.clap` (LSP Plugins, no UI) and `LICENSES/` |
 | `~/.audio-harbor-headless/` | config, catalogue, artwork, PIN, plugin rack — of the service user, created on first start |
 
@@ -164,7 +164,7 @@ Terminal commands:
 
 ## Plugins
 
-The rack (Settings → Rack, and the fader button on the Deck) runs LV2 and CLAP effects.
+The rack (Settings → Rack, and the fader button on the Deck) runs LV2, CLAP and VST3 effects.
 
 **Included:** the package ships [LSP Plugins](https://lsp-plug.in) 1.2.35 as one CLAP file, `/opt/audio-harbor-headless/plugins/clap/lsp-plugins.clap`, built without the UI (only `libsndfile` needed; licence in `plugins/LICENSES/`). Add Plugin lists five of them first: **Graphic EQ** (Graphic Equalizer x16), **Parametric EQ** (Parametric Equalizer x16), **Mastering Compressor** (Multiband Compressor x8), **Mastering Limiter** (Limiter) and **Loudness Compensation** (Loudness Compensator). `install.sh` builds the same file (`packaging/build-plugins.sh`, a few minutes on a Pi).
 
@@ -175,7 +175,7 @@ sudo apt install x42-plugins          # x42 EQ, digital peak limiter, compressor
 sudo systemctl restart audioharbor@pi  # or: Settings → Rack → Add Plugin → Look Again
 ```
 
-LV2 is found where lilv looks (`/usr/lib/lv2`, `/usr/local/lib/lv2`, `~/.lv2` of the service user, or `LV2_PATH`), CLAP in the shipped `plugins/clap`, `/usr/lib/clap`, `~/.clap` and `CLAP_PATH`. Only stereo effects can go in the rack. Plugins run in `harbor-fx`, not in the host: one that crashes does not stop the music.
+LV2 is found where lilv looks (`/usr/lib/lv2`, `/usr/local/lib/lv2`, `~/.lv2` of the service user, or `LV2_PATH`), CLAP in the shipped `plugins/clap`, `/usr/lib/clap`, `~/.clap` and `CLAP_PATH`, VST3 in `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3` and `VST3_PATH` (a bundle needs a build for the machine: `Contents/aarch64-linux` on a Pi, `x86_64-linux` on a PC). Only stereo effects can go in the rack. Plugins run in `harbor-fx`, not in the host: one that crashes does not stop the music.
 
 ## Music on a USB drive
 

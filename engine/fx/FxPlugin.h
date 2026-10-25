@@ -44,6 +44,8 @@ struct FxDescriptor {
   std::vector<std::string> features;
   /** An effect with a stereo main input and output — what the rack takes. */
   bool stereo = false;
+  /** Listed without opening it: the host asks `--describe` for the rest (stereo). */
+  bool needsDescribe = false;
 };
 
 /**
@@ -106,6 +108,18 @@ std::vector<FxDescriptor> clapList();
 std::vector<FxDescriptor> clapDescribe(const std::string& path, std::string& error);
 std::unique_ptr<FxPlugin> clapLoad(const std::string& path, const std::string& id, AudioThread& audio,
                                    std::string& error);
+
+#if defined(__APPLE__)
+std::vector<FxDescriptor> auList();
+std::vector<FxDescriptor> auDescribe(const std::string& id, std::string& error);
+std::unique_ptr<FxPlugin> auLoad(const std::string& id, AudioThread& audio, std::string& error);
+#endif
+
+#if defined(HARBOR_FX_VST3)
+std::vector<FxDescriptor> vst3List();
+std::vector<FxDescriptor> vst3Describe(const std::string& path, std::string& error);
+std::unique_ptr<FxPlugin> vst3Load(const std::string& path, const std::string& id, AudioThread& audio, std::string& error);
+#endif
 
 #if defined(HARBOR_FX_LV2)
 std::vector<FxDescriptor> lv2List();
