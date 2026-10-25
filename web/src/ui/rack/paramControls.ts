@@ -10,8 +10,8 @@ const DOUBLE_TAP_MS = 300;
 
 /** What a control may do with its parameter. */
 export interface ParamIO {
-  /** A new value in the plugin's units (sent throttled). */
-  set(value: number): void;
+  /** A new value in the plugin's units, or text it reads ("1200 Hz") — sent throttled. */
+  set(value: number | string): void;
   /** Text the plugin reads ("-3.5 dB"); rejects when it does not. */
   setText(text: string): Promise<void>;
 }

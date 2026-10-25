@@ -385,6 +385,11 @@ Napi::Value FxSetBypass(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+Napi::Value FxTouch(const Napi::CallbackInfo& info) {
+  harbor_engine_fx_touch();
+  return info.Env().Undefined();
+}
+
 Napi::Value FxSetBinary(const Napi::CallbackInfo& info) {
   if (info.Length() > 0 && info[0].IsString()) {
     std::string path = info[0].As<Napi::String>();
@@ -497,6 +502,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("fxRequest", Napi::Function::New(env, FxRequest));
   exports.Set("fxSetBypass", Napi::Function::New(env, FxSetBypass));
   exports.Set("fxSetBinary", Napi::Function::New(env, FxSetBinary));
+  exports.Set("fxTouch", Napi::Function::New(env, FxTouch));
   return exports;
 }
 

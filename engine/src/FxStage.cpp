@@ -9,9 +9,20 @@
 namespace {
 
 std::atomic<bool> g_bypassed {false};
+/** Steady-clock ms until which a knob counts as moving (live mode). */
+std::atomic<int64_t> g_liveUntilMs {0};
 
 /** How far the worker renders ahead of the playhead; also how late a knob is heard. */
 constexpr double kLookaheadSecs = 0.2;
+/** While a knob moves: a short lead in small blocks, so the change is heard soon. */
+constexpr double kLiveLookaheadSecs = 0.05;
+constexpr uint32_t kLiveBlock = 512;
+constexpr int64_t kLiveHoldMs = 3000;
+
+int64_t steadyMs() {
+  using namespace std::chrono;
+  return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 /** A/B fade. */
 constexpr double kFadeSecs = 0.01;
 
@@ -31,6 +42,14 @@ void FxStage::setBypassed(bool bypassed) {
 
 bool FxStage::bypassed() {
   return g_bypassed.load();
+}
+
+void FxStage::touch() {
+  g_liveUntilMs.store(steadyMs() + kLiveHoldMs);
+}
+
+bool FxStage::live() {
+  return steadyMs() < g_liveUntilMs.load();
 }
 
 void FxStage::attach(const float* dry, const std::atomic<size_t>* ready, size_t total, uint32_t rate,
@@ -128,12 +147,15 @@ void FxStage::run() {
       wet_ = false;
       continue;
     }
+    // Live: the lead shrinks as the ring plays out, so later moves are heard within ~50 ms.
+    const bool liveNow = live();
+    const size_t lead = liveNow ? std::max<size_t>(size_t(rate_ * kLiveLookaheadSecs), 2 * kLiveBlock) : lookahead_;
     const size_t written = writePos_.load(std::memory_order_relaxed);
-    if (written >= total_ || written - readPos_.load(std::memory_order_acquire) >= lookahead_) {
-      nap(2);
+    if (written >= total_ || written - readPos_.load(std::memory_order_acquire) >= lead) {
+      nap(liveNow ? 1 : 2);
       continue;
     }
-    if (!renderBlock()) nap(1);
+    if (!renderBlock(liveNow ? std::min(kLiveBlock, block_) : block_)) nap(1);
   }
 }
 
@@ -150,34 +172,34 @@ void FxStage::restartAt(size_t pos) {
   wet_ = true;
 }
 
-bool FxStage::renderBlock() {
+bool FxStage::renderBlock(uint32_t block) {
   const size_t ch = channels_;
   const size_t ready = ready_->load(std::memory_order_acquire);
-  const size_t need = std::min(feedPos_ + block_, total_);
+  const size_t need = std::min(feedPos_ + block, total_);
   if (ready < need && ready < total_) return false;  // decoder still behind
 
   const size_t written = writePos_.load(std::memory_order_relaxed);
   size_t produced = 0;
   if (!dryFallback_) {
-    const size_t real = feedPos_ < total_ ? std::min<size_t>(block_, total_ - feedPos_) : 0;
+    const size_t real = feedPos_ < total_ ? std::min<size_t>(block, total_ - feedPos_) : 0;
     std::memcpy(scratch_.data(), dry_ + feedPos_ * ch, real * ch * sizeof(float));
-    std::fill(scratch_.begin() + long(real * ch), scratch_.end(), 0.0f);
-    if (FxClient::instance().process(scratch_.data(), block_)) {
-      const size_t skip = std::min<size_t>(discard_, block_);
+    std::fill(scratch_.begin() + long(real * ch), scratch_.begin() + long(size_t(block) * ch), 0.0f);
+    if (FxClient::instance().process(scratch_.data(), block)) {
+      const size_t skip = std::min<size_t>(discard_, block);
       discard_ -= uint32_t(skip);
-      produced = std::min<size_t>(block_ - skip, total_ - written);
+      produced = std::min<size_t>(block - skip, total_ - written);
       for (size_t i = 0; i < produced; ++i) {
         std::memcpy(ring_.data() + ((written + i) % capacity_) * ch, scratch_.data() + (skip + i) * ch,
                     ch * sizeof(float));
       }
-      feedPos_ += block_;
+      feedPos_ += block;
       writePos_.store(written + produced, std::memory_order_release);
       return true;
     }
     dryFallback_ = true;
   }
   // harbor-fx is gone: the music goes on dry until it is back (a new generation).
-  produced = std::min<size_t>(block_, total_ - written);
+  produced = std::min<size_t>(block, total_ - written);
   for (size_t i = 0; i < produced; ++i) {
     std::memcpy(ring_.data() + ((written + i) % capacity_) * ch, dry_ + (written + i) * ch, ch * sizeof(float));
   }

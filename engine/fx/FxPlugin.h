@@ -24,6 +24,8 @@ struct FxParam {
   bool stepped = false;
   /** The plugin's bypass switch — the rack's power key, not a knob. */
   bool isBypass = false;
+  /** Set by the plugin only: a meter (gain reduction, level). */
+  bool readOnly = false;
   /** A stepped parameter's values with the plugin's text for each (on / off, Bell, 12 dB/oct). */
   std::vector<std::pair<double, std::string>> options;
 };

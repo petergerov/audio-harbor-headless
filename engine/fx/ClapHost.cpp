@@ -319,7 +319,7 @@ public:
     for (uint32_t i = 0; i < n; ++i) {
       clap_param_info info {};
       if (!params_->get_info(plugin_, i, &info)) continue;
-      if (info.flags & (CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY)) continue;
+      if (info.flags & CLAP_PARAM_IS_HIDDEN) continue;
       FxParam p;
       p.id = std::to_string(info.id);
       p.name = info.name;
@@ -333,6 +333,7 @@ public:
       p.text = text(info.id, p.value);
       p.stepped = info.flags & CLAP_PARAM_IS_STEPPED;
       p.isBypass = info.flags & CLAP_PARAM_IS_BYPASS;
+      p.readOnly = info.flags & CLAP_PARAM_IS_READONLY;
       if (p.stepped && p.max - p.min <= kMaxOptions) {
         for (double v = std::ceil(p.min); v <= p.max; v += 1) p.options.emplace_back(v, text(info.id, v));
       }

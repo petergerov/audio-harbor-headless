@@ -4130,3 +4130,266 @@ body.overlay-open .ah-toast {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Insert sheet: Panel / All, compare, undo, reset */
+.insert-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.insert-tools .segmented.compact {
+  margin: 0;
+  width: auto;
+}
+
+.insert-tools .segmented[hidden] {
+  display: none;
+}
+
+.insert-tools-gap {
+  flex: 1;
+}
+
+.insert-tools .deck-pill:disabled {
+  opacity: 0.4;
+}
+
+.panel-section + .panel-section {
+  margin-top: 16px;
+}
+
+.panel-title {
+  margin-top: 4px;
+}
+
+.panel-note {
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.panel-rows {
+  margin-top: 4px;
+}
+
+/* Faders (graphic EQ) */
+.rack-faders {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+  scroll-snap-type: x proximity;
+}
+
+.rack-fader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 40px;
+  flex: 1 0 40px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  scroll-snap-align: start;
+}
+
+.rack-fader:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.fader-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.fader-track {
+  position: relative;
+  width: 6px;
+  height: 150px;
+  border-radius: 3px;
+  background: var(--faceplate-lift);
+  border: 1px solid var(--aluminum-dark);
+}
+
+.fader-zero {
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: 50%;
+  height: 1px;
+  background: var(--aluminum-dark);
+}
+
+.fader-cap {
+  position: absolute;
+  left: 50%;
+  width: 26px;
+  height: 14px;
+  margin-left: -13px;
+  border-radius: 3px;
+  background: linear-gradient(var(--ivory), var(--ivory-dim));
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+}
+
+.fader-label {
+  font-size: 10px;
+  color: var(--secondary);
+}
+
+/* EQ curve */
+.eq-curve {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  background: var(--chassis);
+  border: 1px solid rgba(97, 89, 83, 0.45);
+  touch-action: none;
+}
+
+.eq-grid {
+  stroke: rgba(158, 148, 130, 0.15);
+  stroke-width: 1;
+}
+
+.eq-grid.zero {
+  stroke: rgba(158, 148, 130, 0.35);
+}
+
+.eq-label {
+  fill: var(--ivory-dim);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.eq-line {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px var(--amber-glow));
+}
+
+.eq-point circle {
+  fill: var(--faceplate-lift);
+  stroke: var(--amber);
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.eq-point text {
+  fill: var(--ivory);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.eq-point.is-chosen circle {
+  fill: var(--amber);
+}
+
+.eq-point.is-chosen text {
+  fill: var(--chassis);
+}
+
+.band-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+/* Meter: in, out, gain change */
+.rack-meter {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--chassis);
+  border: 1px solid rgba(97, 89, 83, 0.45);
+}
+
+.meter-row {
+  display: grid;
+  grid-template-columns: 3em minmax(0, 1fr) 3.5em;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+.meter-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--faceplate-lift);
+  overflow: hidden;
+}
+
+.meter-bar > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: linear-gradient(90deg, #6f8f52, var(--amber) 80%, #e5533d);
+  transition: width 0.1s linear;
+}
+
+.meter-bar.centre > span {
+  background: var(--ivory-dim);
+}
+
+.meter-bar.centre > span.is-cut {
+  background: var(--amber);
+}
+
+.meter-db {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--amber);
+  text-align: right;
+}
+
+/* Rack presets */
+.rack-presets {
+  padding: 12px 16px;
+}
+
+.preset-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.rack-presets .preset-bar {
+  margin: 0;
+}
+
+.preset-chip {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.preset-empty {
+  align-self: center;
+  color: var(--secondary);
+  font-size: 13px;
+  flex: 1;
+}
+
+.preset-edited {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--secondary);
+  font-size: 13px;
+}

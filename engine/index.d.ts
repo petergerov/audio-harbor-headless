@@ -97,6 +97,8 @@ export interface HarborEngine {
   fxRequest(json: string): Promise<string>;
   /** Whole-rack bypass for A/B, faded in ~10 ms. */
   fxSetBypass(bypassed: boolean): void;
+  /** A parameter is moving: the rack renders with a short lead for the next seconds. */
+  fxTouch(): void;
   /** harbor-fx path; null = next to harbor_engine.node (or $HARBOR_FX). */
   fxSetBinary(path: string | null): void;
 }

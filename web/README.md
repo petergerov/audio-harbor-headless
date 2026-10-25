@@ -31,7 +31,14 @@ holds the path badge and the insert head with its power key. Parameters live in 
 | `paramControls.ts` | One `ParamControl` per kind — switch, select, slider with − / + and a value to tap and type, double tap for the default. A new kind is a new entry in `CONTROLS` |
 | `paramRow.ts`, `paramSheet.ts` | A row per parameter (★ or a long press on the name pins it); the sheet: search, Main, bands in play, `+ Band` and *Show unused* |
 | `knob.ts` | Pinned numbers as rotary knobs on the Deck sheet: drag up / down, arrow keys, double tap for the default |
-| `paramSender.ts` | Sends one insert's changes, at most every 60 ms per parameter while a control moves (the last value always), typed values as text the plugin reads |
+| `paramSender.ts` | Sends one insert's changes, at most every 60 ms per parameter while a control moves (the last value always) — numbers, or text the plugin reads |
+| `insertSheet.ts`, `insertView.ts` | An insert's sheet: *Panel* (when the remote knows the plugin) or *All*, both an `InsertView`; above them A/B, Undo, Reset |
+| `paramList.ts` | The *All* view: search, Main, bands in play, `+ Band`, *Show unused* |
+| `settingsHistory.ts` | Undo steps (changes within 0.8 s are one), A/B against the settings from when the sheet opened, reset — on the plugin's whole state, so every control is covered alike |
+| `panels/` | `specs.ts` — a panel per shipped plugin, as data (`PanelSpec`: sections of knobs, rows, faders, EQ curve, band tabs, meter, note). `sections.ts` — a renderer per kind of section; a new kind is a new entry. `eqCurve.ts` — the curve and its points. `panelView.ts` — draws a spec and routes the plugin's answers to the sections that watch them |
+| `eqResponse.ts` | No DOM. The EQ's response from its bands (RBJ biquads, slope as filters in series), log axis helpers, the plugin's texts read as numbers |
+| `fader.ts`, `meter.ts`, `drag.ts` | Graphic EQ faders; the in / out / gain meter (polled while on screen); one pointer-drag helper for knobs, faders and EQ points |
+| `presets.ts` | Rack preset chips (load), *Edited · Save*, and the menu: Save as New, Rename, Delete |
 
 ```
 src/

@@ -1,5 +1,5 @@
 import type { HttpClient } from './http';
-import type { RackParam, RackPlugin, RackSnapshot } from './types';
+import type { InsertMeter, RackParam, RackPlugin, RackSnapshot } from './types';
 
 /** The host's plugin rack. Every change answers with the rack after it. */
 export interface RackApi {
@@ -18,6 +18,19 @@ export interface RackApi {
   /** Typed in the plugin's own units ("-3.5 dB", "1.2 kHz"); the plugin reads it. */
   setParamText(id: string, param: string, text: string): Promise<RackParam | null>;
   setPinned(id: string, params: string[]): Promise<RackSnapshot>;
+  /** Peak in and out of every insert. */
+  meters(): Promise<Record<string, InsertMeter>>;
+  /** The plugin's settings now (opaque), and back into it. */
+  state(id: string): Promise<string>;
+  setState(id: string, state: string): Promise<RackSnapshot>;
+  /** Every parameter back to its default. */
+  reset(id: string): Promise<RackSnapshot>;
+  savePreset(name: string): Promise<RackSnapshot>;
+  loadPreset(id: string): Promise<RackSnapshot>;
+  /** The rack as it is now into the preset. */
+  overwritePreset(id: string): Promise<RackSnapshot>;
+  renamePreset(id: string, name: string): Promise<RackSnapshot>;
+  deletePreset(id: string): Promise<RackSnapshot>;
 }
 
 export class HttpRackApi implements RackApi {
@@ -75,5 +88,41 @@ export class HttpRackApi implements RackApi {
 
   setPinned(id: string, params: string[]): Promise<RackSnapshot> {
     return this.http.put(`/api/v1/rack/inserts/${encodeURIComponent(id)}/pinned`, { params });
+  }
+
+  async meters(): Promise<Record<string, InsertMeter>> {
+    return (await this.http.get<{ meters: Record<string, InsertMeter> }>('/api/v1/rack/meters')).meters;
+  }
+
+  async state(id: string): Promise<string> {
+    return (await this.http.get<{ state: string }>(`/api/v1/rack/inserts/${encodeURIComponent(id)}/state`)).state;
+  }
+
+  setState(id: string, state: string): Promise<RackSnapshot> {
+    return this.http.put(`/api/v1/rack/inserts/${encodeURIComponent(id)}/state`, { state });
+  }
+
+  reset(id: string): Promise<RackSnapshot> {
+    return this.http.post(`/api/v1/rack/inserts/${encodeURIComponent(id)}/reset`);
+  }
+
+  savePreset(name: string): Promise<RackSnapshot> {
+    return this.http.post('/api/v1/rack/presets', { name });
+  }
+
+  loadPreset(id: string): Promise<RackSnapshot> {
+    return this.http.post(`/api/v1/rack/presets/${encodeURIComponent(id)}/load`);
+  }
+
+  overwritePreset(id: string): Promise<RackSnapshot> {
+    return this.http.put(`/api/v1/rack/presets/${encodeURIComponent(id)}/save`, {});
+  }
+
+  renamePreset(id: string, name: string): Promise<RackSnapshot> {
+    return this.http.put(`/api/v1/rack/presets/${encodeURIComponent(id)}`, { name });
+  }
+
+  deletePreset(id: string): Promise<RackSnapshot> {
+    return this.http.delete(`/api/v1/rack/presets/${encodeURIComponent(id)}`);
   }
 }

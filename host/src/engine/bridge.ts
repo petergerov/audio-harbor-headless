@@ -39,6 +39,7 @@ type NativeEngine = {
   netStreamClose?(handle: unknown): void;
   fxRequest?(json: string): Promise<string>;
   fxSetBypass?(bypassed: boolean): void;
+  fxTouch?(): void;
 };
 
 let native: NativeEngine | null = null;
@@ -182,6 +183,11 @@ export async function engineFxRequest<T = Record<string, unknown>>(request: Reco
 
 export function engineFxSetBypass(bypassed: boolean): void {
   loadNative()?.fxSetBypass?.(bypassed);
+}
+
+/** A parameter is moving: the rack renders with a short lead for the next seconds. */
+export function engineFxTouch(): void {
+  loadNative()?.fxTouch?.();
 }
 
 /** harbor-fx beside harbor_engine.node — the engine starts it itself; the host scans with it. */

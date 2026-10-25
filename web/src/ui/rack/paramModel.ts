@@ -47,13 +47,19 @@ const BYPASS = /^bypass$/i;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 export function isShown(param: RackParam): boolean {
-  if (param.isBypass || BYPASS.test(param.name)) return false;
+  if (param.readOnly || param.isBypass || BYPASS.test(param.name)) return false;
   return !DISPLAY_ONLY.some((pattern) => pattern.test(param.name));
 }
 
+/** The "off" side of a switch, as plugins name it. */
+const OFF_WORD = /^(off|false|no|disabled?|unused|bypass(ed)?|inactive)$/i;
+
 export function kindOf(param: RackParam): ControlKind {
   const options = param.options ?? [];
-  if (options.length === 2 && param.min === 0 && param.max === 1) return 'toggle';
+  // Two named values are a choice (FFT / IIR); only off / on is a switch.
+  if (options.length === 2 && param.min === 0 && param.max === 1 && OFF_WORD.test(options[0]?.text.trim() ?? '')) {
+    return 'toggle';
+  }
   if (options.length >= 2) return 'choice';
   return 'number';
 }
@@ -141,6 +147,12 @@ function linearIncrement(param: RackParam, unit: string): number {
   // Half a dB is a step one hears; a hundredth of the travel otherwise.
   if (/^dB$/i.test(unit) && span >= 12) return 0.5;
   return span / 100;
+}
+
+/** A linear scale over a range of the panel's choosing (a fader's ±15 dB), with a detent. */
+export function scaleBetween(min: number, max: number, increment: number, detent?: number): Scale {
+  const base = new LinearScale(min, max, increment);
+  return detent !== undefined && detent > min && detent < max ? new DetentScale(base, detent) : base;
 }
 
 export function scaleFor(param: RackParam, unit: string): Scale {

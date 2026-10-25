@@ -332,12 +332,29 @@ export interface RackParam {
   text: string;
   stepped: boolean;
   isBypass?: boolean;
+  /** Set by the plugin only (a meter). */
+  readOnly?: boolean;
   /** A stepped parameter's values with the plugin's text for each. */
   options?: Array<{ value: number; text: string }>;
 }
 
+/** Peak level into and out of an insert, dBFS; out − in is what it does to the level. */
+export interface InsertMeter {
+  in: number;
+  out: number;
+}
+
+/** A whole rack kept under a name. */
+export interface RackPresetSummary {
+  id: string;
+  name: string;
+  plugins: string[];
+}
+
 export interface RackInsert {
   id: string;
+  /** CLAP id or LV2 URI — picks a panel for the plugins the remote knows. */
+  pluginId: string;
   name: string;
   vendor: string;
   format: string;
@@ -359,4 +376,8 @@ export interface RackSnapshot {
   path: { label: string; lit: boolean; note: string };
   latencyMs: number;
   error: string | null;
+  presets: RackPresetSummary[];
+  /** The preset the rack was loaded from; `edited` once it changed since. */
+  activePreset: string | null;
+  edited: boolean;
 }

@@ -41,11 +41,14 @@ public:
   /** Whole-rack A/B: the output fades between processed and dry in ~10 ms. */
   static void setBypassed(bool bypassed);
   static bool bypassed();
+  /** A knob moved: render with a short lead for the next seconds, so changes are heard soon. */
+  static void touch();
+  static bool live();
 
 private:
   void run();
   void restartAt(size_t pos);
-  bool renderBlock();
+  bool renderBlock(uint32_t block);
 
   const float* dry_ = nullptr;
   const std::atomic<size_t>* ready_ = nullptr;

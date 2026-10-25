@@ -6,8 +6,11 @@ import { showToast } from '../overlay';
 /** A dragged control sends at most this often; the last value always goes. */
 const SEND_MS = 60;
 
+/** A value in the plugin's units, or text the plugin reads ("1200 Hz"). */
+type Change = number | string;
+
 interface Pending {
-  value: number | null;
+  value: Change | null;
   timer: number | null;
   inFlight: boolean;
   lastSent: number;
@@ -23,12 +26,15 @@ export class ParamSender {
   constructor(
     private readonly rack: RackApi,
     private readonly insertId: string,
-    private readonly onAnswer: (param: RackParam) => void
+    private readonly onAnswer: (param: RackParam) => void,
+    /** Told of every change the listener makes (history, live repaint). */
+    private readonly onChange: (paramId: string) => void = () => {}
   ) {}
 
-  set(paramId: string, value: number): void {
+  set(paramId: string, value: Change): void {
     const state = this.state(paramId);
     state.value = value;
+    this.onChange(paramId);
     if (state.timer !== null) return;
     const wait = Math.max(0, SEND_MS - (Date.now() - state.lastSent));
     state.timer = window.setTimeout(() => {
@@ -39,6 +45,7 @@ export class ParamSender {
 
   /** Typed in the plugin's units; rejects with the plugin's refusal. */
   async setText(paramId: string, text: string): Promise<void> {
+    this.onChange(paramId);
     const answer = await this.rack.setParamText(this.insertId, paramId, text);
     if (answer) this.onAnswer(answer);
   }
@@ -59,7 +66,10 @@ export class ParamSender {
     state.inFlight = true;
     state.lastSent = Date.now();
     try {
-      const answer = await this.rack.setParam(this.insertId, paramId, value);
+      const answer =
+        typeof value === 'string'
+          ? await this.rack.setParamText(this.insertId, paramId, value)
+          : await this.rack.setParam(this.insertId, paramId, value);
       if (answer) this.onAnswer(answer);
     } catch (err) {
       showToast(errorMessage(err, 'The plugin did not take that value'), { error: true });

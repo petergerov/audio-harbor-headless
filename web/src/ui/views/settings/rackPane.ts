@@ -6,7 +6,8 @@ import type { Store } from '../../../core/store';
 import type { AppState } from '../../../state/appState';
 import { bindPowerKeys, insertHeadHtml, rackPathHtml } from '../../components/rackControls';
 import { openActionMenu, openConfirmDialog, showToast } from '../../overlay';
-import { openParamSheet } from '../../rack/paramSheet';
+import { openInsertSheet } from '../../rack/insertSheet';
+import { bindPresetChips, presetChipsHtml } from '../../rack/presets';
 import { openPluginPicker } from '../../sheets/rackPlugins';
 import type { Pane } from '../settingsView';
 
@@ -64,7 +65,7 @@ export class RackPane implements Pane {
         (insert, index) => `
         <div class="cell rack-cell">
           <div class="rack-insert-head">${insertHeadHtml(insert, index)}</div>
-          <button type="button" class="btn-text" data-params="${escapeAttr(insert.id)}" ${insert.loaded ? '' : 'disabled'}>Knobs</button>
+          <button type="button" class="btn-text" data-params="${escapeAttr(insert.id)}" ${insert.loaded ? '' : 'disabled'}>Open</button>
           <button type="button" class="btn-text" data-more="${escapeAttr(insert.id)}" aria-label="${escapeAttr(`More for ${insert.name}`)}">•••</button>
         </div>`
       )
@@ -78,14 +79,17 @@ export class RackPane implements Pane {
           <input type="checkbox" role="switch" class="switch" data-ab ${rack.bypassed ? 'checked' : ''} ${rack.inserts.length ? '' : 'disabled'} />
         </label>
       </div>
+      <p class="group-label">Presets</p>
+      <div class="group rack-presets">${presetChipsHtml(rack, { manage: true })}</div>
       <p class="group-label">Inserts · top to bottom</p>
       <div class="group">
         ${inserts}
         <button type="button" class="cell cell-action" data-add>Add Plugin…</button>
       </div>
-      <p class="footer-note">Plugins run in their own process: one that crashes does not stop the music. A change is heard after about 0.2 s. With plugins, DSD plays as PCM; only an empty rack is bit-perfect or plays DoP. Network players get the file without plugins.</p>
+      <p class="footer-note">Plugins run in their own process: one that crashes does not stop the music. A moving knob is heard within a moment. With plugins, DSD plays as PCM; only an empty rack is bit-perfect or plays DoP. Network players get the file without plugins.</p>
     `;
     bindPowerKeys(root, this.rack, () => this.store.get().rack);
+    bindPresetChips(root, this.rack, () => this.store.get().rack, (snapshot) => this.store.update({ rack: snapshot }));
     required<HTMLInputElement>(root, '[data-ab]').addEventListener('change', (e) =>
       this.apply(() => this.rack.setBypass((e.target as HTMLInputElement).checked))
     );
@@ -96,12 +100,7 @@ export class RackPane implements Pane {
       button.addEventListener('click', () => {
         const insert = this.store.get().rack?.inserts.find((i) => i.id === button.dataset.params);
         if (!insert) return;
-        openParamSheet(
-          this.rack,
-          insert,
-          insert.pinned.map((p) => p.id),
-          (snapshot) => this.store.update({ rack: snapshot })
-        );
+        openInsertSheet(this.rack, insert, (snapshot) => this.store.update({ rack: snapshot }));
       });
     });
     root.querySelectorAll<HTMLButtonElement>('[data-more]').forEach((button) => {

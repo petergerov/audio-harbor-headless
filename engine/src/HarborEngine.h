@@ -95,6 +95,8 @@ void harbor_engine_fx_set_binary(const char* path);
 char* harbor_engine_fx_request(const char* json);
 /** Whole-rack bypass for A/B, faded in ~10 ms. */
 void harbor_engine_fx_set_bypass(int bypassed);
+/** A parameter is moving: render with a short lead for the next seconds. */
+void harbor_engine_fx_touch(void);
 void harbor_engine_free(void* p);
 
 #ifdef __cplusplus

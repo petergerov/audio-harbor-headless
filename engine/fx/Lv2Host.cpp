@@ -341,7 +341,8 @@ public:
     std::vector<FxParam> out;
     std::lock_guard lock(controlMutex_);
     for (const auto& p : ports_) {
-      if (!p.control || !p.input) continue;
+      // Output controls are the plugin's meters; the latency report is not one.
+      if (!p.control || p.latency) continue;
       FxParam param;
       param.id = p.symbol;
       param.name = p.name;
@@ -352,6 +353,7 @@ public:
       param.value = pending != pendingControls_.end() ? pending->second : controls_[p.index];
       param.stepped = p.toggled || p.integer || p.enumeration;
       param.isBypass = p.enabled;
+      param.readOnly = !p.input;
       param.text = text(p, float(param.value));
       param.options = options(p);
       out.push_back(std::move(param));

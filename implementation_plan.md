@@ -197,7 +197,8 @@ Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Detail
 | 13 | Software Update aus der Remote (Linux-Paket) | done (ab 1.0.3) |
 | 14 | Pfad-Badge mit Rate / Bits — lokaler DAC und Netzwerk-Player | done (1.0.5 / 1.0.6) |
 | 15 | Plugin-Rack Stufe 1: `harbor-fx` (CLAP, LV2), Vorausrechnen, A/B, Absturz-Neustart, Web-Remote | done (Mac + Linux; Windows folgt) |
-| 16 | Mitgelieferte Plugins (Linux): LSP Plugins als CLAP ohne UI — Graphic EQ, Parametric EQ, Mastering-Kompressor, Limiter, Loudness Compensator | done |
+| 16 | Mitgelieferte Plugins (Linux, macOS): LSP Plugins als CLAP ohne UI — Graphic EQ, Parametric EQ, Mastering-Kompressor, Limiter, Loudness Compensator | done |
+| 17 | Parameter-UX: Bedienelement je Art, Bänder, getippte Werte, Drehregler (A); eigene Panels für die mitgelieferten Plugins mit EQ-Kurve, Fadern, Band-Tabs, Pegel (B); A/B pro Plugin, Undo, Reset, Live-Modus, Rack-Presets (C) | done |
 
 ---
 
@@ -261,7 +262,7 @@ automatische Parameter-Seite pro Plugin (Wertetext vom Plugin), bis zu sechs ang
    Geprüft: `npm run test:fx -w @harbor/engine`; CLAP mit FabFilter Pro-Q 4, TAL-Chorus-LX, Octaver 82 (Mac);
    LV2 mit LSP Parametric EQ / Limiter und x42-eq im Container (arm64).
 2. VST3 (alle), AU (Mac).
-3. Rack-Presets + Werks-Presets der Plugins; Bonjour-Protokoll 4 (`getRack` / `setRack` /
+3. Rack-Presets (**done**) + Werks-Presets der Plugins; Bonjour-Protokoll 4 (`getRack` / `setRack` /
    `loadRackPreset`, Topic `rack`) für die iOS-App; bearbeiteter WAV-Stream für Netzwerk-Player.
 4. Original-Editoren auf dem Bildschirm des Hosts (Mac, Windows, Linux-Desktop).
 5. Eigene Module: parametrischer EQ (AutoEQ / REW-Import), Gain / Balance, Crossfeed, Faltung.

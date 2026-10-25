@@ -197,6 +197,10 @@ void harbor_engine_fx_set_bypass(int bypassed) {
   FxStage::setBypassed(bypassed != 0);
 }
 
+void harbor_engine_fx_touch(void) {
+  FxStage::touch();
+}
+
 void harbor_engine_free(void* p) {
   std::free(p);
 }

@@ -146,6 +146,34 @@ export async function buildServer(ctx: AppContext) {
         ),
       }))
   );
+  // Polled while a plugin panel is open — kept out of the request log.
+  app.get('/api/v1/rack/meters', { logLevel: 'warn' }, async (_req, reply) =>
+    rackCall(reply, async () => ({ meters: await ctx.rack.meters() }))
+  );
+  app.get<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/state', async (req, reply) =>
+    rackCall(reply, async () => ({ state: await ctx.rack.state(req.params.id) }))
+  );
+  app.put<{ Params: { id: string }; Body: { state?: string } }>('/api/v1/rack/inserts/:id/state', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.setState(req.params.id, String(req.body?.state ?? '')))
+  );
+  app.post<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/reset', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.resetParams(req.params.id))
+  );
+  app.post<{ Body: { name?: string } }>('/api/v1/rack/presets', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.savePreset(req.body?.name))
+  );
+  app.post<{ Params: { id: string } }>('/api/v1/rack/presets/:id/load', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.loadPreset(req.params.id))
+  );
+  app.put<{ Params: { id: string } }>('/api/v1/rack/presets/:id/save', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.overwritePreset(req.params.id))
+  );
+  app.put<{ Params: { id: string }; Body: { name?: string } }>('/api/v1/rack/presets/:id', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.renamePreset(req.params.id, req.body?.name))
+  );
+  app.delete<{ Params: { id: string } }>('/api/v1/rack/presets/:id', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.deletePreset(req.params.id))
+  );
   app.put<{ Params: { id: string }; Body: { params?: string[] } }>(
     '/api/v1/rack/inserts/:id/pinned',
     async (req, reply) =>

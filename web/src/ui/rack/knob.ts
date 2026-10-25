@@ -1,5 +1,6 @@
 import { escapeAttr, escapeHtml } from '../../core/html';
 import type { RackParam } from '../../api/types';
+import { onDrag } from './drag';
 import { onDoubleTap, type ParamIO } from './paramControls';
 import type { ParamView } from './paramModel';
 
@@ -28,8 +29,8 @@ function paint(knob: HTMLElement, position: number): void {
   knob.setAttribute('aria-valuenow', String(Math.round(position * 100)));
 }
 
-/** A rotary knob for a pinned parameter: drag up or down, double tap for the default. */
-export function knobHtml({ param }: ParamView): string {
+/** A rotary knob: drag up or down, double tap for the default. `label` replaces the plugin's name. */
+export function knobHtml({ param }: ParamView, label: string = param.name): string {
   return `
     <div class="rack-knob" data-knob="${escapeAttr(param.id)}" role="slider" tabindex="0"
       aria-label="${escapeAttr(param.name)}" aria-valuemin="0" aria-valuemax="100">
@@ -40,7 +41,7 @@ export function knobHtml({ param }: ParamView): string {
         <path class="knob-pointer" data-pointer d="" />
       </svg>
       <span class="knob-text" data-knob-text>${escapeHtml(param.text)}</span>
-      <span class="knob-name">${escapeHtml(param.name)}</span>
+      <span class="knob-name">${escapeHtml(label)}</span>
     </div>`;
 }
 
@@ -57,14 +58,12 @@ export function bindKnob(knob: HTMLElement, view: ParamView, io: ParamIO): void 
   const setPosition = (position: number) => setValue(scale.toValue(position));
   let startY = 0;
   let startPos = 0;
-  knob.addEventListener('pointerdown', (e) => {
-    knob.setPointerCapture(e.pointerId);
-    startY = e.clientY;
-    startPos = scale.toPosition(value);
-  });
-  knob.addEventListener('pointermove', (e) => {
-    if (!knob.hasPointerCapture(e.pointerId)) return;
-    setPosition(startPos + (startY - e.clientY) / TRAVEL_PX);
+  onDrag(knob, {
+    start: (e) => {
+      startY = e.clientY;
+      startPos = scale.toPosition(value);
+    },
+    move: (e) => setPosition(startPos + (startY - e.clientY) / TRAVEL_PX),
   });
   knob.addEventListener('keydown', (e) => {
     const direction = e.key === 'ArrowUp' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? -1 : 0;

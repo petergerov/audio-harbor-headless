@@ -5,16 +5,18 @@ import { errorMessage } from '../../core/errors';
 import { required } from '../../core/html';
 import { bindPowerKeys, insertHeadHtml, rackPathHtml } from '../components/rackControls';
 import { closeOverlay, openPanel, showToast } from '../overlay';
+import { openInsertSheet } from '../rack/insertSheet';
 import { bindKnob, knobHtml, showKnob } from '../rack/knob';
 import { CONTROLS } from '../rack/paramControls';
 import { viewOf } from '../rack/paramModel';
 import { bindParamRow, paramRowHtml } from '../rack/paramRow';
 import { ParamSender, trackHolds } from '../rack/paramSender';
+import { bindPresetChips, presetChipsHtml } from '../rack/presets';
 
 /** Pinned numbers as knobs in a row; pinned switches and choices as compact rows below. */
 function pinnedHtml(insert: RackInsert): string {
   const views = insert.pinned.map(viewOf);
-  const knobs = views.filter((v) => v.kind === 'number').map(knobHtml).join('');
+  const knobs = views.filter((v) => v.kind === 'number').map((v) => knobHtml(v)).join('');
   const rows = views
     .filter((v) => v.kind !== 'number')
     .map((v) => paramRowHtml(v, { pinnable: false }))
@@ -52,7 +54,9 @@ function bodyHtml(rack: RackSnapshot): string {
     .map(
       (insert, index) => `
       <div class="rack-insert" data-insert-block="${insert.id}">
-        <div class="rack-insert-head">${insertHeadHtml(insert, index)}</div>
+        <div class="rack-insert-head">${insertHeadHtml(insert, index)}
+          <button type="button" class="btn-text" data-open="${insert.id}" ${insert.loaded ? '' : 'disabled'}>Open</button>
+        </div>
         ${pinnedHtml(insert)}
       </div>`
     )
@@ -64,6 +68,7 @@ function bodyHtml(rack: RackSnapshot): string {
       <span class="rack-ab-key"></span>
       <span>${rack.bypassed ? 'Rack Bypassed — tap for Plugins' : 'Plugins In — tap to Compare'}</span>
     </button>
+    ${presetChipsHtml(rack, { manage: false })}
     ${
       rack.inserts.length
         ? `<div class="ah-group rack-inserts">${inserts}</div>`
@@ -89,6 +94,13 @@ export function openRackSheet(ctx: AppContext): void {
       const paint = (snapshot: RackSnapshot) => {
         body.innerHTML = bodyHtml(snapshot);
         bindPinned(body, ctx.rack, snapshot);
+        bindPresetChips(body, ctx.rack, () => ctx.store.get().rack, (s) => ctx.store.update({ rack: s }));
+        body.querySelectorAll<HTMLElement>('[data-open]').forEach((button) =>
+          button.addEventListener('click', () => {
+            const insert = ctx.store.get().rack?.inserts.find((i) => i.id === button.dataset.open);
+            if (insert) openInsertSheet(ctx.rack, insert, (s) => ctx.store.update({ rack: s }));
+          })
+        );
         bindPowerKeys(body, ctx.rack, () => ctx.store.get().rack);
         body.querySelector('[data-ab]')?.addEventListener('click', async () => {
           const current = ctx.store.get().rack;

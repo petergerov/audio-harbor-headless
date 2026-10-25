@@ -79,6 +79,11 @@ int main(int argc, char** argv) {
   auto half = pull(stage, 0, 20000, ch);
   check(half.size() == 20000u * ch && maxDiff(half, dry.data(), 0.5) < 1e-6, "gain: ×0.5 from frame 0");
 
+  FxStage::touch();
+  auto live = pull(stage, 30000, 20000, ch);
+  check(FxStage::live() && live.size() == 20000u * ch && maxDiff(live, dry.data() + 30000 * ch, 0.5) < 1e-6,
+        "live (knob moving): short lead, still ×0.5 frame for frame");
+
   auto seeked = pull(stage, 96000, 8000, ch);
   check(seeked.size() == 8000u * ch && maxDiff(seeked, dry.data() + 96000 * ch, 0.5) < 1e-6, "seek: ×0.5 at the new position");
 

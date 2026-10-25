@@ -7,11 +7,13 @@ import {
   engineEvents,
   engineFxRequest,
   engineFxSetBypass,
+  engineFxTouch,
   engineGetState,
   engineHasRack,
   fxBinaryPath,
 } from './engine/bridge.js';
 import { appRootPath, dataDir } from './paths.js';
+import { insertsOf, presetName, presetOf, summaryOf, type RackPreset, type RackPresetSummary } from './rackPresets.js';
 
 /** A plugin installed on this machine, as harbor-fx describes it. */
 export interface RackPlugin {
@@ -58,8 +60,16 @@ export interface RackParam {
   text: string;
   stepped: boolean;
   isBypass?: boolean;
+  /** Set by the plugin only (a meter). */
+  readOnly?: boolean;
   /** A stepped parameter's values with the plugin's text for each. */
   options?: Array<{ value: number; text: string }>;
+}
+
+/** Peak level into and out of an insert, dBFS; out − in is what it does to the level. */
+export interface InsertMeter {
+  in: number;
+  out: number;
 }
 
 /** A new value: as a number in the plugin's units, or as text the plugin reads ("-3.5 dB"). */
@@ -67,6 +77,8 @@ export type ParamInput = { value: number } | { text: string };
 
 export interface RackInsertView {
   id: string;
+  /** CLAP id or LV2 URI — the remote picks a panel for the plugins it knows. */
+  pluginId: string;
   name: string;
   vendor: string;
   format: string;
@@ -90,9 +102,13 @@ export interface RackSnapshot {
   latencyMs: number;
   /** Why the rack is not running (harbor-fx crashed, gave up), or null. */
   error: string | null;
+  presets: RackPresetSummary[];
+  /** The preset the rack was loaded from; `edited` once it changed since. */
+  activePreset: string | null;
+  edited: boolean;
 }
 
-interface StoredInsert {
+export interface StoredInsert {
   id: string;
   format: RackPlugin['format'];
   path: string;
@@ -108,6 +124,9 @@ interface StoredInsert {
 interface StoredRack {
   inserts: StoredInsert[];
   bypassed: boolean;
+  presets: RackPreset[];
+  activePreset: string | null;
+  edited: boolean;
 }
 
 interface InsertStatus {
@@ -182,7 +201,7 @@ function runFx(args: string[], timeout: number): Promise<{ plugins?: RackPlugin[
  * units; the settings are read back from it a moment after they change.
  */
 export class Rack extends EventEmitter {
-  private stored: StoredRack = { inserts: [], bypassed: false };
+  private stored: StoredRack = { inserts: [], bypassed: false, presets: [], activePreset: null, edited: false };
   private status = new Map<string, InsertStatus>();
   private scan: Promise<RackPlugin[]> | null = null;
   private saveTimer: NodeJS.Timeout | null = null;
@@ -208,6 +227,9 @@ export class Rack extends EventEmitter {
     this.stored = {
       inserts: Array.isArray(loaded.inserts) ? loaded.inserts : [],
       bypassed: Boolean(loaded.bypassed),
+      presets: Array.isArray(loaded.presets) ? loaded.presets : [],
+      activePreset: typeof loaded.activePreset === 'string' ? loaded.activePreset : null,
+      edited: Boolean(loaded.edited),
     };
     engineFxSetBypass(this.stored.bypassed);
     engineEvents.on('fx', (ev: { running?: boolean; stopped?: boolean }) => this.onFxEvent(ev));
@@ -231,6 +253,7 @@ export class Rack extends EventEmitter {
       const status = this.status.get(ins.id);
       inserts.push({
         id: ins.id,
+        pluginId: ins.pluginId,
         name: ins.name,
         vendor: ins.vendor,
         format: ins.format,
@@ -250,6 +273,9 @@ export class Rack extends EventEmitter {
       path: this.pathLabel(exclusive, processing, inserts.length > 0),
       latencyMs: rate && fx?.latency ? Math.round((fx.latency / rate) * 1000) : 0,
       error: fx?.error ?? null,
+      presets: this.stored.presets.map(summaryOf),
+      activePreset: this.stored.activePreset,
+      edited: this.stored.edited,
     };
   }
 
@@ -360,6 +386,7 @@ export class Rack extends EventEmitter {
     this.stored.inserts.push(insert);
     await this.pushChain();
     if (this.status.get(insert.id)?.loaded) insert.pinned = await this.defaultPins(insert);
+    this.markEdited();
     this.persist();
     return this.changed();
   }
@@ -369,6 +396,7 @@ export class Rack extends EventEmitter {
     this.stored.inserts = this.stored.inserts.filter((i) => i.id !== this.insert(id).id);
     this.status.delete(id);
     await this.pushChain();
+    this.markEdited();
     this.persist();
     return this.changed();
   }
@@ -380,6 +408,7 @@ export class Rack extends EventEmitter {
     const [ins] = this.stored.inserts.splice(from, 1);
     this.stored.inserts.splice(to, 0, ins);
     await this.pushChain();
+    this.markEdited();
     this.persist();
     return this.changed();
   }
@@ -388,6 +417,7 @@ export class Rack extends EventEmitter {
     const ins = this.insert(id);
     ins.bypassed = bypassed;
     await engineFxRequest({ cmd: 'setBypass', id, bypassed });
+    this.markEdited();
     this.persist();
     return this.changed();
   }
@@ -418,9 +448,99 @@ export class Rack extends EventEmitter {
       ...input,
     });
     if (!reply.ok) throw new RackError(reply.error ?? 'The plugin refused the value');
-    this.scheduleStateSave();
-    this.emitChanged();
+    // Rendered with a short lead for a few seconds, so the change is heard soon.
+    engineFxTouch();
+    this.settingsChanged();
     return reply.param ?? null;
+  }
+
+  /** Peak in and out of every insert. */
+  async meters(): Promise<Record<string, InsertMeter>> {
+    if (!this.available || !this.stored.inserts.length) return {};
+    const reply = await engineFxRequest<{ ok: boolean; meters?: Record<string, InsertMeter> }>({ cmd: 'meters' });
+    return reply.meters ?? {};
+  }
+
+  /** The plugin's settings as it holds them now (base64), to compare against or undo to. */
+  async state(id: string): Promise<string> {
+    this.insert(id);
+    const reply = await engineFxRequest<{ ok: boolean; state?: string; error?: string }>({ cmd: 'getState', id });
+    if (!reply.ok || !reply.state) throw new RackError(reply.error ?? 'The plugin keeps no settings', 409);
+    return reply.state;
+  }
+
+  async setState(id: string, state: string): Promise<RackSnapshot> {
+    this.insert(id);
+    const reply = await engineFxRequest<{ ok: boolean; error?: string }>({ cmd: 'setState', id, state });
+    if (!reply.ok) throw new RackError(reply.error ?? 'The plugin did not take those settings');
+    engineFxTouch();
+    this.settingsChanged();
+    return this.snapshot();
+  }
+
+  /** Every parameter of the plugin back to its default. */
+  async resetParams(id: string): Promise<RackSnapshot> {
+    this.insert(id);
+    const reply = await engineFxRequest<{ ok: boolean; error?: string }>({ cmd: 'resetParams', id });
+    if (!reply.ok) throw new RackError(reply.error ?? 'The plugin did not reset');
+    engineFxTouch();
+    this.settingsChanged();
+    return this.snapshot();
+  }
+
+  // --- presets: the whole rack under a name ---
+
+  async savePreset(name: unknown): Promise<RackSnapshot> {
+    const clean = presetName(name);
+    if (!clean) throw new RackError('A preset needs a name');
+    if (!this.stored.inserts.length) throw new RackError('The rack is empty — add a plugin first');
+    await this.saveStates();
+    const preset = presetOf(clean, this.stored.inserts);
+    this.stored.presets.push(preset);
+    this.stored.activePreset = preset.id;
+    this.stored.edited = false;
+    this.persist();
+    return this.changed();
+  }
+
+  /** The rack as it is now, into the active preset. */
+  async overwritePreset(id: string): Promise<RackSnapshot> {
+    const index = this.presetIndex(id);
+    await this.saveStates();
+    this.stored.presets[index] = presetOf(this.stored.presets[index].name, this.stored.inserts, id);
+    this.stored.activePreset = id;
+    this.stored.edited = false;
+    this.persist();
+    return this.changed();
+  }
+
+  async loadPreset(id: string): Promise<RackSnapshot> {
+    this.requireRack();
+    const preset = this.stored.presets[this.presetIndex(id)];
+    this.stored.inserts = insertsOf(preset);
+    await this.pushChain();
+    this.stored.activePreset = id;
+    this.stored.edited = false;
+    this.persist();
+    return this.changed();
+  }
+
+  async renamePreset(id: string, name: unknown): Promise<RackSnapshot> {
+    const clean = presetName(name);
+    if (!clean) throw new RackError('A preset needs a name');
+    this.stored.presets[this.presetIndex(id)].name = clean;
+    this.persist();
+    return this.changed();
+  }
+
+  async deletePreset(id: string): Promise<RackSnapshot> {
+    this.stored.presets.splice(this.presetIndex(id), 1);
+    if (this.stored.activePreset === id) {
+      this.stored.activePreset = null;
+      this.stored.edited = false;
+    }
+    this.persist();
+    return this.changed();
   }
 
   async setPinned(id: string, params: string[]): Promise<RackSnapshot> {
@@ -436,6 +556,26 @@ export class Rack extends EventEmitter {
     const ins = this.stored.inserts.find((i) => i.id === id);
     if (!ins) throw new RackError('No such insert', 404);
     return ins;
+  }
+
+  private presetIndex(id: string): number {
+    const index = this.stored.presets.findIndex((p) => p.id === id);
+    if (index < 0) throw new RackError('No such preset', 404);
+    return index;
+  }
+
+  /** The rack no longer matches the preset it came from. */
+  private markEdited(): void {
+    if (this.stored.activePreset && !this.stored.edited) this.stored.edited = true;
+  }
+
+  /** A plugin's settings moved: remembered shortly, the remotes told, the preset edited. */
+  private settingsChanged(): void {
+    const wasEdited = this.stored.edited;
+    this.markEdited();
+    if (this.stored.edited !== wasEdited) this.persist();
+    this.scheduleStateSave();
+    this.emitChanged();
   }
 
   private requireRack(): void {
@@ -473,7 +613,7 @@ export class Rack extends EventEmitter {
   /** A small plugin shows all its knobs; a large one starts with none pinned. */
   private async defaultPins(ins: StoredInsert): Promise<string[]> {
     try {
-      const knobs = (await this.params(ins.id)).filter((p) => !p.isBypass);
+      const knobs = (await this.params(ins.id)).filter((p) => !p.isBypass && !p.readOnly);
       return knobs.length <= 12 ? knobs.slice(0, MAX_PINNED).map((p) => p.id) : [];
     } catch {
       return [];

@@ -11,6 +11,7 @@
 #include <json.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -57,6 +58,34 @@ json descriptorJson(const FxDescriptor& d) {
                {"features", d.features}, {"stereo", d.stereo}};
 }
 
+/**
+ * Peak level into and out of one insert, held and falling like a meter's needle. Out minus in
+ * is what the plugin does to the level: a compressor's or limiter's gain reduction (makeup
+ * included). The rack renders ahead, so it leads what is heard by the lookahead.
+ */
+struct Meter {
+  float in = 0;
+  float out = 0;
+
+  void feed(const std::vector<float>* before, const std::vector<float>* after, uint32_t n, double rate) {
+    const float fall = rate > 0 ? float(std::exp(-double(n) / (rate * kFallSecs))) : 0.0f;
+    in = std::max(peak(before, n), in * fall);
+    out = std::max(peak(after, n), out * fall);
+  }
+
+  static float decibels(float level) { return level > 1e-6f ? 20.0f * std::log10(level) : -120.0f; }
+
+private:
+  static constexpr double kFallSecs = 0.3;
+  static float peak(const std::vector<float>* channels, uint32_t n) {
+    float p = 0;
+    for (int c = 0; c < 2; ++c) {
+      for (uint32_t i = 0; i < n; ++i) p = std::max(p, std::fabs(channels[c][i]));
+    }
+    return p;
+  }
+};
+
 struct Insert {
   std::string id;
   std::string format;
@@ -70,6 +99,7 @@ struct Insert {
   /** A bypassed insert keeps the chain's latency with a plain delay. */
   std::vector<float> delay[2];
   size_t delayPos = 0;
+  Meter meter;
 };
 
 class Rack {
@@ -189,6 +219,15 @@ public:
     return out;
   }
 
+  /** Peak in and out of each insert in dBFS. */
+  json meters() const {
+    json out = json::object();
+    for (const auto& ins : chain_) {
+      out[ins.id] = {{"in", Meter::decibels(ins.meter.in)}, {"out", Meter::decibels(ins.meter.out)}};
+    }
+    return out;
+  }
+
   /** Callbacks and restarts the plugins asked for since the last message. */
   void idle() {
     for (auto& ins : chain_) {
@@ -246,6 +285,7 @@ private:
       const float* in[2] = {buf_[0].data(), buf_[1].data()};
       float* out[2] = {tmp_[0].data(), tmp_[1].data()};
       ins.plugin->process(in, out, n);
+      ins.meter.feed(buf_, tmp_, n, rate_);
       std::swap(buf_[0], tmp_[0]);
       std::swap(buf_[1], tmp_[1]);
     }
@@ -278,6 +318,7 @@ json paramJson(const FxParam& p) {
           {"default", p.def}, {"value", p.value}, {"text", p.text}, {"stepped", p.stepped}};
   if (!p.module.empty()) j["module"] = p.module;
   if (p.isBypass) j["isBypass"] = true;
+  if (p.readOnly) j["readOnly"] = true;
   if (!p.options.empty()) {
     json options = json::array();
     for (const auto& [value, text] : p.options) options.push_back({{"value", value}, {"text", text}});
@@ -291,6 +332,7 @@ json control(Rack& rack, const json& req) {
   if (cmd == "ping") return {{"ok", true}};
   if (cmd == "setChain") return {{"ok", true}, {"inserts", rack.setChain(req.value("inserts", json::array()))}};
   if (cmd == "inserts") return {{"ok", true}, {"inserts", rack.inserts()}};
+  if (cmd == "meters") return {{"ok", true}, {"meters", rack.meters()}};
   if (cmd == "getStates") {
     json states = json::object();
     for (const auto& ins : rack.inserts()) {
@@ -313,6 +355,17 @@ json control(Rack& rack, const json& req) {
     for (const auto& p : ins->plugin->params()) params.push_back(paramJson(p));
     return {{"ok", true}, {"params", params}};
   }
+  if (cmd == "values") {
+    // A few parameters, often: meters while a panel is open.
+    const auto wanted = req.value("params", std::vector<std::string>());
+    json values = json::object();
+    for (const auto& p : ins->plugin->params()) {
+      if (std::find(wanted.begin(), wanted.end(), p.id) != wanted.end()) {
+        values[p.id] = {{"value", p.value}, {"text", p.text}};
+      }
+    }
+    return {{"ok", true}, {"values", values}};
+  }
   if (cmd == "setParam") {
     const std::string param = req.value("param", "");
     double value = req.value("value", 0.0);
@@ -330,6 +383,20 @@ json control(Rack& rack, const json& req) {
     std::vector<uint8_t> bytes;
     if (!ins->plugin->saveState(bytes)) return {{"ok", false}, {"error", "The plugin keeps no state"}};
     return {{"ok", true}, {"state", base64Encode(bytes)}};
+  }
+  if (cmd == "setState") {
+    // Settings saved earlier, into the running unit (compare, undo, presets).
+    std::vector<uint8_t> bytes;
+    if (!base64Decode(req.value("state", ""), bytes) || !ins->plugin->loadState(bytes)) {
+      return {{"ok", false}, {"error", "The plugin did not take those settings"}};
+    }
+    return {{"ok", true}};
+  }
+  if (cmd == "resetParams") {
+    for (const auto& p : ins->plugin->params()) {
+      if (!p.readOnly && !p.isBypass) ins->plugin->setParam(p.id, p.def);
+    }
+    return {{"ok", true}};
   }
   return {{"ok", false}, {"error", "Unknown command: " + cmd}};
 }
