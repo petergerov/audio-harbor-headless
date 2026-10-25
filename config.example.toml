@@ -42,3 +42,6 @@ friendly_name = "Audio Harbor Headless"
 [remote]
 bonjour_enabled = true
 bonjour_port = 8788
+# false: remotes on the local network connect without a code. true: they pair with the PIN
+# first (Settings → About → Require Pairing Code).
+require_pairing = false

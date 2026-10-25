@@ -110,7 +110,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 ## First steps
 
 1. Open `http://audioharbor.local:8787` on the iPhone (Safari → Share → Add to Home Screen keeps it as an app).
-2. Pair: as long as no device is paired, the remote shows **First Setup** with the PIN already filled in — tap Continue. Further phones and tablets: the PIN is in Settings → About on a paired device (**New PIN** makes a fresh one), or `audioharbor pair` as the service user. The PIN changes after each pairing.
+2. Connect: no code is needed — the remote opens straight away on any device on the network, the iOS app too. To let in only paired devices, turn on Settings → About → **Require Pairing Code**. Then a new device pairs once with the PIN: as long as none is paired, the remote shows **First Setup** with the PIN filled in; later the PIN is in Settings → About on a paired device (**New PIN** makes a fresh one), or `audioharbor pair` as the service user. The PIN changes after each pairing.
 3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive). Adding a folder does not scan it: **Library → Update Library → Rescan**, at the top of Sources once there is a folder, drive or share, reads it and shows the progress.
 4. Pick the DAC: Settings → Output → Device. Each output is listed once — `SMSL USB AUDIO`, `bcm2835 Headphones`, `vc4-hdmi-0` — as `aplay -l` shows them, not every ALSA alias of it. The mode decides how it is opened: **Shared** through `plughw` (converts format and rate), **Exclusive** / **DoP** directly as `hw:` (bit-perfect; a rate the DAC lacks is refused, not resampled). The Deck badge shows what the DAC gets, e.g. `96 kHz / 24-bit · Exclusive`, or `96 → 48 kHz / 16-bit · Shared` when `plughw` converts for a card that cannot do the file's rate.
 
@@ -354,7 +354,7 @@ rm -f ~/audio-harbor-headless_*.deb   # an older copy in the home folder, if any
 
 A file already in the home folder: `mv ~/audio-harbor-headless_1.0.6_arm64.deb /tmp/` and install `/tmp/audio-harbor-headless_1.0.6_arm64.deb`.
 
-An update keeps config, library and pairing (`~/.audio-harbor-headless`): paired devices stay paired, and an already paired host shows no **First Setup** — the PIN for another device is in Settings → About.
+An update keeps config, library and pairing (`~/.audio-harbor-headless`): paired devices stay paired. A host that had paired devices before the code became optional keeps **Require Pairing Code** on; a new install starts without a code.
 
 Check that the new build runs — the start time should be the moment of the install:
 

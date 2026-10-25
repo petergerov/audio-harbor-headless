@@ -186,5 +186,7 @@ export interface HarborConfig {
   remote: {
     bonjour_enabled: boolean;
     bonjour_port: number;
+    /** Remotes must pair with the PIN first. Off: anyone on the local network can connect. */
+    require_pairing: boolean;
   };
 }

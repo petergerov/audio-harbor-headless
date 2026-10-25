@@ -32,22 +32,32 @@ enum Prefs {
     }
 }
 
-/// `[server] port` from config.toml, else the host's default.
-func serverPort() -> Int {
-    guard let text = try? String(contentsOf: Paths.config, encoding: .utf8) else { return 8787 }
-    var inServer = false
+/// A plain `key = value` from a `[section]` of config.toml (no inline tables), or nil.
+func configValue(section: String, key: String) -> String? {
+    guard let text = try? String(contentsOf: Paths.config, encoding: .utf8) else { return nil }
+    var inSection = false
     for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
         let line = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
             .first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
         if line.hasPrefix("[") {
-            inServer = line == "[server]"
+            inSection = line == "[\(section)]"
             continue
         }
-        guard inServer else { continue }
+        guard inSection else { continue }
         let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-        if parts.count == 2, parts[0] == "port", let port = Int(parts[1]) { return port }
+        if parts.count == 2, parts[0] == key { return parts[1] }
     }
-    return 8787
+    return nil
+}
+
+/// `[server] port` from config.toml, else the host's default.
+func serverPort() -> Int {
+    configValue(section: "server", key: "port").flatMap { Int($0.replacingOccurrences(of: "_", with: "")) } ?? 8787
+}
+
+/// `[remote] require_pairing`: remotes must enter the PIN. Off (the default) they connect without one.
+func pairingRequired() -> Bool {
+    configValue(section: "remote", key: "require_pairing") == "true"
 }
 
 func pairingPin() -> String? {
@@ -191,6 +201,7 @@ final class QRWindowController: NSWindowController {
     private let imageView = NSImageView()
     private let urlLabel = NSTextField(labelWithString: "")
     private let pinLabel = NSTextField(labelWithString: "")
+    private let hint = NSTextField(wrappingLabelWithString: "")
 
     init() {
         let window = NSWindow(
@@ -210,8 +221,6 @@ final class QRWindowController: NSWindowController {
         pinLabel.alignment = .center
         pinLabel.isSelectable = true
         pinLabel.font = .monospacedDigitSystemFont(ofSize: 22, weight: .semibold)
-        let hint = NSTextField(wrappingLabelWithString:
-            "Scan with the iPhone camera, then enter the pairing PIN.")
         hint.alignment = .center
         hint.textColor = .secondaryLabelColor
         hint.font = .systemFont(ofSize: 11)
@@ -234,7 +243,13 @@ final class QRWindowController: NSWindowController {
     func show(url: String) {
         imageView.image = Self.qrImage(for: url)
         urlLabel.stringValue = url
-        pinLabel.stringValue = pairingPin().map { "PIN \($0)" } ?? ""
+        // The PIN only matters with the code on (Settings → About → Require Pairing Code).
+        let required = pairingRequired()
+        pinLabel.stringValue = required ? pairingPin().map { "PIN \($0)" } ?? "" : ""
+        pinLabel.isHidden = !required
+        hint.stringValue = required
+            ? "Scan with the iPhone camera, then enter the pairing PIN."
+            : "Scan with the iPhone camera — no code needed on this network."
         window?.center()
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)

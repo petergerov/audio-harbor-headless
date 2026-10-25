@@ -1,4 +1,4 @@
-import type { HttpClient } from './http';
+import type { HttpClient, TokenStore } from './http';
 import type {
   DriveList,
   FolderListing,
@@ -39,6 +39,10 @@ export interface SettingsApi {
   update(check?: boolean): Promise<UpdateStatus>;
   /** Starts installing `tag`; the host restarts with it. */
   installUpdate(tag: string): Promise<UpdateStatus>;
+  /** Remotes must pair with the PIN first (off: anyone on the network connects). */
+  pairingRequired(): Promise<boolean>;
+  /** On: this device stays connected, every other one needs the PIN again. */
+  setPairingRequired(required: boolean): Promise<boolean>;
   /** The host's current PIN, to pair another device. */
   pairingPin(): Promise<string>;
   /** A fresh PIN; the old one stops working. */
@@ -52,7 +56,10 @@ export interface SettingsApi {
 }
 
 export class HttpSettingsApi implements SettingsApi {
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly tokens: TokenStore
+  ) {}
 
   settings(): Promise<SettingsSnapshot> {
     return this.http.get('/api/v1/settings');
@@ -125,6 +132,19 @@ export class HttpSettingsApi implements SettingsApi {
 
   installUpdate(tag: string): Promise<UpdateStatus> {
     return this.http.post('/api/v1/update', { version: tag });
+  }
+
+  async pairingRequired(): Promise<boolean> {
+    return (await this.http.get<{ pairingRequired: boolean }>('/api/v1/access')).pairingRequired;
+  }
+
+  async setPairingRequired(required: boolean): Promise<boolean> {
+    const res = await this.http.put<{ pairingRequired: boolean; token?: string }>('/api/v1/access', {
+      pairingRequired: required,
+    });
+    // Switching the code on keeps this device in: the host hands it a token.
+    if (res.token) this.tokens.set(res.token);
+    return res.pairingRequired;
   }
 
   async pairingPin(): Promise<string> {

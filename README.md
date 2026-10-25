@@ -30,7 +30,7 @@ npm run build:web
 npm run serve          # or: npm run harbor -- serve
 ```
 
-Open `http://audioharbor.local:8787` on your iPhone (or scan the QR in the terminal; the IP URL printed next to it works too). While no device is paired, the remote fills in the PIN itself; after that, a paired remote shows it under Settings → About → Pair Another Device.
+Open `http://audioharbor.local:8787` on your iPhone (or scan the QR in the terminal; the IP URL printed next to it works too). **No code is needed**: any phone, tablet or the Audio Harbor iOS app on the same network connects at once. To let in only paired devices, turn on **Settings → About → Require Pairing Code** (`remote.require_pairing = true`): the device that turns it on stays connected, every other one pairs once with the PIN shown there. With the code on and no device paired yet, the remote fills in the PIN itself. A host that already had paired devices before the code became optional keeps asking for it.
 
 ```bash
 npm run harbor -- pair     # show / rotate pairing PIN
@@ -108,7 +108,7 @@ npm run package:deb                      # .deb (Linux host with dpkg-deb)
 
 macOS `.pkg` installs to `/usr/local/audio-harbor-headless`, adds `audioharbor` on `PATH`, and installs the **Audio Harbor** menu bar app in `/Applications`:
 
-- Menu bar: start / stop the server, QR code + pairing PIN for the iPhone, open the remote or Settings, config file, log.
+- Menu bar: start / stop the server, QR code for the iPhone (and the pairing PIN when the code is on), open the remote or Settings, config file, log.
 - Toggles in the menu: *Start Server When App Opens* and *Open at Login* (macOS 13+).
 - Server output goes to `~/.audio-harbor-headless/harbor.log`. Quitting the app stops a server it started.
 - Terminal: start with `audioharbor`, stop with Ctrl+C or `audioharbor stop` (also `pair`, `rescan`).
@@ -123,7 +123,7 @@ Settings has five panes:
 - **Output** — device, mode, network stream and DSD for network players, DSD as PCM gain, and the current path.
 - **Rack** — the plugin rack: add, order, switch and remove plugins, their knobs, and the A/B bypass (see [Plugin rack](#plugin-rack)).
 - **Sharing** — the DLNA music server.
-- **About** — the host's CPU, memory and disk space, the pairing PIN for another device, the version and **Software Update**.
+- **About** — the host's CPU, memory and disk space, **Require Pairing Code** (off: no code on this network) and, with it on, the PIN for another device, the version and **Software Update**.
 
 ### Playlists & labels
 

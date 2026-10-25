@@ -180,12 +180,22 @@ export class AboutPane implements Pane {
       <p class="group-label">Host</p>
       <div class="group" data-system><div class="cell"><span class="row-sub">Loading…</span></div></div>
       <p class="footer-note" data-system-note></p>
-      <p class="group-label">Pair Another Device</p>
+      <p class="group-label">Connecting</p>
       <div class="group">
-        <div class="cell"><span>PIN</span><span class="value pin-value" data-pin>…</span></div>
-        <button type="button" class="cell cell-action" data-new-pin>New PIN</button>
+        <label class="cell">
+          <span>Require Pairing Code</span>
+          <input type="checkbox" role="switch" class="switch" data-require-code />
+        </label>
       </div>
-      <p class="footer-note">Open this remote on the other phone or tablet and enter the PIN. It changes after each pairing; New PIN makes the current one stop working.</p>
+      <p class="footer-note" data-code-note></p>
+      <div data-pin-section hidden>
+        <p class="group-label">Pair Another Device</p>
+        <div class="group">
+          <div class="cell"><span>PIN</span><span class="value pin-value" data-pin>…</span></div>
+          <button type="button" class="cell cell-action" data-new-pin>New PIN</button>
+        </div>
+        <p class="footer-note">Open this remote on the other phone or tablet and enter the PIN. It changes after each pairing; New PIN makes the current one stop working.</p>
+      </div>
       <p class="group-label">About</p>
       <div class="group">
         <div class="cell"><span>App</span><span class="value">${escapeHtml(about.appName)}</span></div>
@@ -222,18 +232,61 @@ export class AboutPane implements Pane {
     const show = (pin: string) => {
       pinValue.textContent = pin.replace(/(\d{3})(\d{3})/, '$1 $2');
     };
-    this.api
-      .pairingPin()
-      .then(show)
-      .catch(() => {
-        pinValue.textContent = '—';
-      });
+    const loadPin = () =>
+      this.api
+        .pairingPin()
+        .then(show)
+        .catch(() => {
+          pinValue.textContent = '—';
+        });
+    this.renderAccess(root, loadPin);
     required(root, '[data-new-pin]').addEventListener('click', async () => {
       try {
         show(await this.api.newPairingPin());
       } catch (err) {
         showToast(errorMessage(err, 'Could not make a new PIN'), { error: true });
       }
+    });
+  }
+
+  /** Code on or off; the PIN only matters with it on. */
+  private renderAccess(root: HTMLElement, loadPin: () => Promise<void>): void {
+    const toggle = required<HTMLInputElement>(root, '[data-require-code]');
+    const note = required(root, '[data-code-note]');
+    const pinSection = required(root, '[data-pin-section]');
+    const paint = (on: boolean) => {
+      toggle.checked = on;
+      pinSection.hidden = !on;
+      note.textContent = on
+        ? 'A new phone, tablet or the iOS app pairs once with the PIN below.'
+        : 'Anyone on this network can open the remote — no code to type. Turn this on to let in only devices that paired with the PIN.';
+      if (on) void loadPin();
+    };
+    const apply = async (on: boolean) => {
+      try {
+        paint(await this.api.setPairingRequired(on));
+      } catch (err) {
+        showToast(errorMessage(err, 'Could not change it'), { error: true });
+        paint(!on);
+      }
+    };
+    void this.api
+      .pairingRequired()
+      .then(paint)
+      .catch(() => paint(false));
+    toggle.addEventListener('change', () => {
+      if (!toggle.checked) {
+        void apply(false);
+        return;
+      }
+      // Undone until confirmed: turning it on signs the other devices out.
+      toggle.checked = false;
+      openConfirmDialog({
+        title: 'Require a pairing code?',
+        message: 'This device stays connected. Every other phone, tablet and the iOS app will need the PIN to connect again.',
+        confirmLabel: 'Require Code',
+        onConfirm: () => apply(true),
+      });
     });
   }
 

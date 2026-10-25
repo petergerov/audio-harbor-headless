@@ -35,7 +35,7 @@ const tokens = new LocalTokenStore();
 const http = new HttpClient(tokens);
 const store = new Store<AppState>(initialState);
 
-const settingsApi = new HttpSettingsApi(http);
+const settingsApi = new HttpSettingsApi(http, tokens);
 const library = new LibraryService(new HttpLibraryApi(http), store);
 const collections = new CollectionsService(new HttpCollectionsApi(http), store);
 const playback = new PlaybackService(new HttpPlaybackApi(http), store);

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import qrcode from 'qrcode-terminal';
+import { AccessPolicy } from './access.js';
 import { buildServer, loadPairing, printPairingInfo, rotatePin } from './api/server.js';
-import { loadConfig, saveConfig } from './config.js';
+import { configLacked, loadConfig, saveConfig } from './config.js';
 import { engineVersion } from './engine/bridge.js';
 import { Catalogue } from './library/catalogue.js';
 import { lanBaseUrl } from './net.js';
@@ -95,6 +96,8 @@ async function main(): Promise<void> {
   });
 
   const updates = new Updater(hostVersion() || '0.0.0');
+  const access = new AccessPolicy(getConfig, persist);
+  if (configLacked('remote.require_pairing')) access.adoptExistingInstall();
 
   let remoteUrl: string | null = null;
   const app = await buildServer({
@@ -106,6 +109,7 @@ async function main(): Promise<void> {
     updates,
     remoteUrl: () => remoteUrl,
     rack,
+    access,
   });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
@@ -136,7 +140,7 @@ async function main(): Promise<void> {
   if (localName && localName !== mdns?.wanted) {
     console.log(`(${mdns?.wanted} is taken by another device on the network)`);
   }
-  printPairingInfo();
+  printPairingInfo(access.pairingRequired);
   qrcode.generate(url, { small: true });
 
   await sharing.start();
@@ -152,6 +156,7 @@ async function main(): Promise<void> {
         settings,
         getConfig,
         mdns,
+        access,
       });
       console.log(`Bonjour remote _audioharbor._tcp on port ${cfg.remote.bonjour_port}`);
     } catch (err) {

@@ -31,6 +31,7 @@ const DEFAULTS: HarborConfig = {
   remote: {
     bonjour_enabled: true,
     bonjour_port: 8788,
+    require_pairing: false,
   },
 };
 
@@ -85,6 +86,13 @@ export function normalizeAlsaUid(uid: string | null): string | null {
   return m ? `hw:CARD=${m[1]},DEV=${m[2] ?? '0'}` : uid;
 }
 
+/** Keys the config file did not have when last loaded ("remote.require_pairing"), for migrations. */
+const absent = new Set<string>();
+
+export function configLacked(key: string): boolean {
+  return absent.has(key);
+}
+
 export function loadConfig(): HarborConfig {
   const dest = configPath();
   if (!fs.existsSync(dest)) {
@@ -103,6 +111,8 @@ export function loadConfig(): HarborConfig {
   const sharing = (parsed.sharing ?? {}) as Record<string, unknown>;
   const remote = (parsed.remote ?? {}) as Record<string, unknown>;
   const network = (parsed.network ?? {}) as Record<string, unknown>;
+  absent.clear();
+  if (remote.require_pairing === undefined) absent.add('remote.require_pairing');
 
   return {
     server: {
@@ -136,6 +146,7 @@ export function loadConfig(): HarborConfig {
     remote: {
       bonjour_enabled: Boolean(remote.bonjour_enabled ?? DEFAULTS.remote.bonjour_enabled),
       bonjour_port: Number(remote.bonjour_port ?? DEFAULTS.remote.bonjour_port),
+      require_pairing: Boolean(remote.require_pairing ?? DEFAULTS.remote.require_pairing),
     },
   };
 }

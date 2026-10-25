@@ -19,7 +19,8 @@ import {
 } from '../drives.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
-import { isAuthorized, isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
+import type { AccessPolicy } from '../access.js';
+import { isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { dataDir, webDistPath } from '../paths.js';
 import { RackError, type Rack } from '../rack.js';
@@ -42,12 +43,19 @@ export interface AppContext {
   remoteUrl?: () => string | null;
   /** The plugin rack. */
   rack: Rack;
+  /** Who may connect: anyone on the network, or paired devices only. */
+  access: AccessPolicy;
 }
 
-function authOk(header: string | undefined): boolean {
-  if (!header) return false;
-  const token = header.replace(/^Bearer\s+/i, '').trim();
-  return isAuthorized(token);
+/** The pairing token a request carries: `Authorization: Bearer …` or `?token=`. */
+function tokenOf(req: { headers: { authorization?: string }; query: unknown }): string | null {
+  const header = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
+  if (header) return header;
+  if (typeof req.query === 'object' && req.query && 'token' in req.query) {
+    // Query parsers turn unescaped + into space; restore for base64 tokens.
+    return String((req.query as { token?: string }).token ?? '').replace(/ /g, '+') || null;
+  }
+  return null;
 }
 
 export async function buildServer(ctx: AppContext) {
@@ -79,24 +87,27 @@ export async function buildServer(ctx: AppContext) {
     return { token };
   });
 
-  // First setup: until a device pairs, the pairing screen shows the PIN — nobody can
-  // read it from a headless host otherwise. Afterwards a paired remote shows it.
-  app.get('/api/v1/pair/setup', async () =>
-    isFirstRun() ? { firstRun: true, pin: loadPairing().pin } : { firstRun: false }
-  );
+  // Whether a remote needs the code at all. With the code on, until a device pairs, the
+  // pairing screen shows the PIN — nobody can read it from a headless host otherwise.
+  app.get('/api/v1/pair/setup', async () => {
+    if (!ctx.access.pairingRequired) return { required: false, firstRun: false };
+    return isFirstRun() ? { required: true, firstRun: true, pin: loadPairing().pin } : { required: true, firstRun: false };
+  });
 
   app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/api/v1/')) return;
     const pathOnly = req.url.split('?')[0] ?? req.url;
     if (pathOnly === '/api/v1/health' || pathOnly.startsWith('/api/v1/pair')) return;
-    const headerToken = req.headers.authorization;
-    // Query parsers turn unescaped + into space; restore for base64 tokens.
-    let queryToken = '';
-    if (typeof req.query === 'object' && req.query && 'token' in req.query) {
-      queryToken = String((req.query as { token?: string }).token ?? '').replace(/ /g, '+');
-    }
-    if (authOk(headerToken) || isAuthorized(queryToken || null)) return;
+    if (ctx.access.allows(tokenOf(req))) return;
     return reply.code(401).send({ error: 'unauthorized' });
+  });
+
+  // Code on or off (Settings → About). Switching it on answers with a token for this device —
+  // it stays connected — and signs every other device out.
+  app.get('/api/v1/access', async () => ({ pairingRequired: ctx.access.pairingRequired }));
+  app.put<{ Body: { pairingRequired?: boolean } }>('/api/v1/access', async (req) => {
+    const token = ctx.access.setPairingRequired(Boolean(req.body?.pairingRequired), tokenOf(req));
+    return { pairingRequired: ctx.access.pairingRequired, ...(token ? { token } : {}) };
   });
 
   // --- Plugin rack ---
@@ -769,7 +780,7 @@ export async function buildServer(ctx: AppContext) {
     wsApp.get('/api/v1/ws', { websocket: true }, (socket, req) => {
       const url = new URL(req.url, 'http://localhost');
       const token = url.searchParams.get('token');
-      if (!isAuthorized(token)) {
+      if (!ctx.access.allows(token)) {
         socket.close(4401, 'unauthorized');
         return;
       }
@@ -815,9 +826,12 @@ export async function buildServer(ctx: AppContext) {
   return app;
 }
 
-export function printPairingInfo(): void {
-  const pairing = loadPairing();
-  console.log(`Pairing PIN: ${pairing.pin}`);
+export function printPairingInfo(required: boolean): void {
+  if (!required) {
+    console.log('Remotes on this network connect without a code (Settings → About to require one)');
+    return;
+  }
+  console.log(`Pairing PIN: ${loadPairing().pin}`);
 }
 
 export { rotatePin, loadPairing };

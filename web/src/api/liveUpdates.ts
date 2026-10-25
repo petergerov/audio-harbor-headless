@@ -15,10 +15,11 @@ export class LiveUpdates {
   constructor(private readonly tokens: TokenStore) {}
 
   connect(onMessage: (message: LiveMessage) => void): void {
+    // Without a code the host takes no token; with one, it is sent.
     const token = this.tokens.get();
-    if (!token) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/v1/ws?token=${encodeURIComponent(token)}`);
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    const ws = new WebSocket(`${proto}://${location.host}/api/v1/ws${query}`);
     ws.onmessage = (event) => {
       try {
         onMessage(JSON.parse(String(event.data)) as LiveMessage);

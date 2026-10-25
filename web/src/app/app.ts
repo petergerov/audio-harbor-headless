@@ -1,4 +1,5 @@
 import type { AuthApi } from '../api/authApi';
+import { ApiError } from '../api/http';
 import type { TokenStore } from '../api/http';
 import type { LiveUpdates } from '../api/liveUpdates';
 import { errorMessage } from '../core/errors';
@@ -49,7 +50,7 @@ export class App {
 
   async start(): Promise<void> {
     const { tokens, live, playback, clock, collections, library, settings, shell } = this.deps;
-    if (!tokens.get()) {
+    if (!tokens.get() && (await this.codeRequired())) {
       this.showPairing();
       return;
     }
@@ -67,11 +68,14 @@ export class App {
     });
     try {
       await playback.refresh();
-    } catch {
-      // The token is no longer valid on this host.
-      tokens.set(null);
-      this.showPairing();
-      return;
+    } catch (err) {
+      // Refused: the code was switched on, or this device's token was revoked.
+      if (err instanceof ApiError && err.status === 401) {
+        tokens.set(null);
+        this.showPairing();
+        return;
+      }
+      throw err;
     }
     clock.start();
     await collections.refresh();
@@ -81,6 +85,15 @@ export class App {
     ]);
     this.ready = true;
     shell.render();
+  }
+
+  /** The host wants a code (or cannot say: then the pairing screen, as before). */
+  private async codeRequired(): Promise<boolean> {
+    try {
+      return (await this.deps.auth.setup()).required;
+    } catch {
+      return true;
+    }
   }
 
   private showPairing(): void {

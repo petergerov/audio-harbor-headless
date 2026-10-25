@@ -8,6 +8,8 @@ export interface PairingState {
   tokens: string[];
   /** Stable Bonjour / hello serverID (UUID). */
   serverId: string;
+  /** The one token clients get while no code is needed; also in `tokens`. */
+  openToken?: string;
 }
 
 /** Wrong PINs in a row before pairing pauses, and for how long (as on the Mac). */
@@ -51,6 +53,7 @@ export function loadPairing(): PairingState {
     pin: raw.pin ?? randomPin(),
     tokens: Array.isArray(raw.tokens) ? raw.tokens : [],
     serverId: raw.serverId ?? crypto.randomUUID(),
+    openToken: typeof raw.openToken === 'string' ? raw.openToken : undefined,
   };
   if (!raw.serverId) savePairing(state);
   return state;
@@ -91,9 +94,10 @@ export function pairWithPin(pin: string): string | null {
   return token;
 }
 
-/** No device has paired yet: the first remote may show the PIN itself. */
+/** No device has paired with the PIN yet (the shared code-free token does not count). */
 export function isFirstRun(): boolean {
-  return loadPairing().tokens.length === 0;
+  const state = loadPairing();
+  return state.tokens.every((t) => t === state.openToken);
 }
 
 export function isAuthorized(token: string | undefined | null): boolean {
@@ -101,6 +105,29 @@ export function isAuthorized(token: string | undefined | null): boolean {
   const want = normalizeToken(token);
   const state = loadPairing();
   return state.tokens.some((t) => normalizeToken(t) === want);
+}
+
+/** The shared token for clients without a code; made on first use. */
+export function openAccessToken(): string {
+  const state = loadPairing();
+  if (state.openToken && state.tokens.includes(state.openToken)) return state.openToken;
+  state.openToken = mintTokenBase64();
+  state.tokens.push(state.openToken);
+  savePairing(state);
+  return state.openToken;
+}
+
+/**
+ * Every token goes except `keep` (the device switching the code on); without one, it gets a
+ * new token. Returns the token that stays.
+ */
+export function keepOnly(keep: string | null): string {
+  const state = loadPairing();
+  const kept = keep && isAuthorized(keep) && keep !== state.openToken ? (existingToken(keep) ?? keep) : mintTokenBase64();
+  state.tokens = [kept];
+  state.openToken = undefined;
+  savePairing(state);
+  return kept;
 }
 
 /** Return an existing matching token, or null. */

@@ -1,5 +1,6 @@
 import net from 'node:net';
 import type { Catalogue } from '../library/catalogue.js';
+import type { AccessPolicy } from '../access.js';
 import { existingToken, loadPairing, pairingLockedOut, pairWithPin } from '../pairing.js';
 import { isRepeatMode, type PlaybackService } from '../playback/service.js';
 import type { HarborConfig, NowPlayingSnapshot, QueueSnapshot } from '../types.js';
@@ -25,6 +26,8 @@ export interface BonjourRemoteOptions {
   getConfig: () => HarborConfig;
   /** Announces `_audioharbor._tcp` on this host's `.local` name. */
   mdns: Mdns;
+  /** Code needed or not. */
+  access: AccessPolicy;
 }
 
 interface Envelope {
@@ -96,6 +99,15 @@ class RemoteSession {
         serverID: this.serverId,
       },
     });
+    // No code needed: the app is let in at once. It takes `paired` whenever it comes, so it
+    // never shows its code screen; the token is the shared one for code-free clients.
+    if (!this.opts.access.pairingRequired) this.admit(this.opts.access.openToken());
+  }
+
+  private admit(token: string, id?: number): void {
+    this.authed = true;
+    // Always acked, so the client subscribes only once it is in. Swift decodes Data from base64.
+    this.send({ paired: { token } }, id);
   }
 
   private receive(chunk: Buffer): void {
@@ -180,14 +192,14 @@ class RemoteSession {
   private hello(data: Fields, id: number | undefined): void {
     const auth = fields(data.auth);
     let token = typeof auth.token === 'string' ? existingToken(auth.token) : null;
+    // No code needed: any hello is welcome, an old token or code included.
+    if (!this.opts.access.pairingRequired) return this.admit(token ?? this.opts.access.openToken(), id);
     if (!token && typeof auth.pairingCode === 'string') {
       if (pairingLockedOut()) return this.error('busy', 'Too many failed attempts — try again shortly', id);
       token = pairWithPin(auth.pairingCode);
     }
     if (!token) return this.error('unauthorized', 'Invalid pairing code or token', id);
-    this.authed = true;
-    // Always acked, so the client subscribes only once it is in. Swift decodes Data from base64.
-    this.send({ paired: { token } }, id);
+    this.admit(token, id);
   }
 
   private subscribe(data: Fields): void {
