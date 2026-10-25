@@ -1,23 +1,59 @@
 import type { AppContext } from '../../app/context';
-import type { RackSnapshot } from '../../api/types';
+import type { RackApi } from '../../api/rackApi';
+import type { RackInsert, RackSnapshot } from '../../api/types';
 import { errorMessage } from '../../core/errors';
 import { required } from '../../core/html';
-import {
-  bindParamSliders,
-  bindPowerKeys,
-  insertHeadHtml,
-  paramSliderHtml,
-  rackPathHtml,
-} from '../components/rackControls';
+import { bindPowerKeys, insertHeadHtml, rackPathHtml } from '../components/rackControls';
 import { closeOverlay, openPanel, showToast } from '../overlay';
+import { bindKnob, knobHtml, showKnob } from '../rack/knob';
+import { CONTROLS } from '../rack/paramControls';
+import { viewOf } from '../rack/paramModel';
+import { bindParamRow, paramRowHtml } from '../rack/paramRow';
+import { ParamSender, trackHolds } from '../rack/paramSender';
+
+/** Pinned numbers as knobs in a row; pinned switches and choices as compact rows below. */
+function pinnedHtml(insert: RackInsert): string {
+  const views = insert.pinned.map(viewOf);
+  const knobs = views.filter((v) => v.kind === 'number').map(knobHtml).join('');
+  const rows = views
+    .filter((v) => v.kind !== 'number')
+    .map((v) => paramRowHtml(v, { pinnable: false }))
+    .join('');
+  return `${knobs ? `<div class="rack-knobs">${knobs}</div>` : ''}${rows}`;
+}
+
+/** Each insert's pinned controls send through its own sender; answers update them in place. */
+function bindPinned(body: HTMLElement, rack: RackApi, snapshot: RackSnapshot): void {
+  for (const insert of snapshot.inserts) {
+    const block = body.querySelector<HTMLElement>(`[data-insert-block="${CSS.escape(insert.id)}"]`);
+    if (!block) continue;
+    const sender = new ParamSender(rack, insert.id, (answer) => {
+      const knob = block.querySelector<HTMLElement>(`[data-knob="${CSS.escape(answer.id)}"]`);
+      if (knob) showKnob(knob, answer);
+      const row = block.querySelector<HTMLElement>(`[data-param-row="${CSS.escape(answer.id)}"]`);
+      if (row) {
+        const view = viewOf(answer);
+        CONTROLS[view.kind].show(row, view);
+      }
+    });
+    for (const param of insert.pinned) {
+      const view = viewOf(param);
+      const io = { set: (value: number) => sender.set(param.id, value), setText: (text: string) => sender.setText(param.id, text) };
+      const knob = block.querySelector<HTMLElement>(`[data-knob="${CSS.escape(param.id)}"]`);
+      if (knob) bindKnob(knob, view, io);
+      const row = block.querySelector<HTMLElement>(`[data-param-row="${CSS.escape(param.id)}"]`);
+      if (row) bindParamRow(row, view, io);
+    }
+  }
+}
 
 function bodyHtml(rack: RackSnapshot): string {
   const inserts = rack.inserts
     .map(
       (insert, index) => `
-      <div class="rack-insert">
+      <div class="rack-insert" data-insert-block="${insert.id}">
         <div class="rack-insert-head">${insertHeadHtml(insert, index)}</div>
-        ${insert.pinned.map((p) => paramSliderHtml(insert.id, p)).join('')}
+        ${pinnedHtml(insert)}
       </div>`
     )
     .join('');
@@ -49,10 +85,10 @@ export function openRackSheet(ctx: AppContext): void {
     bodyHtml: `<div data-rack-body>${bodyHtml(rack)}</div>`,
     bind: (root) => {
       const body = required(root, '[data-rack-body]');
-      let held = () => false;
+      const held = trackHolds(body);
       const paint = (snapshot: RackSnapshot) => {
         body.innerHTML = bodyHtml(snapshot);
-        held = bindParamSliders(body, ctx.rack);
+        bindPinned(body, ctx.rack, snapshot);
         bindPowerKeys(body, ctx.rack, () => ctx.store.get().rack);
         body.querySelector('[data-ab]')?.addEventListener('click', async () => {
           const current = ctx.store.get().rack;

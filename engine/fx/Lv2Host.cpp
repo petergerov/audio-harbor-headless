@@ -353,6 +353,7 @@ public:
       param.stepped = p.toggled || p.integer || p.enumeration;
       param.isBypass = p.enabled;
       param.text = text(p, float(param.value));
+      param.options = options(p);
       out.push_back(std::move(param));
     }
     return out;
@@ -367,6 +368,22 @@ public:
         else controls_[p.index] = v;
         return true;
       }
+    }
+    return false;
+  }
+
+  bool parse(const std::string& id, const std::string& text, double& value) override {
+    for (const auto& p : ports_) {
+      if (!p.control || !p.input || p.symbol != id) continue;
+      for (const auto& sp : p.scalePoints) {
+        if (sp.second == text) {
+          value = sp.first;
+          return true;
+        }
+      }
+      char* end = nullptr;
+      value = std::strtod(text.c_str(), &end);
+      return end && end != text.c_str();
     }
     return false;
   }
@@ -440,6 +457,19 @@ private:
       seq()->atom.type = chunk;
     }
   };
+
+  /** Scale points, else on / off, else the integers of a small stepped range. */
+  std::vector<std::pair<double, std::string>> options(const PortInfo& p) const {
+    std::vector<std::pair<double, std::string>> out;
+    if (!p.scalePoints.empty()) {
+      for (const auto& sp : p.scalePoints) out.emplace_back(sp.first, sp.second);
+    } else if (p.toggled) {
+      out = {{0.0, "Off"}, {1.0, "On"}};
+    } else if ((p.integer || p.enumeration) && p.max - p.min <= kMaxOptions) {
+      for (float v = std::ceil(p.min); v <= p.max; v += 1) out.emplace_back(v, text(p, v));
+    }
+    return out;
+  }
 
   std::string text(const PortInfo& p, float v) const {
     for (const auto& sp : p.scalePoints) {

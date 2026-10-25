@@ -332,6 +332,8 @@ export interface RackParam {
   text: string;
   stepped: boolean;
   isBypass?: boolean;
+  /** A stepped parameter's values with the plugin's text for each. */
+  options?: Array<{ value: number; text: string }>;
 }
 
 export interface RackInsert {

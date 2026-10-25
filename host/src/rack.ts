@@ -58,7 +58,12 @@ export interface RackParam {
   text: string;
   stepped: boolean;
   isBypass?: boolean;
+  /** A stepped parameter's values with the plugin's text for each. */
+  options?: Array<{ value: number; text: string }>;
 }
+
+/** A new value: as a number in the plugin's units, or as text the plugin reads ("-3.5 dB"). */
+export type ParamInput = { value: number } | { text: string };
 
 export interface RackInsertView {
   id: string;
@@ -402,14 +407,15 @@ export class Rack extends EventEmitter {
     return reply.params ?? [];
   }
 
-  async setParam(id: string, param: string, value: number): Promise<RackParam | null> {
+  async setParam(id: string, param: string, input: ParamInput): Promise<RackParam | null> {
     this.insert(id);
-    if (!Number.isFinite(value)) throw new RackError('value must be a number');
+    if ('value' in input && !Number.isFinite(input.value)) throw new RackError('value must be a number');
+    if ('text' in input && !input.text.trim()) throw new RackError('text must not be empty');
     const reply = await engineFxRequest<{ ok: boolean; param?: RackParam; error?: string }>({
       cmd: 'setParam',
       id,
       param,
-      value,
+      ...input,
     });
     if (!reply.ok) throw new RackError(reply.error ?? 'The plugin refused the value');
     this.scheduleStateSave();

@@ -3853,40 +3853,6 @@ body.overlay-open .ah-toast {
   gap: 4px;
 }
 
-.rack-param {
-  margin-top: 10px;
-}
-
-.rack-param-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.rack-param-name {
-  color: var(--ivory);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rack-param-text {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  color: var(--amber);
-  flex-shrink: 0;
-}
-
-.rack-param input[type="range"] {
-  width: 100%;
-  margin: 4px 0 0;
-  min-height: 28px;
-  accent-color: var(--amber);
-}
-
 .rack-pin {
   display: inline-flex;
   align-items: center;
@@ -3952,4 +3918,215 @@ body.overlay-open .ah-toast {
 
 .rack-plugin.is-busy {
   opacity: 0.6;
+}
+
+/* Parameters: a row per parameter, its control by kind (switch, choice, number) */
+.param-row {
+  padding: 10px 0;
+}
+
+.param-row + .param-row {
+  border-top: 1px solid rgba(97, 89, 83, 0.25);
+}
+
+.param-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.param-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--ivory);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.param-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--amber);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--faceplate-lift);
+  flex-shrink: 0;
+}
+
+.param-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.param-edit input {
+  width: 7.5em;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--amber);
+  background: var(--chassis);
+  color: var(--ivory);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.param-reset {
+  color: var(--tint);
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.param-number {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.param-number input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  accent-color: var(--amber);
+}
+
+.param-step {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: var(--ivory-dim);
+  background: var(--faceplate-lift);
+  border: 1px solid var(--aluminum-dark);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.param-step:active {
+  color: var(--chassis);
+  background: var(--amber);
+}
+
+.param-choice {
+  max-width: 55%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--aluminum-dark);
+  background: var(--faceplate-lift);
+  color: var(--amber);
+  font-size: 13px;
+}
+
+.param-group {
+  margin-top: 12px;
+}
+
+.param-group summary {
+  cursor: pointer;
+  padding: 10px 4px;
+  color: var(--aluminum);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  border-bottom: 1px solid rgba(97, 89, 83, 0.35);
+}
+
+.param-group.is-unused summary {
+  opacity: 0.6;
+}
+
+.param-group-note {
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.param-unused {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+
+/* Pinned knobs on the Deck's rack sheet */
+.rack-knobs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 4px;
+  margin-top: 10px;
+}
+
+.rack-knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  touch-action: none;
+  cursor: ns-resize;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.rack-knob:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.rack-knob svg {
+  width: 56px;
+  height: 56px;
+}
+
+.knob-track {
+  fill: none;
+  stroke: var(--aluminum-dark);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.knob-arc {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 3;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px var(--amber-glow));
+}
+
+.knob-cap {
+  fill: var(--faceplate-lift);
+  stroke: rgba(0, 0, 0, 0.5);
+}
+
+.knob-pointer {
+  stroke: var(--ivory);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.knob-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--amber);
+}
+
+.knob-name {
+  font-size: 11px;
+  color: var(--secondary);
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

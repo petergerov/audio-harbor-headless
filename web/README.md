@@ -21,9 +21,17 @@ photos live in `public/deck/` (`*-portrait.jpg` / `*-wide.jpg`). Queue rail open
 
 The plugin rack's snapshot comes over the WebSocket (`rack`) into `AppState.rack`. The Deck toolbar
 shows the fader button when the host has a rack (amber while plugins shape the sound); its sheet and
-Settings → Rack repaint from the store, but not while a knob is held. `components/rackControls.ts`
-holds the shared parts: path badge, insert head with power key, parameter sliders (sent at most every
-60 ms while dragged, the last value always).
+Settings → Rack repaint from the store, but not while a control is held. `components/rackControls.ts`
+holds the path badge and the insert head with its power key. Parameters live in `ui/rack/`:
+
+| Module | Job |
+|---|---|
+| `paramModel.ts` | No DOM. A parameter's kind (`toggle`, `choice` from the plugin's own option texts, `number`), its unit (from the plugin's text), its `Scale` — linear, logarithmic for Hz ranges, with a detent at the default — and which parameters only drive the plugin's window (graphs, zoom, analyzer…) and are left out |
+| `paramGroups.ts` | No DOM. Groups by the plugin's module or a trailing number (named Band 1…, or 16 Hz… when the numbers are centre frequencies), finds the band's on switch (`Used`, `Filter type`, `Band on`, `… enable`) and whether it is in play |
+| `paramControls.ts` | One `ParamControl` per kind — switch, select, slider with − / + and a value to tap and type, double tap for the default. A new kind is a new entry in `CONTROLS` |
+| `paramRow.ts`, `paramSheet.ts` | A row per parameter (★ or a long press on the name pins it); the sheet: search, Main, bands in play, `+ Band` and *Show unused* |
+| `knob.ts` | Pinned numbers as rotary knobs on the Deck sheet: drag up / down, arrow keys, double tap for the default |
+| `paramSender.ts` | Sends one insert's changes, at most every 60 ms per parameter while a control moves (the last value always), typed values as text the plugin reads |
 
 ```
 src/

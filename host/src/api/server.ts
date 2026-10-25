@@ -135,11 +135,15 @@ export async function buildServer(ctx: AppContext) {
   app.get<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/params', async (req, reply) =>
     rackCall(reply, async () => ({ params: await ctx.rack.params(req.params.id) }))
   );
-  app.put<{ Params: { id: string; param: string }; Body: { value?: number } }>(
+  app.put<{ Params: { id: string; param: string }; Body: { value?: number; text?: string } }>(
     '/api/v1/rack/inserts/:id/params/:param',
     async (req, reply) =>
       rackCall(reply, async () => ({
-        param: await ctx.rack.setParam(req.params.id, req.params.param, Number(req.body?.value)),
+        param: await ctx.rack.setParam(
+          req.params.id,
+          req.params.param,
+          typeof req.body?.text === 'string' ? { text: req.body.text } : { value: Number(req.body?.value) }
+        ),
       }))
   );
   app.put<{ Params: { id: string }; Body: { params?: string[] } }>(

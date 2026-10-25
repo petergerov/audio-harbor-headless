@@ -24,7 +24,12 @@ struct FxParam {
   bool stepped = false;
   /** The plugin's bypass switch — the rack's power key, not a knob. */
   bool isBypass = false;
+  /** A stepped parameter's values with the plugin's text for each (on / off, Bell, 12 dB/oct). */
+  std::vector<std::pair<double, std::string>> options;
 };
+
+/** Stepped parameters with at most this many values list them as options. */
+constexpr int kMaxOptions = 64;
 
 /** What a plugin file holds, for the plugin list. */
 struct FxDescriptor {
@@ -80,6 +85,8 @@ public:
   virtual std::vector<FxParam> params() = 0;
   /** Takes effect from the next process(), or at once while not processing. */
   virtual bool setParam(const std::string& id, double value) = 0;
+  /** The value the plugin reads in `text` ("-3.5 dB", "1.2 kHz"); false when it cannot. */
+  virtual bool parse(const std::string& id, const std::string& text, double& value) = 0;
   virtual bool saveState(std::vector<uint8_t>& out) = 0;
   virtual bool loadState(const std::vector<uint8_t>& in) = 0;
   /** Main thread, between messages: callbacks the plugin asked for. */

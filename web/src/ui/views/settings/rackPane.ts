@@ -6,7 +6,8 @@ import type { Store } from '../../../core/store';
 import type { AppState } from '../../../state/appState';
 import { bindPowerKeys, insertHeadHtml, rackPathHtml } from '../../components/rackControls';
 import { openActionMenu, openConfirmDialog, showToast } from '../../overlay';
-import { openParamSheet, openPluginPicker } from '../../sheets/rackPlugins';
+import { openParamSheet } from '../../rack/paramSheet';
+import { openPluginPicker } from '../../sheets/rackPlugins';
 import type { Pane } from '../settingsView';
 
 /**

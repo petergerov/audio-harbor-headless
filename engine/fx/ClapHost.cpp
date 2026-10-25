@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -332,16 +333,17 @@ public:
       p.text = text(info.id, p.value);
       p.stepped = info.flags & CLAP_PARAM_IS_STEPPED;
       p.isBypass = info.flags & CLAP_PARAM_IS_BYPASS;
+      if (p.stepped && p.max - p.min <= kMaxOptions) {
+        for (double v = std::ceil(p.min); v <= p.max; v += 1) p.options.emplace_back(v, text(info.id, v));
+      }
       out.push_back(std::move(p));
     }
     return out;
   }
 
   bool setParam(const std::string& id, double value) override {
-    if (!params_) return false;
-    char* end = nullptr;
-    const unsigned long pid = std::strtoul(id.c_str(), &end, 10);
-    if (!end || *end) return false;
+    clap_id pid = 0;
+    if (!params_ || !toId(id, pid)) return false;
     clap_event_param_value ev {};
     ev.header.size = sizeof(ev);
     ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
@@ -359,6 +361,15 @@ public:
     // Not processing until the next block: hand it over now, so get_value tells the truth.
     flush();
     return true;
+  }
+
+  bool parse(const std::string& id, const std::string& text, double& value) override {
+    clap_id pid = 0;
+    if (!params_ || !toId(id, pid)) return false;
+    if (params_->text_to_value && params_->text_to_value(plugin_, pid, text.c_str(), &value)) return true;
+    char* end = nullptr;
+    value = std::strtod(text.c_str(), &end);
+    return end && end != text.c_str();
   }
 
   bool saveState(std::vector<uint8_t>& out) override {
@@ -405,6 +416,14 @@ private:
 
   static bool pushOut(const clap_output_events*, const clap_event_header_t*) {
     // Gestures and value echoes from the plugin; the remote reads values back on demand.
+    return true;
+  }
+
+  static bool toId(const std::string& id, clap_id& out) {
+    char* end = nullptr;
+    const unsigned long v = std::strtoul(id.c_str(), &end, 10);
+    if (id.empty() || !end || *end) return false;
+    out = clap_id(v);
     return true;
   }
 

@@ -278,6 +278,11 @@ json paramJson(const FxParam& p) {
           {"default", p.def}, {"value", p.value}, {"text", p.text}, {"stepped", p.stepped}};
   if (!p.module.empty()) j["module"] = p.module;
   if (p.isBypass) j["isBypass"] = true;
+  if (!p.options.empty()) {
+    json options = json::array();
+    for (const auto& [value, text] : p.options) options.push_back({{"value", value}, {"text", text}});
+    j["options"] = options;
+  }
   return j;
 }
 
@@ -310,7 +315,12 @@ json control(Rack& rack, const json& req) {
   }
   if (cmd == "setParam") {
     const std::string param = req.value("param", "");
-    if (!ins->plugin->setParam(param, req.value("value", 0.0))) return {{"ok", false}, {"error", "No such parameter"}};
+    double value = req.value("value", 0.0);
+    // Typed by the listener: the plugin reads its own units ("-3.5 dB", "1.2 kHz").
+    if (req.contains("text") && !ins->plugin->parse(param, req.value("text", ""), value)) {
+      return {{"ok", false}, {"error", "The plugin does not read that value"}};
+    }
+    if (!ins->plugin->setParam(param, value)) return {{"ok", false}, {"error", "No such parameter"}};
     for (const auto& p : ins->plugin->params()) {
       if (p.id == param) return {{"ok", true}, {"param", paramJson(p)}};
     }

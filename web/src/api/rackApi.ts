@@ -15,6 +15,8 @@ export interface RackApi {
   params(id: string): Promise<RackParam[]>;
   /** The parameter as the plugin took it (its text for the new value). */
   setParam(id: string, param: string, value: number): Promise<RackParam | null>;
+  /** Typed in the plugin's own units ("-3.5 dB", "1.2 kHz"); the plugin reads it. */
+  setParamText(id: string, param: string, text: string): Promise<RackParam | null>;
   setPinned(id: string, params: string[]): Promise<RackSnapshot>;
 }
 
@@ -55,10 +57,18 @@ export class HttpRackApi implements RackApi {
     return res.params;
   }
 
-  async setParam(id: string, param: string, value: number): Promise<RackParam | null> {
+  setParam(id: string, param: string, value: number): Promise<RackParam | null> {
+    return this.putParam(id, param, { value });
+  }
+
+  setParamText(id: string, param: string, text: string): Promise<RackParam | null> {
+    return this.putParam(id, param, { text });
+  }
+
+  private async putParam(id: string, param: string, body: { value: number } | { text: string }): Promise<RackParam | null> {
     const res = await this.http.put<{ param: RackParam | null }>(
       `/api/v1/rack/inserts/${encodeURIComponent(id)}/params/${encodeURIComponent(param)}`,
-      { value }
+      body
     );
     return res.param;
   }
