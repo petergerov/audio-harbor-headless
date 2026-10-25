@@ -150,7 +150,9 @@ const char* unitSymbol(AudioUnitParameterUnit unit) {
 
 class AuPlugin final : public FxPlugin {
 public:
-  explicit AuPlugin(AudioComponentInstance unit) : unit_(unit) {
+  /** `vendor` and `name` as Core Audio names the component: its preset folder. */
+  AuPlugin(AudioComponentInstance unit, std::string vendor, std::string name)
+    : unit_(unit), vendor_(std::move(vendor)), name_(std::move(name)) {
     AURenderCallbackStruct cb {&AuPlugin::pullInput, this};
     AudioUnitSetProperty(unit_, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &cb, sizeof(cb));
   }
@@ -309,6 +311,44 @@ public:
     return ok;
   }
 
+  /** The unit's factory presets, then .aupreset files in ~/Library and /Library/Audio/Presets/<vendor>/<name>. */
+  std::vector<FxPreset> presets() override {
+    std::vector<FxPreset> out;
+    CFArrayRef factory = nullptr;
+    UInt32 size = sizeof(factory);
+    if (AudioUnitGetProperty(unit_, kAudioUnitProperty_FactoryPresets, kAudioUnitScope_Global, 0, &factory, &size) ==
+            noErr &&
+        factory) {
+      for (CFIndex i = 0; i < CFArrayGetCount(factory); ++i) {
+        const auto* p = static_cast<const AUPreset*>(CFArrayGetValueAtIndex(factory, i));
+        out.push_back({"factory:" + std::to_string(p->presetNumber), fromCF(p->presetName), "Factory"});
+      }
+      CFRelease(factory);
+    }
+    const std::string folder = "/Library/Audio/Presets/" + vendor_ + "/" + name_;
+    for (auto& p : presetFiles({homeDir() + folder, folder}, ".aupreset", "Presets")) out.push_back(std::move(p));
+    return out;
+  }
+
+  bool loadPreset(const std::string& id, std::string& error) override {
+    if (id.rfind("factory:", 0) == 0) {
+      AUPreset preset {SInt32(std::atoi(id.c_str() + 8)), nullptr};
+      if (AudioUnitSetProperty(unit_, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0, &preset,
+                               sizeof(preset)) == noErr) {
+        return true;
+      }
+      error = "The Audio Unit did not take that preset";
+      return false;
+    }
+    // An .aupreset is the unit's ClassInfo as a property list, as its saved state is.
+    std::vector<uint8_t> bytes;
+    if (!readFile(presetFilePath(id), bytes) || !loadState(bytes)) {
+      error = "The Audio Unit did not take that preset file";
+      return false;
+    }
+    return true;
+  }
+
 private:
   static OSStatus pullInput(void* self, AudioUnitRenderActionFlags*, const AudioTimeStamp*, UInt32, UInt32 frames,
                             AudioBufferList* io) {
@@ -406,6 +446,8 @@ private:
   }
 
   AudioComponentInstance unit_;
+  std::string vendor_;
+  std::string name_;
   const float* input_[2] = {nullptr, nullptr};
   double rate_ = 48000;
   Float64 sampleTime_ = 0;
@@ -457,5 +499,6 @@ std::unique_ptr<FxPlugin> auLoad(const std::string& id, AudioThread&, std::strin
   }
   AudioComponentInstance unit = instantiate(comp, error);
   if (!unit) return nullptr;
-  return std::make_unique<AuPlugin>(unit);
+  const FxDescriptor desc = describeComponent(comp);
+  return std::make_unique<AuPlugin>(unit, desc.vendor, desc.name);
 }

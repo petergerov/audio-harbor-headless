@@ -79,11 +79,21 @@ export class SettingsHistory {
   }
 
   /** Every parameter to its default — one step to undo. */
-  async reset(): Promise<void> {
+  reset(): Promise<void> {
+    return this.step(() => this.rack.reset(this.insertId));
+  }
+
+  /** One of the plugin's own presets — one step to undo. */
+  loadPreset(preset: string): Promise<void> {
+    return this.step(() => this.rack.loadPluginPreset(this.insertId, preset));
+  }
+
+  /** A change made at once, as one step. */
+  private async step(change: () => Promise<unknown>): Promise<void> {
     await this.settleNow();
     if (this.settled) this.push(this.settled);
     this.comparing = null;
-    await this.rack.reset(this.insertId);
+    await change();
     this.settled = await this.rack.state(this.insertId);
     this.onRestore();
     this.onState();

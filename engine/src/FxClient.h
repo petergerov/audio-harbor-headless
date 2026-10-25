@@ -39,6 +39,11 @@ public:
   uint32_t latency() const { return latency_.load(); }
   /** Bumped whenever harbor-fx (re)starts or stops: running audio must start over. */
   uint64_t generation() const { return generation_.load(); }
+  /**
+   * Bumped by every prepare. The local stage and a network stream share the one chain; one that
+   * finds another prepared it since must start over (its tails and rate are gone).
+   */
+  uint64_t preparations() const { return preparations_.load(); }
   bool alive() const { return alive_.load(); }
   /** Why the rack is not running, or empty. */
   std::string error() const;
@@ -71,5 +76,6 @@ private:
   std::atomic<uint8_t> flags_ {0};
   std::atomic<uint32_t> latency_ {0};
   std::atomic<uint64_t> generation_ {0};
+  std::atomic<uint64_t> preparations_ {0};
   std::atomic<bool> alive_ {false};
 };

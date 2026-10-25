@@ -76,6 +76,7 @@ private:
   uint32_t discard_ = 0;
   uint32_t latency_ = 0;
   uint64_t generation_ = 0;
+  uint64_t preparation_ = 0;
   bool dryFallback_ = false;
 
   // Device thread only.

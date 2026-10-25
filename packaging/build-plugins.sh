@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Builds the plugins the Linux and macOS packages ship for the rack: LSP Plugins as one CLAP
-# file, without their UI. On Linux it needs only libsndfile — not the ~240 MB of X11 / OpenGL /
+# file, without their UI, and LSP's own presets (made for that UI) for the rack to load. On Linux it needs only libsndfile — not the ~240 MB of X11 / OpenGL /
 # cairo the distribution packages pull in on a Pi without a desktop; on macOS only system
 # frameworks (AudioToolbox).
 #
 #   packaging/build-plugins.sh [ROOT]
 #
-# Writes ROOT/plugins/clap/lsp-plugins.clap and ROOT/plugins/LICENSES/ (ROOT: the repo).
+# Writes ROOT/plugins/clap/lsp-plugins.clap, ROOT/plugins/presets/lsp/<plugin id>/*.preset and
+# ROOT/plugins/LICENSES/ (ROOT: the repo).
 # Needs: a C++ compiler, curl; Linux: make, pkg-config, libsndfile1-dev; macOS: GNU make ≥ 4.4
 # as gmake (brew install make).
 set -euo pipefail
@@ -39,7 +40,9 @@ case "$(uname -s)" in
     exit 0
     ;;
 esac
-if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$LSP_VERSION" && -f "$OUT/clap/lsp-plugins.clap" ]]; then
+PRESETS="$OUT/presets/lsp"
+built() { [[ -f "$STAMP" && "$(cat "$STAMP")" == "$LSP_VERSION" && -f "$OUT/clap/lsp-plugins.clap" ]]; }
+if built && [[ -d "$PRESETS" ]]; then
   log "LSP Plugins $LSP_VERSION already built"
   exit 0
 fi
@@ -54,6 +57,31 @@ echo "$LSP_SHA256  $WORK/lsp.tar.gz" | sha256 || {
   exit 1
 }
 tar -xzf "$WORK/lsp.tar.gz" -C "$WORK"
+
+# LSP's presets, by plugin: each plugin's metadata names its folder under res/main/presets
+# (LSP_CLAP_URI("para_equalizer_x16_stereo") … "plugins/….xml", "equalizer/parametric/stereo").
+copy_presets() {
+  local src="$WORK/lsp-plugins/modules" id folder dir files
+  rm -rf "$PRESETS"
+  mkdir -p "$PRESETS"
+  perl -0777 -ne 'while (/LSP_CLAP_URI\("([^"]+)"\).*?"[^"]*\.xml",\s*(?:"([^"]*)"|NULL)/gs) { print "$1 $2\n" if $2 }' \
+    "$src"/*/src/main/meta/*.cpp |
+    while read -r id folder; do
+      dir="$(find "$src" -type d -path "*/res/main/presets/$folder" | head -n 1)"
+      # Whole presets only: a .patch (Room Builder) changes a few ports and needs LSP's files.
+      files=()
+      [[ -n "$dir" ]] && while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$dir" -maxdepth 1 -name '*.preset' -print0)
+      ((${#files[@]})) || continue
+      mkdir -p "$PRESETS/in.lsp-plug.$id"
+      cp "${files[@]}" "$PRESETS/in.lsp-plug.$id/"
+    done
+  log "LSP presets for $(ls "$PRESETS" | wc -l | tr -d ' ') plugins in $PRESETS"
+}
+
+if built; then
+  copy_presets
+  exit 0
+fi
 
 log "Building LSP Plugins (CLAP, no UI)"
 (
@@ -81,5 +109,6 @@ ${LSP_URL}
 sha256 ${LSP_SHA256}
 Build: make config FEATURES="clap" && make (packaging/build-plugins.sh)
 EOF
+copy_presets
 echo "$LSP_VERSION" > "$STAMP"
 log "Plugins in $OUT/clap ($(du -sh "$OUT/clap/lsp-plugins.clap" | cut -f1))"

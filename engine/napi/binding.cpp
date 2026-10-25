@@ -8,6 +8,7 @@
 #include "HarborEngine.h"
 #include "AHDSTDecoder.h"
 #include "FrameSource.h"
+#include "FxFrameSource.h"
 
 namespace {
 
@@ -268,11 +269,12 @@ struct NetStreamHolder {
 
 class NetStreamOpenWorker : public Napi::AsyncWorker {
 public:
-  NetStreamOpenWorker(Napi::Env env, std::string path, FrameSourceOptions options)
+  NetStreamOpenWorker(Napi::Env env, std::string path, FrameSourceOptions options, bool fx)
     : Napi::AsyncWorker(env),
       deferred_(Napi::Promise::Deferred::New(env)),
       path_(std::move(path)),
-      options_(options) {}
+      options_(options),
+      fx_(fx) {}
 
   Napi::Promise Promise() { return deferred_.Promise(); }
 
@@ -280,6 +282,7 @@ public:
     std::string error;
     source_ = openFrameSource(path_, options_, error);
     if (!source_) SetError(error.empty() ? "Cannot open audio for streaming" : error);
+    else if (fx_ && !source_->isDop()) source_ = std::make_unique<FxFrameSource>(std::move(source_));
   }
 
   void OnOK() override {
@@ -303,6 +306,7 @@ private:
   Napi::Promise::Deferred deferred_;
   std::string path_;
   FrameSourceOptions options_;
+  bool fx_;
   std::unique_ptr<FrameSource> source_;
 };
 
@@ -412,8 +416,10 @@ Napi::Value NetStreamOpen(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   FrameSourceOptions options;
+  bool fx = false;
   if (info.Length() > 1 && info[1].IsObject()) {
     auto o = info[1].As<Napi::Object>();
+    if (o.Has("fx")) fx = o.Get("fx").ToBoolean().Value();
     if (o.Has("wifi")) options.wifi = o.Get("wifi").ToBoolean().Value();
     if (o.Has("dop")) options.dop = o.Get("dop").ToBoolean().Value();
     if (o.Has("dsdLevel") && o.Get("dsdLevel").IsNumber()) {
@@ -421,7 +427,7 @@ Napi::Value NetStreamOpen(const Napi::CallbackInfo& info) {
       options.dsdLevelDb = (db == 0 || db == 3 || db == 6) ? db : 3;
     }
   }
-  auto* worker = new NetStreamOpenWorker(env, info[0].As<Napi::String>(), options);
+  auto* worker = new NetStreamOpenWorker(env, info[0].As<Napi::String>(), options, fx);
   auto promise = worker->Promise();
   worker->Queue();
   return promise;

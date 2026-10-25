@@ -1,5 +1,5 @@
 import type { HttpClient } from './http';
-import type { InsertMeter, RackParam, RackPlugin, RackSnapshot } from './types';
+import type { InsertMeter, PluginPreset, RackParam, RackPlugin, RackSnapshot } from './types';
 
 /** The host's plugin rack. Every change answers with the rack after it. */
 export interface RackApi {
@@ -25,6 +25,9 @@ export interface RackApi {
   setState(id: string, state: string): Promise<RackSnapshot>;
   /** Every parameter back to its default. */
   reset(id: string): Promise<RackSnapshot>;
+  /** The plugin's own presets (its maker's, its preset folder's). */
+  pluginPresets(id: string): Promise<PluginPreset[]>;
+  loadPluginPreset(id: string, preset: string): Promise<RackSnapshot>;
   savePreset(name: string): Promise<RackSnapshot>;
   loadPreset(id: string): Promise<RackSnapshot>;
   /** The rack as it is now into the preset. */
@@ -104,6 +107,15 @@ export class HttpRackApi implements RackApi {
 
   reset(id: string): Promise<RackSnapshot> {
     return this.http.post(`/api/v1/rack/inserts/${encodeURIComponent(id)}/reset`);
+  }
+
+  async pluginPresets(id: string): Promise<PluginPreset[]> {
+    return (await this.http.get<{ presets: PluginPreset[] }>(`/api/v1/rack/inserts/${encodeURIComponent(id)}/presets`))
+      .presets;
+  }
+
+  loadPluginPreset(id: string, preset: string): Promise<RackSnapshot> {
+    return this.http.post(`/api/v1/rack/inserts/${encodeURIComponent(id)}/presets/load`, { preset });
   }
 
   savePreset(name: string): Promise<RackSnapshot> {

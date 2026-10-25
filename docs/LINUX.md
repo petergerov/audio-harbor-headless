@@ -134,7 +134,7 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 | `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run these two helpers, and nothing else, as root |
 | `/etc/audio-harbor-headless/<name>.cred` | login of an SMB share set up from the remote (root only), created then |
 | `/opt/audio-harbor-headless/engine/build/Release/harbor-fx` | the plugin rack's process (CLAP, VST3, LV2 through `liblilv-0-0`), started by the engine when the rack holds plugins |
-| `/opt/audio-harbor-headless/plugins/` | shipped plugins: `clap/lsp-plugins.clap` (LSP Plugins, no UI) and `LICENSES/` |
+| `/opt/audio-harbor-headless/plugins/` | shipped plugins: `clap/lsp-plugins.clap` (LSP Plugins, no UI), `presets/lsp/` (LSP's own presets) and `LICENSES/` |
 | `~/.audio-harbor-headless/` | config, catalogue, artwork, PIN, plugin rack — of the service user, created on first start |
 
 ## The service
@@ -166,7 +166,7 @@ Terminal commands:
 
 The rack (Settings → Rack, and the fader button on the Deck) runs LV2, CLAP and VST3 effects.
 
-**Included:** the package ships [LSP Plugins](https://lsp-plug.in) 1.2.35 as one CLAP file, `/opt/audio-harbor-headless/plugins/clap/lsp-plugins.clap`, built without the UI (only `libsndfile` needed; licence in `plugins/LICENSES/`). Add Plugin lists five of them first: **Graphic EQ** (Graphic Equalizer x16), **Parametric EQ** (Parametric Equalizer x16), **Mastering Compressor** (Multiband Compressor x8), **Mastering Limiter** (Limiter) and **Loudness Compensation** (Loudness Compensator). `install.sh` builds the same file (`packaging/build-plugins.sh`, a few minutes on a Pi).
+**Included:** the package ships [LSP Plugins](https://lsp-plug.in) 1.2.35 as one CLAP file, `/opt/audio-harbor-headless/plugins/clap/lsp-plugins.clap`, built without the UI (only `libsndfile` needed; licence in `plugins/LICENSES/`). Add Plugin lists five of them first: **Graphic EQ** (Graphic Equalizer x16), **Parametric EQ** (Parametric Equalizer x16), **Mastering Compressor** (Multiband Compressor x8), **Mastering Limiter** (Limiter) and **Loudness Compensation** (Loudness Compensator). LSP's own presets come along under `plugins/presets/lsp/` (parametric EQ, compressor and more) and are listed in each plugin's sheet. `install.sh` builds the same file (`packaging/build-plugins.sh`, a few minutes on a Pi).
 
 **More** from apt — note that the distribution's plugin packages pull in X11 / OpenGL libraries (~240 MB on a Pi without a desktop):
 

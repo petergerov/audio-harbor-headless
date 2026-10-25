@@ -16,12 +16,22 @@ import {
 } from './networkMedia.js';
 import { isNetworkUid, rendererMatches, ssdpUdn, type RendererBrowser, type UpnpRenderer } from './ssdp.js';
 
+/** The plugin rack, as a network stream needs it. */
+export interface NetworkRack {
+  /** Plugins loaded: a track goes out through them (from the next one, once added). */
+  engaged(): boolean;
+  /** Whole rack bypassed for A/B: the stream passes the file's frames on. */
+  bypassed(): boolean;
+}
+
 interface PreparedMedia {
   stream: MediaHandle;
   artwork: MediaHandle | null;
   url: string;
   metadata: string;
   pathLabel: string;
+  /** Through the plugin rack. */
+  fx: boolean;
   durationSecs: number | null;
   via: string;
 }
@@ -63,8 +73,8 @@ export class NetworkPlayer extends EventEmitter {
   state: PlaybackState = 'idle';
   error: string | null = null;
   durationSecs = 0;
-  /** What goes to the player and at what resolution: "FLAC 44.1 kHz / 24-bit · Network", "DoP DSD64 · Network" … */
-  pathLabel = 'Network';
+  /** The track's path without the rack's part (see pathLabel). */
+  private basePathLabel = 'Network';
   /** Renderer volume 0…1; null while unknown, without RenderingControl volume, or locked for DoP. */
   volume: number | null = null;
 
@@ -109,10 +119,20 @@ export class NetworkPlayer extends EventEmitter {
     private readonly browser: RendererBrowser,
     private readonly media: MediaHttpServer,
     private readonly catalogue: Catalogue,
-    private readonly keepAwake: KeepAwake
+    private readonly keepAwake: KeepAwake,
+    private readonly rack: NetworkRack = { engaged: () => false, bypassed: () => false }
   ) {
     super();
     browser.on('change', () => this.handleRendererListChanged());
+  }
+
+  /**
+   * What goes to the player and at what resolution: "FLAC 44.1 kHz / 24-bit · Network",
+   * "DoP DSD64 · Network", "PCM 44.1 kHz / 24-bit · Network · FX" …
+   */
+  get pathLabel(): string {
+    if (!this.current?.fx) return this.basePathLabel;
+    return `${this.basePathLabel}${this.rack.bypassed() ? ' · FX bypassed' : ' · FX'}`;
   }
 
   /** The picked renderer: live from discovery, else the pinned one. */
@@ -204,7 +224,7 @@ export class NetworkPlayer extends EventEmitter {
     this.failedPolls = 0;
     this.setPosition(0);
     this.durationSecs = track.durationSecs ?? 0;
-    this.pathLabel = 'Network';
+    this.basePathLabel = 'Network';
     this.error = null;
     this.setState('loading');
 
@@ -232,7 +252,7 @@ export class NetworkPlayer extends EventEmitter {
       throw new LoadSuperseded();
     }
     this.current = prepared;
-    this.pathLabel = prepared.pathLabel;
+    this.basePathLabel = prepared.pathLabel;
     if (prepared.durationSecs) this.durationSecs = prepared.durationSecs;
 
     try {
@@ -416,7 +436,7 @@ export class NetworkPlayer extends EventEmitter {
 
   private async prepareMedia(track: Track, renderer: UpnpRenderer): Promise<PreparedMedia> {
     const sink = await this.protocolSink(renderer);
-    const plan = planNetworkMedia(track, sink, this.quality, this.dsdMode);
+    const plan = planNetworkMedia(track, sink, this.quality, this.dsdMode, this.rack.engaged());
     // SACD / DST-compressed DFF play from an uncompressed DFF in the cache.
     const source = track.cataloguePath.includes(SACD_MARKER)
       ? await resolveSacdPlaybackPath(track.cataloguePath)
@@ -443,10 +463,12 @@ export class NetworkPlayer extends EventEmitter {
       via = plan.mime;
     } else {
       const dop = plan.kind === 'dop';
+      const fx = plan.kind === 'wav' && plan.fx;
       const wav = await WavStream.open(source, {
         wifi: !dop && plan.wifi,
         dsdLevel: this.dsdLevel,
         dop,
+        fx,
       });
       stream = this.media.registerWav(wav);
       mime = 'audio/wav';
@@ -455,7 +477,7 @@ export class NetworkPlayer extends EventEmitter {
       sampleRate = wav.sampleRate;
       bitsPerSample = wav.bitsPerSample;
       channels = wav.channels;
-      const kind = dop ? 'DoP' : plan.dsd ? (plan.wifi ? 'Wi‑Fi PCM' : 'DSD→WAV') : 'WAV';
+      const kind = (dop ? 'DoP' : plan.dsd ? (plan.wifi ? 'Wi‑Fi PCM' : 'DSD→WAV') : 'WAV') + (fx ? ' FX' : '');
       via = `${kind} ${wav.sampleRate} Hz / ${wav.bitsPerSample}-bit`;
     }
 
@@ -480,7 +502,7 @@ export class NetworkPlayer extends EventEmitter {
         artworkUrl,
       });
       const pathLabel = networkPathLabel(plan, { format: track.format, sampleRate, bitsPerSample });
-      return { stream, artwork, url, metadata, pathLabel, durationSecs, via };
+      return { stream, artwork, url, metadata, pathLabel, fx: plan.kind === 'wav' && plan.fx, durationSecs, via };
     } catch (err) {
       this.media.unregister(stream);
       this.media.unregister(artwork);
@@ -532,7 +554,7 @@ export class NetworkPlayer extends EventEmitter {
     this.current = this.nextMedia;
     this.loadedTrack = this.nextTrack;
     this.durationSecs = this.nextMedia?.durationSecs ?? this.nextTrack?.durationSecs ?? 0;
-    this.pathLabel = this.nextMedia?.pathLabel ?? 'Network';
+    this.basePathLabel = this.nextMedia?.pathLabel ?? 'Network';
     this.nextTrack = null;
     this.nextMedia = null;
     this.nextGeneration += 1;

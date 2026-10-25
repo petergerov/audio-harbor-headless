@@ -146,7 +146,7 @@ Docs: https://petergerov.github.io/audio-harbor-headless/
 | “DLNA is broken / not gapless.” | Many players are. We use SetNextAVTransportURI when the device has it, plan media from GetProtocolInfo, and fall back cleanly with a badge — not a silent resample. |
 | “Why no Qobuz/Tidal?” | On purpose. Streaming dilutes the local-first promise. The job is the files on disk. |
 | “Is Exclusive safe as default?” | No — Shared is the daily driver. Exclusive/DoP when a dedicated DAC is the point of the machine. |
-| “Can I run my plugins / control them from the remote?” | Yes — CLAP and VST3 on Mac and Linux, AU on the Mac, LV2 on Linux and the Pi; the Linux package ships free LSP Plugins (graphic and parametric EQ, mastering compressor and limiter, loudness compensation). They run in their own process, so a crash does not stop the music; the remote shows each plugin's knobs and an A/B key. With plugins the DAC stays exclusive at the file's rate (`Exclusive · FX`); an empty rack stays bit-perfect. |
+| “Can I run my plugins / control them from the remote?” | Yes — CLAP and VST3 on Mac and Linux, AU on the Mac, LV2 on Linux and the Pi; the Linux package ships free LSP Plugins (graphic and parametric EQ, mastering compressor and limiter, loudness compensation). They run in their own process, so a crash does not stop the music; the remote shows each plugin's knobs and an A/B key. With plugins the DAC stays exclusive at the file's rate (`Exclusive · FX`), network players get the music through them too, and each plugin's own presets are a tap away; the iOS app switches the rack and its presets. An empty rack stays bit-perfect. |
 
 ## Brand voice
 

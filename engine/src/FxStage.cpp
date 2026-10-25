@@ -142,8 +142,9 @@ void FxStage::run() {
       nap(1);
       continue;
     }
-    // harbor-fx restarted or the latency moved: what is in the ring no longer lines up.
-    if (fx.generation() != generation_) {
+    // harbor-fx restarted, the latency moved, or a network stream prepared the chain: what
+    // is in the ring no longer lines up.
+    if (fx.generation() != generation_ || fx.preparations() != preparation_) {
       wet_ = false;
       continue;
     }
@@ -164,6 +165,7 @@ void FxStage::restartAt(size_t pos) {
   // Prepare at this track's format; at the same rate it only clears tails.
   dryFallback_ = !fx.prepare(rate_, channels_, block_);
   generation_ = fx.generation();
+  preparation_ = fx.preparations();
   latency_ = dryFallback_ ? 0 : fx.latency();
   discard_ = latency_;
   feedPos_ = pos;

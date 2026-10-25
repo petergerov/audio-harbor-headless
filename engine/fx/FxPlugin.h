@@ -30,6 +30,15 @@ struct FxParam {
   std::vector<std::pair<double, std::string>> options;
 };
 
+/** A preset the plugin or its maker ships, or one saved in the plugin's own preset folder. */
+struct FxPreset {
+  /** Opaque to the host: "factory:3", "file:/…/Warm.aupreset", … */
+  std::string id;
+  std::string name;
+  /** Bank or folder ("Factory", "Mastering"), or empty. */
+  std::string group;
+};
+
 /** Stepped parameters with at most this many values list them as options. */
 constexpr int kMaxOptions = 64;
 
@@ -93,6 +102,14 @@ public:
   virtual bool parse(const std::string& id, const std::string& text, double& value) = 0;
   virtual bool saveState(std::vector<uint8_t>& out) = 0;
   virtual bool loadState(const std::vector<uint8_t>& in) = 0;
+  /** The presets there are for this plugin, factory ones first. */
+  virtual std::vector<FxPreset> presets() { return {}; }
+  /** One of presets(), into the running unit. */
+  virtual bool loadPreset(const std::string& id, std::string& error) {
+    (void)id;
+    error = "This plugin has no presets";
+    return false;
+  }
   /** Main thread, between messages: callbacks the plugin asked for. */
   virtual void idle() {}
   /** The plugin asked to be deactivated and activated again (new latency, ports). */
@@ -101,6 +118,18 @@ public:
 
 std::string base64Encode(const std::vector<uint8_t>& data);
 bool base64Decode(const std::string& text, std::vector<uint8_t>& out);
+
+/**
+ * Preset files ending in `extension` under each root, any depth: id "file:<path>", name the file's
+ * stem, group the folder below the root (or `group` for files directly in it). Sorted by group, name.
+ */
+std::vector<FxPreset> presetFiles(const std::vector<std::string>& roots, const std::string& extension,
+                                  const std::string& group);
+/** The file behind a "file:" preset id, or empty. */
+std::string presetFilePath(const std::string& id);
+bool readFile(const std::string& path, std::vector<uint8_t>& out);
+/** $HOME, or empty. */
+std::string homeDir();
 
 /** Plugin files of a format on this machine, by the format's standard paths. */
 std::vector<FxDescriptor> clapList();

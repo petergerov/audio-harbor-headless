@@ -402,6 +402,20 @@ json control(Rack& rack, const json& req) {
     }
     return {{"ok", true}};
   }
+  if (cmd == "presets") {
+    json presets = json::array();
+    for (const auto& p : ins->plugin->presets()) {
+      json j {{"id", p.id}, {"name", p.name}};
+      if (!p.group.empty()) j["group"] = p.group;
+      presets.push_back(j);
+    }
+    return {{"ok", true}, {"presets", presets}};
+  }
+  if (cmd == "loadPreset") {
+    std::string error;
+    if (!ins->plugin->loadPreset(req.value("preset", ""), error)) return {{"ok", false}, {"error", error}};
+    return {{"ok", true}};
+  }
   if (cmd == "resetParams") {
     for (const auto& p : ins->plugin->params()) {
       if (!p.readOnly && !p.isBypass) ins->plugin->setParam(p.id, p.def);

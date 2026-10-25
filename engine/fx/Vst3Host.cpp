@@ -19,10 +19,12 @@
 #include "public.sdk/source/vst/utility/stringconvert.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <list>
 #include <map>
 #include <mutex>
@@ -179,6 +181,68 @@ public:
   uint32 PLUGIN_API addRef() override { return 1; }
   uint32 PLUGIN_API release() override { return 1; }
 };
+
+/** Where .vstpreset files live, below which come <vendor>/<plugin>/ (Steinberg's preset locations). */
+std::vector<std::string> presetRoots() {
+  const std::string home = homeDir();
+#if defined(__APPLE__)
+  return {home.empty() ? "" : home + "/Library/Audio/Presets", "/Library/Audio/Presets"};
+#else
+  return {home.empty() ? "" : home + "/.vst3/presets", "/usr/share/vst3/presets", "/usr/local/share/vst3/presets"};
+#endif
+}
+
+uint64_t littleEndian(const uint8_t* p, int bytes) {
+  uint64_t v = 0;
+  for (int i = bytes - 1; i >= 0; --i) v = v << 8 | p[i];
+  return v;
+}
+
+/**
+ * A .vstpreset: "VST3", version, the class id as 32 characters, the offset of the chunk list;
+ * the list names the component ("Comp") and controller ("Cont") states by offset and size.
+ */
+struct PresetFile {
+  std::string cid;
+  std::vector<uint8_t> component;
+  std::vector<uint8_t> controller;
+};
+
+constexpr size_t kPresetHeader = 48;
+
+std::string presetClass(const std::vector<uint8_t>& bytes) {
+  if (bytes.size() < kPresetHeader || std::memcmp(bytes.data(), "VST3", 4) != 0) return {};
+  std::string cid(reinterpret_cast<const char*>(bytes.data() + 8), 32);
+  std::transform(cid.begin(), cid.end(), cid.begin(), [](unsigned char c) { return char(std::toupper(c)); });
+  return cid;
+}
+
+bool readPresetFile(const std::string& path, PresetFile& out) {
+  std::vector<uint8_t> bytes;
+  if (!readFile(path, bytes) || (out.cid = presetClass(bytes)).empty()) return false;
+  const uint64_t list = littleEndian(bytes.data() + 40, 8);
+  if (list + 8 > bytes.size() || std::memcmp(bytes.data() + list, "List", 4) != 0) return false;
+  const uint64_t count = littleEndian(bytes.data() + list + 4, 4);
+  for (uint64_t i = 0; i < count; ++i) {
+    const uint64_t entry = list + 8 + i * 20;
+    if (entry + 20 > bytes.size()) return false;
+    const uint64_t offset = littleEndian(bytes.data() + entry + 4, 8);
+    const uint64_t size = littleEndian(bytes.data() + entry + 12, 8);
+    if (offset + size > bytes.size()) return false;
+    std::vector<uint8_t> chunk(bytes.begin() + long(offset), bytes.begin() + long(offset + size));
+    if (std::memcmp(bytes.data() + entry, "Comp", 4) == 0) out.component = std::move(chunk);
+    else if (std::memcmp(bytes.data() + entry, "Cont", 4) == 0) out.controller = std::move(chunk);
+  }
+  return !out.component.empty();
+}
+
+/** The first 48 bytes are enough to tell which plugin a preset file is for. */
+std::string presetFileClass(const std::string& path) {
+  std::ifstream in(path, std::ios::binary);
+  std::vector<uint8_t> head(kPresetHeader);
+  if (!in.read(reinterpret_cast<char*>(head.data()), std::streamsize(head.size()))) return {};
+  return presetClass(head);
+}
 
 class Vst3Plugin final : public FxPlugin {
 public:
@@ -430,6 +494,55 @@ public:
     return true;
   }
 
+  /** The plugin's own programs (its program list), then .vstpreset files in <root>/<vendor>/<plugin>/. */
+  std::vector<FxPreset> presets() override {
+    std::vector<FxPreset> out = programs();
+    std::vector<std::string> roots;
+    for (const auto& root : presetRoots()) {
+      if (!root.empty()) roots.push_back(root + "/" + vendor_ + "/" + name_);
+    }
+    for (auto& p : presetFiles(roots, ".vstpreset", "Presets")) {
+      // A folder can hold presets of a sibling plugin (mono / stereo versions).
+      if (presetFileClass(presetFilePath(p.id)) == cid_) out.push_back(std::move(p));
+    }
+    return out;
+  }
+
+  bool loadPreset(const std::string& id, std::string& error) override {
+    unsigned long param = 0, index = 0, count = 0;
+    if (std::sscanf(id.c_str(), "program:%lu:%lu:%lu", &param, &index, &count) == 3) {
+      // The program-change parameter selects it: index over the list, normalized.
+      const ParamValue norm = count > 1 ? double(index) / double(count - 1) : 0.0;
+      controller_->setParamNormalized(ParamID(param), norm);
+      std::lock_guard lock(mutex_);
+      pending_[ParamID(param)] = norm;
+      return true;
+    }
+    PresetFile file;
+    if (!readPresetFile(presetFilePath(id), file) || file.cid != cid_) {
+      error = "Not a preset file for this plugin";
+      return false;
+    }
+    // The rack's own state blob: "HV3" + component size + component + controller.
+    std::vector<uint8_t> state {'H', 'V', '3', 0};
+    const uint32_t size = uint32_t(file.component.size());
+    for (int i = 0; i < 4; ++i) state.push_back(uint8_t(size >> (8 * i)));
+    state.insert(state.end(), file.component.begin(), file.component.end());
+    state.insert(state.end(), file.controller.begin(), file.controller.end());
+    if (!loadState(state)) {
+      error = "The plugin did not take that preset";
+      return false;
+    }
+    return true;
+  }
+
+  /** Who made it and its class: where its presets are, and which are its own. */
+  void setIdentity(std::string vendor, std::string name, std::string cid) {
+    vendor_ = std::move(vendor);
+    name_ = std::move(name);
+    cid_ = std::move(cid);
+  }
+
   bool wantsRestart() override {
     const bool r = handler_.restart;
     handler_.restart = false;
@@ -439,6 +552,40 @@ public:
   void setAudioThread(AudioThread& audio) { audio_ = &audio; }
 
 private:
+  /** The root unit's program list, when a program-change parameter selects from it. */
+  std::vector<FxPreset> programs() {
+    std::vector<FxPreset> out;
+    if (!units_ || !controller_) return out;
+    ParamID change = 0;
+    bool found = false;
+    for (int32 i = 0, n = controller_->getParameterCount(); i < n && !found; ++i) {
+      ParameterInfo info {};
+      if (controller_->getParameterInfo(i, info) != kResultOk) continue;
+      if ((info.flags & ParameterInfo::kIsProgramChange) && info.unitId == kRootUnitId) {
+        change = info.id;
+        found = true;
+      }
+    }
+    if (!found) return out;
+    ProgramListID listId = kNoProgramListId;
+    for (int32 i = 0, n = units_->getUnitCount(); i < n; ++i) {
+      UnitInfo unit {};
+      if (units_->getUnitInfo(i, unit) == kResultOk && unit.id == kRootUnitId) listId = unit.programListId;
+    }
+    for (int32 i = 0, n = units_->getProgramListCount(); i < n; ++i) {
+      ProgramListInfo list {};
+      if (units_->getProgramListInfo(i, list) != kResultOk || list.id != listId) continue;
+      for (int32 p = 0; p < list.programCount; ++p) {
+        String128 name {};
+        if (units_->getProgramName(list.id, p, name) != kResultOk) continue;
+        out.push_back({"program:" + std::to_string(change) + ":" + std::to_string(p) + ":" +
+                           std::to_string(list.programCount),
+                       utf8(name), "Factory"});
+      }
+    }
+    return out;
+  }
+
   /** The controller starts from the component's state, as a DAW does on load. */
   void syncController() {
     MemoryStream s;
@@ -538,6 +685,9 @@ private:
   std::map<ParamID, ParamValue> outputs_;
   uint64_t sampleTime_ = 0;
   bool active_ = false;
+  std::string vendor_;
+  std::string name_;
+  std::string cid_;
 };
 
 std::vector<fs::path> searchPaths() {
@@ -562,6 +712,40 @@ std::vector<fs::path> searchPaths() {
   dirs.emplace_back("/usr/local/lib/vst3");
 #endif
   return dirs;
+}
+
+/** A class's name and vendor from the factory (the factory's vendor when the class names none). */
+bool classInfo(IPluginFactory* factory, const TUID cid, PClassInfo2& info) {
+  FUnknownPtr<IPluginFactory2> factory2(factory);
+  for (int32 i = 0, n = factory->countClasses(); i < n; ++i) {
+    PClassInfo2 candidate {};
+    if (factory2) {
+      if (factory2->getClassInfo2(i, &candidate) != kResultOk) continue;
+    } else {
+      PClassInfo basic {};
+      if (factory->getClassInfo(i, &basic) != kResultOk) continue;
+      std::memcpy(candidate.cid, basic.cid, sizeof(TUID));
+      std::strncpy(candidate.name, basic.name, sizeof(candidate.name));
+    }
+    if (std::memcmp(candidate.cid, cid, sizeof(TUID)) == 0) {
+      info = candidate;
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string className(IPluginFactory* factory, const TUID cid) {
+  PClassInfo2 info {};
+  return classInfo(factory, cid, info) ? info.name : "";
+}
+
+std::string classVendor(IPluginFactory* factory, const TUID cid) {
+  PClassInfo2 info {};
+  if (classInfo(factory, cid, info) && info.vendor[0]) return info.vendor;
+  PFactoryInfo finfo {};
+  factory->getFactoryInfo(&finfo);
+  return finfo.vendor;
 }
 
 bool isEffect(const PClassInfo2& info) {
@@ -646,5 +830,6 @@ std::unique_ptr<FxPlugin> vst3Load(const std::string& path, const std::string& i
   auto plugin = std::make_unique<Vst3Plugin>();
   plugin->setAudioThread(audio);
   if (!plugin->create(mod->factory, cid, error)) return nullptr;
+  plugin->setIdentity(classVendor(mod->factory, cid), className(mod->factory, cid), cidString(cid));
   return plugin;
 }

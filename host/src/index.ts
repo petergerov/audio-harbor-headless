@@ -12,6 +12,7 @@ import { PlaybackService } from './playback/service.js';
 import { KeepAwake } from './power.js';
 import { Rack } from './rack.js';
 import { startBonjourRemote } from './remote/bonjour.js';
+import { RemoteRack } from './remote/rack.js';
 import { Mdns } from './remote/mdns.js';
 import { RemoteSettings } from './remote/settings.js';
 import { MediaHttpServer } from './upnp/mediaHttp.js';
@@ -71,17 +72,19 @@ async function main(): Promise<void> {
   // Network players (UPnP / DLNA renderers) show up in the output list like a DAC.
   const browser = new RendererBrowser();
   browser.start();
+  // Asks for the output only once playback exists (rack.start below).
+  const rack: Rack = new Rack(() => playback.isNetworkOutput());
   const network = new NetworkPlayer(
     browser,
     new MediaHttpServer(cfg.network.media_port),
     catalogue,
-    new KeepAwake('Playing to a network player')
+    new KeepAwake('Playing to a network player'),
+    rack
   );
 
   const playback = new PlaybackService(catalogue, getConfig, persist, browser, network);
   playback.applyConfigOutput();
 
-  const rack = new Rack(() => playback.isNetworkOutput());
   rack.on('change', () => playback.refreshNowPlaying());
   await rack.start().catch((err) => console.warn('Plugin rack could not start:', err));
 
@@ -154,6 +157,7 @@ async function main(): Promise<void> {
         playback,
         catalogue,
         settings,
+        rack: new RemoteRack(rack),
         getConfig,
         mdns,
         access,

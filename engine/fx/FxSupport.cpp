@@ -1,5 +1,12 @@
 #include "FxPlugin.h"
 
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <system_error>
+
 AudioThread::AudioThread() {
   thread_ = std::thread([this] {
     std::unique_lock lock(mutex_);
@@ -80,4 +87,42 @@ bool base64Decode(const std::string& text, std::vector<uint8_t>& out) {
     }
   }
   return true;
+}
+
+namespace fs = std::filesystem;
+
+std::vector<FxPreset> presetFiles(const std::vector<std::string>& roots, const std::string& extension,
+                                  const std::string& group) {
+  std::vector<FxPreset> out;
+  for (const auto& root : roots) {
+    std::error_code ec;
+    if (root.empty() || !fs::is_directory(root, ec)) continue;
+    for (auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec);
+         !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+      if (!it->is_regular_file(ec) || it->path().extension() != extension) continue;
+      const fs::path folder = it->path().parent_path().lexically_relative(root);
+      out.push_back({"file:" + it->path().string(), it->path().stem().string(),
+                     folder.empty() || folder == "." ? group : folder.generic_string()});
+    }
+  }
+  std::sort(out.begin(), out.end(), [](const FxPreset& a, const FxPreset& b) {
+    return a.group != b.group ? a.group < b.group : a.name < b.name;
+  });
+  return out;
+}
+
+std::string presetFilePath(const std::string& id) {
+  return id.rfind("file:", 0) == 0 ? id.substr(5) : std::string();
+}
+
+bool readFile(const std::string& path, std::vector<uint8_t>& out) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return false;
+  out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  return true;
+}
+
+std::string homeDir() {
+  const char* home = std::getenv("HOME");
+  return home ? home : "";
 }

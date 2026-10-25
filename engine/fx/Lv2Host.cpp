@@ -447,6 +447,46 @@ public:
     return true;
   }
 
+  /** pset:Preset resources related to the plugin: its bundle's, and those saved in ~/.lv2. */
+  std::vector<FxPreset> presets() override {
+    World& w = world();
+    std::vector<FxPreset> out;
+    LilvNode* presetClass = lilv_new_uri(w.world, "http://lv2plug.in/ns/ext/presets#Preset");
+    LilvNode* label = lilv_new_uri(w.world, "http://www.w3.org/2000/01/rdf-schema#label");
+    LilvNodes* related = lilv_plugin_get_related(plugin_, presetClass);
+    LILV_FOREACH (nodes, i, related) {
+      const LilvNode* preset = lilv_nodes_get(related, i);
+      lilv_world_load_resource(w.world, preset);
+      std::string name = lilv_node_as_uri(preset);
+      if (LilvNode* l = lilv_world_get(w.world, preset, label, nullptr)) {
+        name = lilv_node_as_string(l);
+        lilv_node_free(l);
+      }
+      out.push_back({lilv_node_as_uri(preset), name, "Presets"});
+    }
+    lilv_nodes_free(related);
+    lilv_node_free(label);
+    lilv_node_free(presetClass);
+    std::sort(out.begin(), out.end(), [](const FxPreset& a, const FxPreset& b) { return a.name < b.name; });
+    return out;
+  }
+
+  bool loadPreset(const std::string& id, std::string& error) override {
+    World& w = world();
+    LilvNode* preset = lilv_new_uri(w.world, id.c_str());
+    LilvState* state = preset ? lilv_state_new_from_world(w.world, &urids().mapFeature, preset) : nullptr;
+    lilv_node_free(preset);
+    char* text = state ? lilv_state_to_string(w.world, &urids().mapFeature, &urids().unmapFeature, state,
+                                              "urn:harbor:state", nullptr)
+                       : nullptr;
+    if (state) lilv_state_free(state);
+    // As saved settings: restored at once, or when the plugin is instantiated.
+    const bool ok = text && loadState(std::vector<uint8_t>(text, text + std::strlen(text)));
+    if (text) lilv_free(text);
+    if (!ok) error = "The plugin did not take that preset";
+    return ok;
+  }
+
 private:
   /** An atom sequence port: empty in, room to write out. */
   struct AtomBuffer {

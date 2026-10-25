@@ -7,13 +7,15 @@ import type { InsertView } from './insertView';
 import { PANELS } from './panels/specs';
 import { PanelView } from './panels/panelView';
 import { ParamListView } from './paramList';
+import { PluginPresetPicker } from './pluginPresets';
 import { SettingsHistory } from './settingsHistory';
 
 type Mode = 'panel' | 'all';
 
 /**
  * An insert's sheet: its own panel when the remote knows the plugin, every parameter a tap
- * away, and above both: compare with how it was when opened, undo, reset to defaults.
+ * away, and above both: compare with how it was when opened, undo, reset to defaults, and the
+ * plugin's own presets.
  */
 export function openInsertSheet(rack: RackApi, insert: RackInsert, onRack: (snapshot: RackSnapshot) => void): void {
   const spec = PANELS[insert.pluginId];
@@ -35,6 +37,7 @@ export function openInsertSheet(rack: RackApi, insert: RackInsert, onRack: (snap
           <button type="button" class="deck-pill" data-undo disabled>Undo</button>
           <button type="button" class="deck-pill" data-reset>Reset</button>
         </div>
+        ${PluginPresetPicker.html()}
         <div data-insert-view></div>
       </div>`,
     bind: (root) => {
@@ -84,6 +87,15 @@ export function openInsertSheet(rack: RackApi, insert: RackInsert, onRack: (snap
         compare.disabled = !ok;
         undo.disabled = true;
       });
+      const presets = new PluginPresetPicker(
+        rack,
+        insert.id,
+        (preset) => history.loadPreset(preset.id),
+        (open) => {
+          container.hidden = open;
+        }
+      );
+      void presets.mount(root);
       void show(mode);
     },
   });

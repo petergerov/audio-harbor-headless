@@ -130,6 +130,7 @@ bool FxClient::prepare(uint32_t rate, uint32_t channels, uint32_t maxBlock) {
   channels_ = channels;
   maxBlock_ = maxBlock;
   prepared_ = true;
+  ++preparations_;
   if (!ensureLocked()) return false;
   std::vector<uint8_t> body;
   fxproto::putU32(body, rate);

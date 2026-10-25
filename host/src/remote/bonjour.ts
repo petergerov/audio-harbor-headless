@@ -7,14 +7,16 @@ import type { HarborConfig, NowPlayingSnapshot, QueueSnapshot } from '../types.j
 import { remoteArtwork } from './artwork.js';
 import { browseLibrary, findPlaylist, resolveSelection, type BrowseRequest } from './browse.js';
 import type { Mdns } from './mdns.js';
+import type { RemoteRack, RemoteRackSnapshot } from './rack.js';
 import type { RemoteSettings, SettingsSnapshot } from './settings.js';
 import { trackDto, wireNowPlaying, wirePlaylistId, wireQueue } from './wire.js';
 
-const PROTOCOL_VERSION = 3;
+/** 4: the plugin rack (`getRack`, `setRack`, `loadRackPreset`, topic `rack`). */
+const PROTOCOL_VERSION = 4;
 const SERVICE_TYPE = 'audioharbor';
 const MAX_FRAME = 4 << 20;
 const CAPABILITIES = ['transport', 'queueJump', 'browse', 'search', 'artwork'];
-const TOPICS = ['nowPlaying', 'queue', 'settings'] as const;
+const TOPICS = ['nowPlaying', 'queue', 'settings', 'rack'] as const;
 type Topic = (typeof TOPICS)[number];
 
 export interface BonjourRemoteOptions {
@@ -23,6 +25,7 @@ export interface BonjourRemoteOptions {
   playback: PlaybackService;
   catalogue: Catalogue;
   settings: RemoteSettings;
+  rack: RemoteRack;
   getConfig: () => HarborConfig;
   /** Announces `_audioharbor._tcp` on this host's `.local` name. */
   mdns: Mdns;
@@ -62,6 +65,8 @@ class RemoteSession {
   private generation = 0;
   /** The settings this client was sent last; a push that repeats them is skipped. */
   private lastSettings = '';
+  /** Likewise for the rack. */
+  private lastRack = '';
 
   constructor(
     private readonly socket: net.Socket,
@@ -70,7 +75,7 @@ class RemoteSession {
   ) {}
 
   start(): void {
-    const { playback, settings } = this.opts;
+    const { playback, settings, rack } = this.opts;
     const onNowPlaying = (snapshot: NowPlayingSnapshot) => {
       if (this.topics.has('nowPlaying')) this.pushNowPlaying(snapshot);
     };
@@ -82,11 +87,15 @@ class RemoteSession {
     const unwatch = settings.watch((snapshot) => {
       if (this.topics.has('settings')) this.sendSettings(snapshot);
     });
+    const unwatchRack = rack.watch((snapshot) => {
+      if (this.topics.has('rack')) this.sendRack(snapshot);
+    });
     this.socket.on('data', (chunk: Buffer) => this.receive(chunk));
     this.socket.on('close', () => {
       playback.off('nowPlaying', onNowPlaying);
       playback.off('queue', onQueue);
       unwatch();
+      unwatchRack();
     });
     this.socket.on('error', () => undefined);
 
@@ -150,7 +159,7 @@ class RemoteSession {
     if (kind === 'hello') return this.hello(data, id);
     if (!this.authed) return this.error('unauthorized', 'Not paired', id);
 
-    const { playback, catalogue, settings, getConfig } = this.opts;
+    const { playback, catalogue, settings, rack, getConfig } = this.opts;
     switch (kind) {
       case 'ping':
         return this.send({ pong: true }, id);
@@ -184,6 +193,18 @@ class RemoteSession {
         if (failure) return this.error('badRequest', failure, id);
         return this.sendSettings(settings.snapshot(), id);
       }
+      case 'getRack':
+        return this.sendRack(await rack.snapshot(), id);
+      case 'setRack': {
+        const failure = await rack.apply(data.patch);
+        if (failure) return this.error('badRequest', failure, id);
+        return this.sendRack(await rack.snapshot(), id);
+      }
+      case 'loadRackPreset': {
+        const failure = await rack.loadPreset(data.id);
+        if (failure) return this.error('badRequest', failure, id);
+        return this.sendRack(await rack.snapshot(), id);
+      }
       default:
         return this.error('unsupported', 'This host does not support that request', id);
     }
@@ -202,13 +223,14 @@ class RemoteSession {
     this.admit(token, id);
   }
 
-  private subscribe(data: Fields): void {
+  private async subscribe(data: Fields): Promise<void> {
     const asked = Array.isArray(data.topics) ? data.topics : [];
     this.topics = new Set(TOPICS.filter((topic) => asked.includes(topic)));
-    const { playback, settings } = this.opts;
+    const { playback, settings, rack } = this.opts;
     if (this.topics.has('nowPlaying')) this.pushNowPlaying(playback.snapshot());
     if (this.topics.has('queue')) this.pushQueue(playback.queueSnapshot());
     if (this.topics.has('settings')) this.sendSettings(settings.snapshot());
+    if (this.topics.has('rack')) this.sendRack(await rack.snapshot());
   }
 
   /** Transport commands get no reply (as from the Mac) — only an error when they fail. */
@@ -309,6 +331,13 @@ class RemoteSession {
     if (id === undefined && json === this.lastSettings) return;
     this.lastSettings = json;
     this.send({ settings: { snapshot } }, id);
+  }
+
+  private sendRack(snapshot: RemoteRackSnapshot, id?: number): void {
+    const json = JSON.stringify(snapshot);
+    if (id === undefined && json === this.lastRack) return;
+    this.lastRack = json;
+    this.send({ rack: { snapshot } }, id);
   }
 
   private error(code: string, text: string, id?: number): void {

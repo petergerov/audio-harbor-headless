@@ -345,6 +345,15 @@ export interface InsertMeter {
 }
 
 /** A whole rack kept under a name. */
+/** A preset of one plugin: its maker's, or one saved in its preset folder. */
+export interface PluginPreset {
+  /** Opaque; handed back to load it. */
+  id: string;
+  name: string;
+  /** Bank or folder ("Factory", "Mastering"). */
+  group?: string;
+}
+
 export interface RackPresetSummary {
   id: string;
   name: string;
@@ -379,5 +388,7 @@ export interface RackSnapshot {
   presets: RackPresetSummary[];
   /** The preset the rack was loaded from; `edited` once it changed since. */
   activePreset: string | null;
+  /** A preset being swapped in right now. */
+  loadingPreset: string | null;
   edited: boolean;
 }

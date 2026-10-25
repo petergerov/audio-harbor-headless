@@ -77,6 +77,15 @@ export interface InsertMeter {
 /** A new value: as a number in the plugin's units, or as text the plugin reads ("-3.5 dB"). */
 export type ParamInput = { value: number } | { text: string };
 
+/** A preset of one plugin: its maker's, or one saved in its preset folder. */
+export interface PluginPreset {
+  /** Opaque; handed back to load it. */
+  id: string;
+  name: string;
+  /** Bank or folder ("Factory", "Mastering"). */
+  group?: string;
+}
+
 export interface RackInsertView {
   id: string;
   /** CLAP id or LV2 URI — the remote picks a panel for the plugins it knows. */
@@ -98,7 +107,7 @@ export interface RackSnapshot {
   /** Whole rack bypassed for A/B. */
   bypassed: boolean;
   inserts: RackInsertView[];
-  /** What leaves the rack: "Exclusive · FX", "Bypassed", "Network · no FX", … */
+  /** What leaves the rack: "Exclusive · FX", "Network · FX", "Bypassed", … */
   path: { label: string; lit: boolean; note: string };
   /** Compensated latency of the chain. */
   latencyMs: number;
@@ -108,6 +117,8 @@ export interface RackSnapshot {
   /** The preset the rack was loaded from; `edited` once it changed since. */
   activePreset: string | null;
   edited: boolean;
+  /** A preset being swapped in right now. */
+  loadingPreset: string | null;
 }
 
 export interface StoredInsert {
@@ -239,6 +250,7 @@ export class Rack extends EventEmitter {
   private saveTimer: NodeJS.Timeout | null = null;
   private restartTimer: NodeJS.Timeout | null = null;
   private emitTimer: NodeJS.Timeout | null = null;
+  private loadingPreset: string | null = null;
 
   constructor(private isNetworkOutput: () => boolean) {
     super();
@@ -311,15 +323,25 @@ export class Rack extends EventEmitter {
       presets: this.stored.presets.map(summaryOf),
       activePreset: this.stored.activePreset,
       edited: this.stored.edited,
+      loadingPreset: this.loadingPreset,
     };
   }
 
+  /** Plugins loaded: tracks go through the rack — to a network player as PCM through them. */
+  engaged(): boolean {
+    return this.available && this.stored.inserts.some((i) => this.status.get(i.id)?.loaded);
+  }
+
+  bypassed(): boolean {
+    return this.stored.bypassed;
+  }
+
   private pathLabel(exclusive: boolean, processing: boolean, hasInserts: boolean): RackSnapshot['path'] {
-    if (this.isNetworkOutput() && hasInserts) {
+    if (processing && !this.stored.bypassed && this.isNetworkOutput()) {
       return {
-        label: 'Network · no FX',
-        lit: false,
-        note: 'A network player gets the file, or converted PCM, without the plugins.',
+        label: 'Network · FX',
+        lit: true,
+        note: "The network player gets the music through the plugins, as 24-bit PCM at the file's rate. A change is heard once it has played what it already fetched.",
       };
     }
     if (processing && !this.stored.bypassed) {
@@ -522,6 +544,27 @@ export class Rack extends EventEmitter {
     return this.snapshot();
   }
 
+  /** The plugin's own presets: its factory ones, its maker's preset files, LSP's. */
+  async pluginPresets(id: string): Promise<PluginPreset[]> {
+    this.insert(id);
+    const reply = await engineFxRequest<{ ok: boolean; presets?: PluginPreset[]; error?: string }>({
+      cmd: 'presets',
+      id,
+    });
+    if (!reply.ok) throw new RackError(reply.error ?? 'The plugin did not answer', 409);
+    return reply.presets ?? [];
+  }
+
+  async loadPluginPreset(id: string, preset: unknown): Promise<RackSnapshot> {
+    this.insert(id);
+    if (typeof preset !== 'string' || !preset) throw new RackError('Which preset?');
+    const reply = await engineFxRequest<{ ok: boolean; error?: string }>({ cmd: 'loadPreset', id, preset });
+    if (!reply.ok) throw new RackError(reply.error ?? 'The plugin did not load that preset');
+    engineFxTouch();
+    this.settingsChanged();
+    return this.snapshot();
+  }
+
   // --- presets: the whole rack under a name ---
 
   async savePreset(name: unknown): Promise<RackSnapshot> {
@@ -548,14 +591,22 @@ export class Rack extends EventEmitter {
     return this.changed();
   }
 
+  /** Marked as loading before the first await, so a remote that does not wait sees it. */
   async loadPreset(id: string): Promise<RackSnapshot> {
     this.requireRack();
     const preset = this.stored.presets[this.presetIndex(id)];
-    this.stored.inserts = insertsOf(preset);
-    await this.pushChain();
-    this.stored.activePreset = id;
-    this.stored.edited = false;
-    this.persist();
+    if (this.loadingPreset) throw new RackError('Another preset is still loading', 409);
+    this.loadingPreset = id;
+    try {
+      this.stored.inserts = insertsOf(preset);
+      void this.changed().catch(() => {});
+      await this.pushChain();
+      this.stored.activePreset = id;
+      this.stored.edited = false;
+      this.persist();
+    } finally {
+      this.loadingPreset = null;
+    }
     return this.changed();
   }
 

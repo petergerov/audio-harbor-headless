@@ -1,4 +1,6 @@
 #include "FxPlugin.h"
+#include "ClapPresets.h"
+#include "LspPresets.h"
 
 #include <clap/clap.h>
 
@@ -202,7 +204,10 @@ public:
     if (plugin_) plugin_->destroy(plugin_);
   }
 
-  bool create(const ClapLibrary& lib, const std::string& id, std::string& error) {
+  bool create(const ClapLibrary& lib, const std::string& path, const std::string& id, std::string& error) {
+    entry_ = lib.entry;
+    path_ = path;
+    id_ = id;
     plugin_ = lib.factory->create_plugin(lib.factory, &host_, id.c_str());
     if (!plugin_) {
       error = "Plugin " + id + " not found";
@@ -407,6 +412,34 @@ public:
     return state_->load(plugin_, &stream);
   }
 
+  /** What the file's preset providers index (CLAP preset discovery); LSP's own presets otherwise. */
+  std::vector<FxPreset> presets() override {
+    std::vector<FxPreset> out = clapDiscoveredPresets(entry_, id_);
+    if (out.empty()) out = lspPresets(path_, id_);
+    return out;
+  }
+
+  bool loadPreset(const std::string& id, std::string& error) override {
+    const auto location = clapPresetLocation(id);
+    if (!location) return lspLoadPreset(*this, id, error);
+    auto* load = static_cast<const clap_plugin_preset_load*>(plugin_->get_extension(plugin_, CLAP_EXT_PRESET_LOAD));
+    if (!load) load = static_cast<const clap_plugin_preset_load*>(plugin_->get_extension(plugin_, CLAP_EXT_PRESET_LOAD_COMPAT));
+    if (!load) {
+      error = "The plugin does not load presets";
+      return false;
+    }
+    {
+      std::lock_guard lock(pendingMutex_);
+      pending_.clear();
+    }
+    if (!load->from_location(plugin_, location->kind, location->location ? location->location->c_str() : nullptr,
+                             location->loadKey ? location->loadKey->c_str() : nullptr)) {
+      error = "The plugin did not load that preset";
+      return false;
+    }
+    return true;
+  }
+
   void idle() override {
     if (callback_.exchange(false)) plugin_->on_main_thread(plugin_);
   }
@@ -480,6 +513,9 @@ private:
 
   AudioThread& audio_;
   clap_host host_ {};
+  const clap_plugin_entry* entry_ = nullptr;
+  std::string path_;
+  std::string id_;
   const clap_plugin* plugin_ = nullptr;
   const clap_plugin_params* params_ = nullptr;
   const clap_plugin_state* state_ = nullptr;
@@ -608,7 +644,7 @@ std::vector<FxDescriptor> clapDescribe(const std::string& path, std::string& err
     if (hasFeature(d, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT) && !hasFeature(d, CLAP_PLUGIN_FEATURE_INSTRUMENT)) {
       ClapPlugin probe(audio);
       std::string why;
-      if (probe.create(*lib, d->id, why)) {
+      if (probe.create(*lib, path, d->id, why)) {
         uint32_t in = 0, outCh = 0;
         probe.mainPorts(in, outCh);
         desc.stereo = in == 2 && outCh == 2;
@@ -624,6 +660,6 @@ std::unique_ptr<FxPlugin> clapLoad(const std::string& path, const std::string& i
   const ClapLibrary* lib = openLibrary(path, error);
   if (!lib) return nullptr;
   auto plugin = std::make_unique<ClapPlugin>(audio);
-  if (!plugin->create(*lib, id, error)) return nullptr;
+  if (!plugin->create(*lib, path, id, error)) return nullptr;
   return plugin;
 }

@@ -87,31 +87,38 @@ export function sinkAccepts(mime: string, sink: string): boolean {
 export type NetworkMediaPlan =
   /** The file untouched; dsd = a DSF / DFF (an SACD track as its cached DFF). */
   | { kind: 'file'; mime: string; dsd: boolean }
-  /** PCM WAV: DSD converted (~88.2 kHz, or 44.1 kHz on Wi‑Fi), else decoded at the file's rate. */
-  | { kind: 'wav'; dsd: boolean; wifi: boolean }
+  /**
+   * PCM WAV: DSD converted (~88.2 kHz, or 44.1 kHz on Wi‑Fi), else decoded at the file's rate;
+   * fx = through the plugin rack, 24-bit.
+   */
+  | { kind: 'wav'; dsd: boolean; wifi: boolean; fx: boolean }
   /** DSD as DoP in a 24-bit WAV at DSD rate / 16. */
   | { kind: 'dop' };
 
 /**
  * File untouched when the player lists its type; else WAV. DSD by the player's mode: auto sends
  * the DSD file when the player lists DSD, else PCM; dop sends DoP. Wi‑Fi makes DSD 44.1 kHz PCM
- * in every mode — DSD and DoP need 4–6× its bandwidth.
+ * in every mode — DSD and DoP need 4–6× its bandwidth. With plugins in the rack (`fx`) every
+ * track is PCM WAV through them — as on a local DAC, DSD plays as PCM.
  */
 export function planNetworkMedia(
   track: Track,
   sink: string,
   quality: NetworkStreamQuality,
-  dsdMode: NetworkDsdMode = 'auto'
+  dsdMode: NetworkDsdMode = 'auto',
+  fx = false
 ): NetworkMediaPlan {
-  if (isDsdTrack(track)) {
-    if (quality === 'wifi') return { kind: 'wav', dsd: true, wifi: true };
+  const dsd = isDsdTrack(track);
+  if (fx) return { kind: 'wav', dsd, wifi: dsd && quality === 'wifi', fx: true };
+  if (dsd) {
+    if (quality === 'wifi') return { kind: 'wav', dsd: true, wifi: true, fx: false };
     if (dsdMode === 'dop') return { kind: 'dop' };
     const native = dsdMode === 'auto' ? nativeDsdType(track.format === 'dsf' ? 'dsf' : 'dff', sink) : null;
-    return native ? { kind: 'file', mime: native, dsd: true } : { kind: 'wav', dsd: true, wifi: false };
+    return native ? { kind: 'file', mime: native, dsd: true } : { kind: 'wav', dsd: true, wifi: false, fx: false };
   }
   const mime = PASSTHROUGH[track.format];
   if (mime && sinkAccepts(mime, sink)) return { kind: 'file', mime, dsd: false };
-  return { kind: 'wav', dsd: false, wifi: false };
+  return { kind: 'wav', dsd: false, wifi: false, fx: false };
 }
 
 /** What the player gets: PCM rate and bits, or for DSD (bitsPerSample 1) the DSD rate. */
@@ -202,7 +209,7 @@ export class WavStream {
 
   static async open(
     file: string,
-    options: { wifi: boolean; dsdLevel: 0 | 3 | 6; dop?: boolean }
+    options: { wifi: boolean; dsdLevel: 0 | 3 | 6; dop?: boolean; fx?: boolean }
   ): Promise<WavStream> {
     const info = await engineNetStreamOpen(file, options);
     return new WavStream(info.handle, info.sampleRate, info.channels, info.bitsPerSample, info.frameCount);

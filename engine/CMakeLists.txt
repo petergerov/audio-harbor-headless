@@ -51,6 +51,7 @@ set(ENGINE_SOURCES
   src/DsdPipeline.cpp
   src/PcmDecoder.cpp
   src/FrameSource.cpp
+  src/FxFrameSource.cpp
   src/PlaybackFeed.cpp
   src/FxClient.cpp
   src/FxStage.cpp
@@ -106,7 +107,7 @@ if(CMAKE_JS_LIB)
 endif()
 
 # --- harbor-fx: the plugin rack's own process (CLAP everywhere, LV2 where lilv is installed) ---
-add_executable(harbor-fx fx/main.cpp fx/FxSupport.cpp fx/ClapHost.cpp)
+add_executable(harbor-fx fx/main.cpp fx/FxSupport.cpp fx/ClapHost.cpp fx/ClapPresets.cpp fx/LspPresets.cpp)
 target_include_directories(harbor-fx PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/fx
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party
