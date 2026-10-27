@@ -29,6 +29,12 @@ case "$(uname -s)" in
     sha256() { sha256sum -c - >/dev/null; }
     ;;
   Darwin)
+    # LSP's x86 SIMD code (AVX2, AVX-512 inline assembly) does not assemble for macOS x86_64:
+    # Intel Macs get the rack without shipped plugins.
+    if [[ "$(uname -m)" != "arm64" ]]; then
+      echo "LSP Plugins do not build for Intel Macs; skipping (the rack takes installed plugins)" >&2
+      exit 0
+    fi
     MAKE=gmake
     JOBS="$(sysctl -n hw.ncpu)"
     CLAP_DIR="Library/Audio/Plug-Ins/CLAP"

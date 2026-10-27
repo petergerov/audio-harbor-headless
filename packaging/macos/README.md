@@ -203,7 +203,7 @@ It runs `/usr/local/audio-harbor-headless/start.sh` (override: `defaults write c
 
 ## Local build
 
-The package ships LSP Plugins for the rack when `plugins/clap/lsp-plugins.clap` exists — build it first (needs GNU make: `brew install make`):
+The package ships LSP Plugins for the rack when `plugins/clap/lsp-plugins.clap` exists — build it first (needs GNU make: `brew install make`; Apple Silicon only, on an Intel Mac the script skips them because LSP's x86 SIMD code does not assemble for macOS):
 
 ```bash
 packaging/build-plugins.sh
