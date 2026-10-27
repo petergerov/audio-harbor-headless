@@ -372,6 +372,9 @@ export interface RackInsert {
   error: string | null;
   /** Up to six parameters for the rack sheet. */
   pinned: RackParam[];
+  /** The plugin's own editor can open on the host's screen; `editorOpen` while it is. */
+  editor: boolean;
+  editorOpen: boolean;
 }
 
 /** The host's plugin rack. */

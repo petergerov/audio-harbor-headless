@@ -4396,11 +4396,16 @@ body.overlay-open .ah-toast {
 
 /* A plugin's own presets, between the sheet's tools and its controls. */
 .plugin-presets {
-  margin: 0 0 12px;
+  margin: 0;
 }
 
 .plugin-presets[hidden] {
   display: none;
+}
+
+.plugin-presets .ah-group,
+.rack-sheet .host-editor {
+  margin: 0 0 12px;
 }
 
 .plugin-preset-row {
@@ -4428,4 +4433,9 @@ body.overlay-open .ah-toast {
 
 .rack-plugin.is-on .rack-insert-name {
   color: var(--amber);
+}
+
+/* The plugin's own editor on the host's screen. */
+.host-editor[hidden] {
+  display: none;
 }

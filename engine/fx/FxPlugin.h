@@ -81,6 +81,14 @@ private:
   bool quit_ = false;
 };
 
+/** What an open editor may ask of the window it sits in. */
+class EditorFrame {
+public:
+  virtual ~EditorFrame() = default;
+  /** The editor wants this size (points). */
+  virtual void resize(uint32_t width, uint32_t height) = 0;
+};
+
 /**
  * One loaded insert. Created, activated and asked on the main thread; process() and reset()
  * are called on the audio thread. Audio is planar stereo, processed out of place.
@@ -110,6 +118,21 @@ public:
     error = "This plugin has no presets";
     return false;
   }
+  /** The plugin has an editor of its own that can open in a window on this machine. */
+  virtual bool hasEditor() { return false; }
+  /**
+   * Main thread: the editor into `parent` (an NSView* on macOS), sized `width` × `height`
+   * points. `frame` stays valid until closeEditor().
+   */
+  virtual bool openEditor(void* parent, EditorFrame& frame, uint32_t& width, uint32_t& height, std::string& error) {
+    (void)parent;
+    (void)frame;
+    (void)width;
+    (void)height;
+    error = "This plugin has no editor here";
+    return false;
+  }
+  virtual void closeEditor() {}
   /** Main thread, between messages: callbacks the plugin asked for. */
   virtual void idle() {}
   /** The plugin asked to be deactivated and activated again (new latency, ports). */

@@ -14,8 +14,8 @@ type Mode = 'panel' | 'all';
 
 /**
  * An insert's sheet: its own panel when the remote knows the plugin, every parameter a tap
- * away, and above both: compare with how it was when opened, undo, reset to defaults, and the
- * plugin's own presets.
+ * away, and above both: compare with how it was when opened, undo, reset to defaults, the
+ * plugin's own presets, and its own editor on the host's screen.
  */
 export function openInsertSheet(rack: RackApi, insert: RackInsert, onRack: (snapshot: RackSnapshot) => void): void {
   const spec = PANELS[insert.pluginId];
@@ -38,6 +38,9 @@ export function openInsertSheet(rack: RackApi, insert: RackInsert, onRack: (snap
           <button type="button" class="deck-pill" data-reset>Reset</button>
         </div>
         ${PluginPresetPicker.html()}
+        <div class="ah-group host-editor" ${insert.editor ? '' : 'hidden'}>
+          <button type="button" class="ah-row rack-plugin" data-host-editor></button>
+        </div>
         <div data-insert-view></div>
       </div>`,
     bind: (root) => {
@@ -96,7 +99,44 @@ export function openInsertSheet(rack: RackApi, insert: RackInsert, onRack: (snap
         }
       );
       void presets.mount(root);
+      bindHostEditor(root, rack, insert, onRack, () => void view?.reload());
       void show(mode);
     },
+  });
+}
+
+/**
+ * The plugin's own editor in a window on the host's screen (a Mac at the hi-fi, say). Knobs
+ * turned there come back to the remote within a moment; closing it here closes the window.
+ */
+function bindHostEditor(
+  root: HTMLElement,
+  rack: RackApi,
+  insert: RackInsert,
+  onRack: (snapshot: RackSnapshot) => void,
+  onClosed: () => void
+): void {
+  const row = root.querySelector<HTMLButtonElement>('[data-host-editor]');
+  if (!row) return;
+  let open = insert.editorOpen;
+  const paint = () => {
+    row.innerHTML = `
+      <span class="rack-insert-name">${open ? 'Close the Plugin Window' : 'Open the Plugin Window'}</span>
+      <span class="rack-insert-sub">${open ? 'Open on the host’s screen' : 'The plugin’s own editor, on the host’s screen'}</span>`;
+  };
+  paint();
+  row.addEventListener('click', async () => {
+    row.classList.add('is-busy');
+    try {
+      const snapshot = open ? await rack.closeEditor(insert.id) : await rack.openEditor(insert.id);
+      open = snapshot.inserts.find((i) => i.id === insert.id)?.editorOpen ?? false;
+      paint();
+      onRack(snapshot);
+      if (!open) onClosed();
+    } catch (err) {
+      showToast(errorMessage(err, 'The plugin window did not open'), { error: true });
+    } finally {
+      row.classList.remove('is-busy');
+    }
   });
 }

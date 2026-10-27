@@ -25,6 +25,9 @@ export interface RackApi {
   setState(id: string, state: string): Promise<RackSnapshot>;
   /** Every parameter back to its default. */
   reset(id: string): Promise<RackSnapshot>;
+  /** The plugin's own editor in a window on the host's screen. */
+  openEditor(id: string): Promise<RackSnapshot>;
+  closeEditor(id: string): Promise<RackSnapshot>;
   /** The plugin's own presets (its maker's, its preset folder's). */
   pluginPresets(id: string): Promise<PluginPreset[]>;
   loadPluginPreset(id: string, preset: string): Promise<RackSnapshot>;
@@ -107,6 +110,14 @@ export class HttpRackApi implements RackApi {
 
   reset(id: string): Promise<RackSnapshot> {
     return this.http.post(`/api/v1/rack/inserts/${encodeURIComponent(id)}/reset`);
+  }
+
+  openEditor(id: string): Promise<RackSnapshot> {
+    return this.http.post(`/api/v1/rack/inserts/${encodeURIComponent(id)}/editor/open`);
+  }
+
+  closeEditor(id: string): Promise<RackSnapshot> {
+    return this.http.post(`/api/v1/rack/inserts/${encodeURIComponent(id)}/editor/close`);
   }
 
   async pluginPresets(id: string): Promise<PluginPreset[]> {

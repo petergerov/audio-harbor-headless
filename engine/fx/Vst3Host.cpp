@@ -5,6 +5,7 @@
 #include "pluginterfaces/base/funknown.h"
 #include "pluginterfaces/base/ipluginbase.h"
 #include "pluginterfaces/base/smartpointer.h"
+#include "pluginterfaces/gui/iplugview.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
@@ -39,6 +40,12 @@
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 namespace fs = std::filesystem;
+
+// The editor interfaces' ids: the SDK defines them in sources the rack does not vendor.
+namespace Steinberg {
+DEF_CLASS_IID(IPlugView)
+DEF_CLASS_IID(IPlugFrame)
+} // namespace Steinberg
 
 namespace {
 
@@ -159,12 +166,17 @@ bool cidFrom(const std::string& s, TUID cid) {
   return true;
 }
 
-/** Receives what the controller says to the host: edits (from no UI here) and restarts. */
+/** Receives what the controller says to the host: edits from its editor, and restarts. */
 class ComponentHandler final : public IComponentHandler {
 public:
   bool restart = false;
+  /** A knob moved in the editor: the processor gets it with the next block. */
+  std::function<void(ParamID, ParamValue)> edited;
   tresult PLUGIN_API beginEdit(ParamID) override { return kResultOk; }
-  tresult PLUGIN_API performEdit(ParamID, ParamValue) override { return kResultOk; }
+  tresult PLUGIN_API performEdit(ParamID id, ParamValue value) override {
+    if (edited) edited(id, value);
+    return kResultOk;
+  }
   tresult PLUGIN_API endEdit(ParamID) override { return kResultOk; }
   tresult PLUGIN_API restartComponent(int32 flags) override {
     if (flags & (kLatencyChanged | kIoChanged | kReloadComponent)) restart = true;
@@ -172,6 +184,28 @@ public:
   }
   tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
     if (FUnknownPrivate::iidEqual(iid, IComponentHandler::iid) || FUnknownPrivate::iidEqual(iid, FUnknown::iid)) {
+      *obj = this;
+      return kResultOk;
+    }
+    *obj = nullptr;
+    return kNoInterface;
+  }
+  uint32 PLUGIN_API addRef() override { return 1; }
+  uint32 PLUGIN_API release() override { return 1; }
+};
+
+/** The window an editor sits in, as the editor sees it: it may ask for another size. */
+class PlugFrame final : public IPlugFrame {
+public:
+  EditorFrame* frame = nullptr;
+  tresult PLUGIN_API resizeView(IPlugView* view, ViewRect* size) override {
+    if (!view || !size) return kInvalidArgument;
+    if (frame) frame->resize(uint32_t(size->getWidth()), uint32_t(size->getHeight()));
+    view->onSize(size);
+    return kResultTrue;
+  }
+  tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
+    if (FUnknownPrivate::iidEqual(iid, IPlugFrame::iid) || FUnknownPrivate::iidEqual(iid, FUnknown::iid)) {
       *obj = this;
       return kResultOk;
     }
@@ -247,6 +281,7 @@ std::string presetFileClass(const std::string& path) {
 class Vst3Plugin final : public FxPlugin {
 public:
   ~Vst3Plugin() override {
+    closeEditor();
     deactivate();
     if (componentCP_ && controllerCP_) {
       componentCP_->disconnect(controllerCP_);
@@ -289,6 +324,10 @@ public:
       }
     }
     if (controller_) {
+      handler_.edited = [this](ParamID id, ParamValue value) {
+        std::lock_guard lock(mutex_);
+        pending_[id] = value;
+      };
       controller_->setComponentHandler(&handler_);
       componentCP_ = FUnknownPtr<IConnectionPoint>(component_);
       controllerCP_ = FUnknownPtr<IConnectionPoint>(controller_);
@@ -536,6 +575,60 @@ public:
     return true;
   }
 
+  bool hasEditor() override {
+#if defined(__APPLE__)
+    return controller_ != nullptr;
+#else
+    return false;
+#endif
+  }
+
+  /** The controller's "editor" view in the window's NSView. */
+  bool openEditor(void* parent, EditorFrame& frame, uint32_t& width, uint32_t& height, std::string& error) override {
+#if defined(__APPLE__)
+    IPlugView* view = controller_ ? controller_->createView(ViewType::kEditor) : nullptr;
+    if (!view) {
+      error = "The plugin has no editor";
+      return false;
+    }
+    view_ = owned(view);
+    if (view_->isPlatformTypeSupported(kPlatformTypeNSView) != kResultTrue) {
+      view_ = nullptr;
+      error = "The plugin's editor does not run in a Mac window";
+      return false;
+    }
+    plugFrame_.frame = &frame;
+    view_->setFrame(&plugFrame_);
+    if (view_->attached(parent, kPlatformTypeNSView) != kResultOk) {
+      view_->setFrame(nullptr);
+      view_ = nullptr;
+      error = "The plugin's editor did not open";
+      return false;
+    }
+    ViewRect size {};
+    if (view_->getSize(&size) == kResultOk) {
+      width = uint32_t(size.getWidth());
+      height = uint32_t(size.getHeight());
+    }
+    return true;
+#else
+    (void)parent;
+    (void)frame;
+    (void)width;
+    (void)height;
+    error = "The plugin has no editor here";
+    return false;
+#endif
+  }
+
+  void closeEditor() override {
+    if (!view_) return;
+    view_->removed();
+    view_->setFrame(nullptr);
+    view_ = nullptr;
+    plugFrame_.frame = nullptr;
+  }
+
   /** Who made it and its class: where its presets are, and which are its own. */
   void setIdentity(std::string vendor, std::string name, std::string cid) {
     vendor_ = std::move(vendor);
@@ -688,6 +781,8 @@ private:
   std::string vendor_;
   std::string name_;
   std::string cid_;
+  IPtr<IPlugView> view_;
+  PlugFrame plugFrame_;
 };
 
 std::vector<fs::path> searchPaths() {

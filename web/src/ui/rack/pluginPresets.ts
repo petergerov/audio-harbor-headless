@@ -49,11 +49,13 @@ export class PluginPresetPicker {
     if (!this.host) return;
     this.onOpen(false);
     this.host.innerHTML = `
-      <button type="button" class="ah-row plugin-preset-row" data-presets-open>
-        <span class="rack-insert-name">${escapeHtml(this.loaded ?? 'Presets')}</span>
-        <span class="rack-insert-sub">${this.presets.length} from the plugin</span>
-        ${icons.chevron}
-      </button>`;
+      <div class="ah-group">
+        <button type="button" class="ah-row rack-plugin plugin-preset-row" data-presets-open>
+          <span class="rack-insert-name">${escapeHtml(this.loaded ?? 'Presets')}</span>
+          <span class="rack-insert-sub">${this.presets.length} from the plugin</span>
+          ${icons.chevron}
+        </button>
+      </div>`;
     this.host.querySelector('[data-presets-open]')?.addEventListener('click', () => this.paintList());
   }
 

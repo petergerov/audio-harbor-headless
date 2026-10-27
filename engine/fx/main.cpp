@@ -7,6 +7,7 @@
 
 #include "FxPlugin.h"
 #include "FxProtocol.h"
+#include "MainLoop.h"
 
 #include <json.hpp>
 
@@ -96,6 +97,8 @@ struct Insert {
   std::string name;
   bool bypassed = false;
   std::unique_ptr<FxPlugin> plugin;
+  /** After `plugin`: it closes before the plugin goes. */
+  std::unique_ptr<EditorWindow> editor;
   std::string error;
   bool active = false;
   /** A bypassed insert keeps the chain's latency with a plain delay. */
@@ -185,6 +188,7 @@ public:
       if (old != chain_.end()) {
         // The running unit is the truth; the state the host sends may be older.
         ins.plugin = std::move(old->plugin);
+        ins.editor = std::move(old->editor);
         ins.active = old->active;
         ins.error = old->error;
         ins.delay[0] = std::move(old->delay[0]);
@@ -211,6 +215,8 @@ public:
   json insertJson(const Insert& ins) const {
     json j {{"id", ins.id}, {"loaded", ins.plugin != nullptr}, {"active", ins.active}, {"bypassed", ins.bypassed}};
     j["latency"] = ins.active ? ins.plugin->latency() : 0;
+    j["editor"] = ins.plugin && mainloop::hasScreen() && ins.plugin->hasEditor();
+    j["editorOpen"] = ins.editor != nullptr;
     if (!ins.error.empty()) j["error"] = ins.error;
     return j;
   }
@@ -230,9 +236,10 @@ public:
     return out;
   }
 
-  /** Callbacks and restarts the plugins asked for since the last message. */
+  /** Callbacks and restarts the plugins asked for since the last message; windows closed on screen. */
   void idle() {
     for (auto& ins : chain_) {
+      if (ins.editor && ins.editor->closedOnScreen()) ins.editor.reset();
       if (!ins.plugin) continue;
       ins.plugin->idle();
       if (ins.plugin->wantsRestart() && rate_ > 0) activate(ins);
@@ -416,6 +423,18 @@ json control(Rack& rack, const json& req) {
     if (!ins->plugin->loadPreset(req.value("preset", ""), error)) return {{"ok", false}, {"error", error}};
     return {{"ok", true}};
   }
+  if (cmd == "openEditor") {
+    if (!ins->editor) {
+      std::string error;
+      ins->editor = openEditorWindow(*ins->plugin, ins->name.empty() ? ins->pluginId : ins->name, error);
+      if (!ins->editor) return {{"ok", false}, {"error", error}};
+    }
+    return {{"ok", true}, {"window", ins->editor->number()}, {"insert", rack.insertJson(*ins)}};
+  }
+  if (cmd == "closeEditor") {
+    ins->editor.reset();
+    return {{"ok", true}, {"insert", rack.insertJson(*ins)}};
+  }
   if (cmd == "resetParams") {
     for (const auto& p : ins->plugin->params()) {
       if (!p.readOnly && !p.isBypass) ins->plugin->setParam(p.id, p.def);
@@ -431,53 +450,67 @@ void reply(uint8_t type, const fxproto::Status& status, const void* body, size_t
   fxproto::writeFrame(g_out, type, {{head.data(), head.size()}, {body, bytes}});
 }
 
+/** One message: its reply goes out before the next is read. False on a malformed frame. */
+bool handle(Rack& rack, uint8_t type, std::vector<uint8_t>& body, std::vector<uint8_t>& audioHead) {
+  switch (type) {
+    case fxproto::Prepare: {
+      if (body.size() < 12) return false;
+      rack.prepare(double(fxproto::getU32(body.data())), fxproto::getU32(body.data() + 4),
+                   fxproto::getU32(body.data() + 8));
+      reply(fxproto::StatusReply, rack.status(), nullptr, 0);
+      return true;
+    }
+    case fxproto::Process: {
+      if (body.size() < 4) return false;
+      const uint32_t frames = fxproto::getU32(body.data());
+      float* data = reinterpret_cast<float*>(body.data() + 4);
+      const size_t floats = (body.size() - 4) / sizeof(float);
+      if (frames > 0 && floats >= frames) rack.process(data, uint32_t(std::min<size_t>(frames, floats)));
+      audioHead.clear();
+      fxproto::putStatus(audioHead, rack.status());
+      fxproto::writeFrame(g_out, fxproto::AudioReply, {{audioHead.data(), audioHead.size()}, {body.data(), body.size()}});
+      return true;
+    }
+    case fxproto::Reset:
+      rack.reset();
+      reply(fxproto::StatusReply, rack.status(), nullptr, 0);
+      return true;
+    case fxproto::Control: {
+      json out;
+      try {
+        out = control(rack, json::parse(body.begin(), body.end()));
+      } catch (const std::exception& e) {
+        out = {{"ok", false}, {"error", e.what()}};
+      }
+      const std::string text = out.dump();
+      reply(fxproto::ControlReply, rack.status(), text.data(), text.size());
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+/** Reads the protocol here; the rack lives and works on the main thread (see MainLoop.h). */
 int serve() {
-  Rack rack;
+  std::unique_ptr<Rack> rack;
+  mainloop::sync([&] { rack = std::make_unique<Rack>(); });
+  mainloop::setIdle([&] { rack->idle(); });
   uint8_t type = 0;
   std::vector<uint8_t> body;
   std::vector<uint8_t> audioHead;
-  while (fxproto::readFrame(0, type, body)) {
-    switch (type) {
-      case fxproto::Prepare: {
-        if (body.size() < 12) return 2;
-        rack.prepare(double(fxproto::getU32(body.data())), fxproto::getU32(body.data() + 4),
-                     fxproto::getU32(body.data() + 8));
-        reply(fxproto::StatusReply, rack.status(), nullptr, 0);
-        break;
-      }
-      case fxproto::Process: {
-        if (body.size() < 4) return 2;
-        const uint32_t frames = fxproto::getU32(body.data());
-        float* data = reinterpret_cast<float*>(body.data() + 4);
-        const size_t floats = (body.size() - 4) / sizeof(float);
-        if (frames > 0 && floats >= frames) rack.process(data, uint32_t(std::min<size_t>(frames, floats)));
-        audioHead.clear();
-        fxproto::putStatus(audioHead, rack.status());
-        fxproto::writeFrame(g_out, fxproto::AudioReply,
-                            {{audioHead.data(), audioHead.size()}, {body.data(), body.size()}});
-        break;
-      }
-      case fxproto::Reset:
-        rack.reset();
-        reply(fxproto::StatusReply, rack.status(), nullptr, 0);
-        break;
-      case fxproto::Control: {
-        json out;
-        try {
-          out = control(rack, json::parse(body.begin(), body.end()));
-        } catch (const std::exception& e) {
-          out = {{"ok", false}, {"error", e.what()}};
-        }
-        const std::string text = out.dump();
-        reply(fxproto::ControlReply, rack.status(), text.data(), text.size());
-        break;
-      }
-      default:
-        return 2;
-    }
-    rack.idle();
+  int code = 0;
+  while (code == 0 && fxproto::readFrame(0, type, body)) {
+    mainloop::sync([&] {
+      if (!handle(*rack, type, body, audioHead)) code = 2;
+      else rack->idle();
+    });
   }
-  return 0;
+  mainloop::sync([&] {
+    mainloop::setIdle(nullptr);
+    rack.reset();
+  });
+  return code;
 }
 
 } // namespace
@@ -522,5 +555,5 @@ int main(int argc, char** argv) {
     std::fflush(nullptr);
     std::_Exit(0);
   }
-  return serve();
+  return mainloop::run(serve);
 }

@@ -86,7 +86,7 @@ export class RackPane implements Pane {
         ${inserts}
         <button type="button" class="cell cell-action" data-add>Add Plugin…</button>
       </div>
-      <p class="footer-note">Plugins run in their own process: one that crashes does not stop the music. A moving knob is heard within a moment. With plugins, DSD plays as PCM; only an empty rack is bit-perfect or plays DoP. Network players get the file without plugins.</p>
+      <p class="footer-note">Plugins run in their own process: one that crashes does not stop the music. A moving knob is heard within a moment. With plugins, DSD plays as PCM; only an empty rack is bit-perfect or plays DoP. Network players get the music through the plugins too.</p>
     `;
     bindPowerKeys(root, this.rack, () => this.store.get().rack);
     bindPresetChips(root, this.rack, () => this.store.get().rack, (snapshot) => this.store.update({ rack: snapshot }));

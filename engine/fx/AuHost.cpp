@@ -12,6 +12,10 @@
 #include <string>
 #include <vector>
 
+// AuEditor.mm: the unit's view in an editor window.
+bool auOpenEditor(AudioComponentInstance unit, void* parent, uint32_t& width, uint32_t& height, std::string& error);
+void auCloseEditor(void* parent);
+
 namespace {
 
 constexpr OSType kTypes[] = {kAudioUnitType_Effect, kAudioUnitType_MusicEffect};
@@ -96,7 +100,13 @@ AudioComponentInstance instantiate(AudioComponent comp, std::string& error) {
                               status = err;
                               dispatch_semaphore_signal(done);
                             });
-  const bool answered = dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, kInstantiateTimeoutNs)) == 0;
+  // The answer may come through the main run loop: keep it turning while waiting.
+  const dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW, kInstantiateTimeoutNs);
+  bool answered = false;
+  while (!(answered = dispatch_semaphore_wait(done, DISPATCH_TIME_NOW) == 0) &&
+         dispatch_time(DISPATCH_TIME_NOW, 0) < deadline) {
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, true);
+  }
   if (!answered || status != noErr || !result) {
     error = answered ? "The Audio Unit extension could not be opened" : "The Audio Unit extension did not answer";
     return nullptr;
@@ -158,6 +168,7 @@ public:
   }
 
   ~AuPlugin() override {
+    closeEditor();
     deactivate();
     AudioComponentInstanceDispose(unit_);
   }
@@ -311,6 +322,20 @@ public:
     return ok;
   }
 
+  /** Every unit has one: its own view, or the generic one of its parameters. */
+  bool hasEditor() override { return true; }
+
+  bool openEditor(void* parent, EditorFrame&, uint32_t& width, uint32_t& height, std::string& error) override {
+    if (!auOpenEditor(unit_, parent, width, height, error)) return false;
+    editorParent_ = parent;
+    return true;
+  }
+
+  void closeEditor() override {
+    if (editorParent_) auCloseEditor(editorParent_);
+    editorParent_ = nullptr;
+  }
+
   /** The unit's factory presets, then .aupreset files in ~/Library and /Library/Audio/Presets/<vendor>/<name>. */
   std::vector<FxPreset> presets() override {
     std::vector<FxPreset> out;
@@ -448,6 +473,7 @@ private:
   AudioComponentInstance unit_;
   std::string vendor_;
   std::string name_;
+  void* editorParent_ = nullptr;
   const float* input_[2] = {nullptr, nullptr};
   double rate_ = 48000;
   Float64 sampleTime_ = 0;

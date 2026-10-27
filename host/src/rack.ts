@@ -99,6 +99,10 @@ export interface RackInsertView {
   error: string | null;
   /** Up to six parameters shown on the rack sheet. */
   pinned: RackParam[];
+  /** The plugin's own editor can open on the host's screen (a Mac with someone logged in). */
+  editor: boolean;
+  /** It is open there now. */
+  editorOpen: boolean;
 }
 
 export interface RackSnapshot {
@@ -147,11 +151,29 @@ interface InsertStatus {
   loaded: boolean;
   active: boolean;
   error?: string;
+  /** Its editor can open on this host's screen; `editorOpen` while it is. */
+  editor?: boolean;
+  editorOpen?: boolean;
 }
+
+/** While an editor is open on the host's screen: how often its settings are read back. */
+const EDITOR_WATCH_MS = 1500;
 
 interface ScanCache {
   /** By format and file (or AU id); `stamp` is the file's mtime or the plugin's version. */
   entries: Record<string, { stamp: string; plugins: RackPlugin[]; error?: string }>;
+  /** The harbor-fx that made it: a new one tries the plugins that failed again. */
+  fx?: string;
+}
+
+/** harbor-fx's build, by its file's time. */
+function fxStamp(): string {
+  const bin = fxBinaryPath();
+  try {
+    return bin ? String(Math.round(fs.statSync(bin).mtimeMs)) : '';
+  } catch {
+    return '';
+  }
 }
 
 export const MAX_PINNED = 6;
@@ -250,6 +272,7 @@ export class Rack extends EventEmitter {
   private saveTimer: NodeJS.Timeout | null = null;
   private restartTimer: NodeJS.Timeout | null = null;
   private emitTimer: NodeJS.Timeout | null = null;
+  private editorTimer: NodeJS.Timeout | null = null;
   private loadingPreset: string | null = null;
 
   constructor(private isNetworkOutput: () => boolean) {
@@ -308,6 +331,8 @@ export class Rack extends EventEmitter {
         loaded: status?.loaded ?? false,
         error: status?.error ?? null,
         pinned: ins.pinned.length && status?.loaded ? await this.pinnedParams(ins) : [],
+        editor: status?.editor ?? false,
+        editorOpen: status?.editorOpen ?? false,
       });
     }
     const exclusive = st?.effectiveMode === 'exclusive' || st?.effectiveMode === 'dop';
@@ -382,7 +407,10 @@ export class Rack extends EventEmitter {
   private async scanPlugins(rescan: boolean): Promise<RackPlugin[]> {
     const cache = rescan ? { entries: {} } : readJson<ScanCache>(scanCachePath(), { entries: {} });
     const listed = (await runFx(['--list'], DESCRIBE_TIMEOUT_MS)).plugins ?? [];
-    const next: ScanCache = { entries: {} };
+    const fx = fxStamp();
+    const next: ScanCache = { entries: {}, fx };
+    // A failure may have been harbor-fx's own (AUv3 extensions that did not answer): retried once per build.
+    const sameFx = cache.fx === fx;
     const toDescribe: Array<{ key: string; stamp: string; item: RackPlugin }> = [];
     for (const item of listed) {
       const key = `${item.format}:${item.path || item.id}`;
@@ -396,7 +424,7 @@ export class Rack extends EventEmitter {
       const stamp = stampOf(item);
       if (stamp === null) continue;
       const known = cache.entries[key];
-      if (known && known.stamp === stamp) next.entries[key] = known;
+      if (known && known.stamp === stamp && (sameFx || !known.error)) next.entries[key] = known;
       else toDescribe.push({ key, stamp, item });
     }
     // Several at once, each in its own process: a plugin that crashes or hangs while
@@ -542,6 +570,51 @@ export class Rack extends EventEmitter {
     engineFxTouch();
     this.settingsChanged();
     return this.snapshot();
+  }
+
+  /** The plugin's own editor in a window on the host's screen. */
+  async openEditor(id: string): Promise<RackSnapshot> {
+    return this.editorRequest(id, 'openEditor');
+  }
+
+  async closeEditor(id: string): Promise<RackSnapshot> {
+    return this.editorRequest(id, 'closeEditor');
+  }
+
+  private async editorRequest(id: string, cmd: 'openEditor' | 'closeEditor'): Promise<RackSnapshot> {
+    this.insert(id);
+    const reply = await engineFxRequest<{ ok: boolean; insert?: InsertStatus; error?: string }>({ cmd, id });
+    if (!reply.ok) throw new RackError(reply.error ?? 'The editor did not open', 409);
+    if (reply.insert) this.status.set(id, reply.insert);
+    this.watchEditors();
+    return this.changed();
+  }
+
+  /**
+   * Knobs turned in an editor on the host's screen reach no remote by themselves: while one is
+   * open, the settings are read back now and then (and a window closed there is noticed).
+   */
+  private watchEditors(): void {
+    const open = () => [...this.status.values()].some((s) => s.editorOpen);
+    if (this.editorTimer || !open()) return;
+    this.editorTimer = setInterval(() => {
+      void (async () => {
+        const reply = await engineFxRequest<{ ok: boolean; inserts?: InsertStatus[] }>({ cmd: 'inserts' });
+        const wasOpen = [...this.status.values()].filter((s) => s.editorOpen).length;
+        for (const s of reply.inserts ?? []) this.status.set(s.id, s);
+        const stillOpen = [...this.status.values()].filter((s) => s.editorOpen).length;
+        const settingsMoved = await this.saveStates();
+        if (settingsMoved) {
+          this.markEdited();
+          this.persist();
+        }
+        if (settingsMoved || stillOpen !== wasOpen) this.emitChanged();
+        if (!stillOpen && this.editorTimer) {
+          clearInterval(this.editorTimer);
+          this.editorTimer = null;
+        }
+      })().catch(() => {});
+    }, EDITOR_WATCH_MS);
   }
 
   /** The plugin's own presets: its factory ones, its maker's preset files, LSP's. */
@@ -714,10 +787,11 @@ export class Rack extends EventEmitter {
   }
 
   /** Plugin settings from harbor-fx into rack.json, and into the chain it gets after a crash. */
-  private async saveStates(): Promise<void> {
-    if (!this.available || !this.stored.inserts.length) return;
+  /** True when a plugin's settings moved since they were last kept. */
+  private async saveStates(): Promise<boolean> {
+    if (!this.available || !this.stored.inserts.length) return false;
     const reply = await engineFxRequest<{ ok: boolean; states?: Record<string, string> }>({ cmd: 'getStates' });
-    if (!reply.ok || !reply.states) return;
+    if (!reply.ok || !reply.states) return false;
     let changed = false;
     for (const ins of this.stored.inserts) {
       const state = reply.states[ins.id];
@@ -726,9 +800,10 @@ export class Rack extends EventEmitter {
         changed = true;
       }
     }
-    if (!changed) return;
+    if (!changed) return false;
     this.persist();
     await this.pushChain();
+    return true;
   }
 
   private onFxEvent(ev: { running?: boolean; stopped?: boolean }): void {

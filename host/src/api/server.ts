@@ -170,6 +170,12 @@ export async function buildServer(ctx: AppContext) {
   app.post<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/reset', async (req, reply) =>
     rackCall(reply, () => ctx.rack.resetParams(req.params.id))
   );
+  app.post<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/editor/open', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.openEditor(req.params.id))
+  );
+  app.post<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/editor/close', async (req, reply) =>
+    rackCall(reply, () => ctx.rack.closeEditor(req.params.id))
+  );
   app.get<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/presets', async (req, reply) =>
     rackCall(reply, async () => ({ presets: await ctx.rack.pluginPresets(req.params.id) }))
   );

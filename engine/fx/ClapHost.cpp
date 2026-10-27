@@ -200,6 +200,7 @@ public:
   }
 
   ~ClapPlugin() override {
+    closeEditor();
     deactivate();
     if (plugin_) plugin_->destroy(plugin_);
   }
@@ -223,6 +224,7 @@ public:
     state_ = static_cast<const clap_plugin_state*>(plugin_->get_extension(plugin_, CLAP_EXT_STATE));
     latency_ = static_cast<const clap_plugin_latency*>(plugin_->get_extension(plugin_, CLAP_EXT_LATENCY));
     ports_ = static_cast<const clap_plugin_audio_ports*>(plugin_->get_extension(plugin_, CLAP_EXT_AUDIO_PORTS));
+    gui_ = static_cast<const clap_plugin_gui*>(plugin_->get_extension(plugin_, CLAP_EXT_GUI));
     return true;
   }
 
@@ -412,6 +414,52 @@ public:
     return state_->load(plugin_, &stream);
   }
 
+  bool hasEditor() override {
+#if defined(__APPLE__)
+    return gui_ && gui_->is_api_supported(plugin_, CLAP_WINDOW_API_COCOA, false);
+#else
+    return false;
+#endif
+  }
+
+  /** clap.gui, embedded: created, sized, given the window's view, shown. */
+  bool openEditor(void* parent, EditorFrame& frame, uint32_t& width, uint32_t& height, std::string& error) override {
+#if defined(__APPLE__)
+    if (!hasEditor() || !gui_->create(plugin_, CLAP_WINDOW_API_COCOA, false)) {
+      error = "The plugin has no editor";
+      return false;
+    }
+    guiOpen_ = true;
+    frame_ = &frame;
+    gui_->get_size(plugin_, &width, &height);
+    clap_window window {};
+    window.api = CLAP_WINDOW_API_COCOA;
+    window.cocoa = parent;
+    if (!gui_->set_parent(plugin_, &window)) {
+      closeEditor();
+      error = "The plugin's editor did not open";
+      return false;
+    }
+    gui_->show(plugin_);
+    return true;
+#else
+    (void)parent;
+    (void)frame;
+    (void)width;
+    (void)height;
+    error = "The plugin has no editor here";
+    return false;
+#endif
+  }
+
+  void closeEditor() override {
+    if (!guiOpen_) return;
+    gui_->hide(plugin_);
+    gui_->destroy(plugin_);
+    guiOpen_ = false;
+    frame_ = nullptr;
+  }
+
   /** What the file's preset providers index (CLAP preset discovery); LSP's own presets otherwise. */
   std::vector<FxPreset> presets() override {
     std::vector<FxPreset> out = clapDiscoveredPresets(entry_, id_);
@@ -508,6 +556,7 @@ private:
     if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &p->hostLatency_;
     if (!std::strcmp(id, CLAP_EXT_STATE)) return &p->hostState_;
     if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &p->hostPorts_;
+    if (!std::strcmp(id, CLAP_EXT_GUI)) return &p->hostGui_;
     return nullptr;
   }
 
@@ -521,6 +570,9 @@ private:
   const clap_plugin_state* state_ = nullptr;
   const clap_plugin_latency* latency_ = nullptr;
   const clap_plugin_audio_ports* ports_ = nullptr;
+  const clap_plugin_gui* gui_ = nullptr;
+  bool guiOpen_ = false;
+  EditorFrame* frame_ = nullptr;
   uint32_t inChannels_ = 2;
   uint32_t outChannels_ = 2;
   PortBuffers inPorts_;
@@ -548,6 +600,16 @@ private:
   };
   clap_host_latency hostLatency_ {[](const clap_host*) {}};
   clap_host_state hostState_ {[](const clap_host*) {}};
+  clap_host_gui hostGui_ {
+      [](const clap_host*) {},
+      [](const clap_host* h, uint32_t width, uint32_t height) {
+        if (self(h)->frame_) self(h)->frame_->resize(width, height);
+        return true;
+      },
+      [](const clap_host*) { return true; },
+      [](const clap_host*) { return true; },
+      [](const clap_host*, bool) {},
+  };
   clap_host_audio_ports hostPorts_ {
       [](const clap_host*, uint32_t) { return false; },
       [](const clap_host* h, uint32_t) { self(h)->restart_ = true; },

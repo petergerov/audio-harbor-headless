@@ -202,6 +202,7 @@ Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Detail
 | 18 | Verbinden ohne Code als Standard; Code in Settings einschaltbar | done |
 | 19 | Plugin-Rack Stufe 2: VST3 (Mac + Linux), AU (Mac); Scan parallel im Hintergrund; ein Eintrag je Plugin über die Formate | done |
 | 20 | Plugin-Rack Stufe 3: Werks-Presets der Plugins (AU, VST3, CLAP, LV2, LSP), Bonjour-Protokoll 4 für die iOS-App, bearbeiteter WAV-Stream für Netzwerk-Player | done |
+| 21 | Plugin-Rack Stufe 4 (Mac): Original-Editoren der Plugins (CLAP, VST3, AU v2/v3) in Fenstern auf dem Bildschirm des Hosts; AUv3-Erweiterungen laden jetzt | done (Linux-Desktop, Windows folgen) |
 
 ---
 
@@ -278,7 +279,13 @@ automatische Parameter-Seite pro Plugin (Wertetext vom Plugin), bis zu sechs ang
    Pro-Q 4 (166 CLAP-Presets), bx_masterdesk / SPL / Softube (VST3), Apple- und Valhalla-AUs, LSP, x42 (LV2).
    Offen: Ein Regler wirkt beim Netzwerk-Player erst, wenn der Player gespielt hat, was er schon geholt hat;
    LSP-Sampler und Impuls-Reverbs als LV2 hängen harbor-fx auf, wenn sie aus der Kette genommen werden.
-4. Original-Editoren auf dem Bildschirm des Hosts (Mac, Windows, Linux-Desktop).
+4. Original-Editoren auf dem Bildschirm des Hosts. **Mac done**: harbor-fx dreht auf dem echten Main-Thread den
+   Cocoa-Run-Loop (nur mit angemeldetem Bildschirm), Nachrichten kommen über `CFRunLoopPerformBlock`; Fenster pro
+   Insert — CLAP `clap.gui`, VST3 `IPlugView` + `IPlugFrame` (`performEdit` an den Prozessor), AU: View-Controller
+   (AUv3), Cocoa-UI (AUv2), sonst die generische Ansicht. Web-Remote: „Open the Plugin Window“ im Sheet; offen
+   liest der Host die Einstellungen alle 1,5 s zurück. Nebenbei: AUv3-Erweiterungen (BYOD, jj-breeze …) starten
+   jetzt, auch im Scan. Geprüft: Pro-Q 4 (CLAP), Pro-L 2 (VST3), BritChannel, AUPeakLimiter, jj-breeze, BYOD.
+   Offen: Linux-Desktop (X11: CLAP/VST3/LV2 mit Timer- und FD-Unterstützung), Windows (Rack läuft dort noch nicht).
 5. Eigene Module: parametrischer EQ (AutoEQ / REW-Import), Gain / Balance, Crossfeed, Faltung.
 
 ---
