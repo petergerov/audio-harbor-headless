@@ -1,8 +1,14 @@
 // LV2 through lilv (Linux): the plugins Linux and the Pi have (LSP, x42, Calf, ZAM via apt).
 #include "FxPlugin.h"
+#include "MainLoop.h"
 
+#include <dlfcn.h>
 #include <lilv/lilv.h>
 #include <lv2/atom/atom.h>
+#include <lv2/atom/util.h>
+#include <lv2/data-access/data-access.h>
+#include <lv2/instance-access/instance-access.h>
+#include <lv2/ui/ui.h>
 #include <lv2/buf-size/buf-size.h>
 #include <lv2/core/lv2.h>
 #include <lv2/log/log.h>
@@ -13,6 +19,7 @@
 #include <lv2/worker/worker.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -255,9 +262,11 @@ public:
     for (const auto& p : ports_) {
       if (p.control) controls_[p.index] = p.def;
     }
+    findX11Ui();
   }
 
   ~Lv2Plugin() override {
+    closeEditor();
     deactivate();
     if (instance_) lilv_instance_free(instance_);
   }
@@ -266,6 +275,8 @@ public:
     // LV2 takes the rate at instantiation: a new rate is a new instance, settings carried over.
     std::vector<uint8_t> state;
     if (instance_ && rate != rate_) {
+      // The UI holds the instance it was given: it goes first.
+      closeEditor();
       saveState(state);
       deactivate();
       lilv_instance_free(instance_);
@@ -326,7 +337,10 @@ public:
     lilv_instance_connect_port(instance_, mainOuts_[1], out[1]);
     for (auto& a : atomIns_) a.reset(urids().map(LV2_ATOM__Sequence));
     for (auto& a : atomOuts_) a.prepareOutput(urids().map(LV2_ATOM__Chunk));
+    const bool ui = uiActive_.load();
+    if (ui) sendUiAtoms();
     lilv_instance_run(instance_, frames);
+    if (ui) collectUiAtoms();
     runWorkerResponses();
   }
 
@@ -447,6 +461,77 @@ public:
     return true;
   }
 
+  /** An X11 UI of the plugin's (ui:X11UI), embedded; Linux desktops only. */
+  bool hasEditor() override { return !uiUri_.empty() && mainloop::hasScreen(); }
+
+  bool openEditor(void* parent, EditorFrame& frame, uint32_t& width, uint32_t& height, std::string& error) override {
+    if (!instance_) {
+      error = "Play a track first: the plugin starts at the music's rate";
+      return false;
+    }
+    const LV2UI_Descriptor* desc = uiDescriptor(error);
+    if (!desc) return false;
+    frame_ = &frame;
+    uiWidth_ = 640;
+    uiHeight_ = 400;
+    uiResize_ = {this, [](LV2UI_Feature_Handle h, int w, int hgt) {
+                   auto* me = static_cast<Lv2Plugin*>(h);
+                   me->uiWidth_ = uint32_t(std::max(1, w));
+                   me->uiHeight_ = uint32_t(std::max(1, hgt));
+                   if (me->frame_ && me->ui_) me->frame_->resize(me->uiWidth_, me->uiHeight_);
+                   return 0;
+                 }};
+    dataAccess_ = {lilv_instance_get_descriptor(instance_)->extension_data};
+    uiFeatureList_ = {
+        {LV2_UI__parent, parent},
+        {LV2_UI__resize, &uiResize_},
+        {LV2_UI__idleInterface, nullptr},
+        {LV2_URID__map, &urids().mapFeature},
+        {LV2_URID__unmap, &urids().unmapFeature},
+        {LV2_INSTANCE_ACCESS_URI, lilv_instance_get_handle(instance_)},
+        {LV2_DATA_ACCESS_URI, &dataAccess_},
+        {LV2_OPTIONS__options, options_.data()},
+        {LV2_LOG__log, &g_log},
+    };
+    uiFeatures_.clear();
+    for (auto& f : uiFeatureList_) uiFeatures_.push_back(&f);
+    uiFeatures_.push_back(nullptr);
+    LV2UI_Widget widget = nullptr;
+    LV2UI_Handle handle = desc->instantiate(desc, lilv_node_as_uri(lilv_plugin_get_uri(plugin_)), uiBundle_.c_str(),
+                                            &Lv2Plugin::uiWrite, this, &widget, uiFeatures_.data());
+    if (!handle) {
+      frame_ = nullptr;
+      error = "The plugin's editor did not open";
+      return false;
+    }
+    uiDesc_ = desc;
+    uiIdle_ = desc->extension_data ? static_cast<const LV2UI_Idle_Interface*>(desc->extension_data(LV2_UI__idleInterface)) : nullptr;
+    uiShown_.assign(ports_.size(), NAN);
+    ui_ = handle;
+    uiActive_ = true;
+    uiTimer_ = mainloop::addTimer(33, [this] { uiTick(); });
+    uiTick();
+    width = uiWidth_;
+    height = uiHeight_;
+    return true;
+  }
+
+  void closeEditor() override {
+    if (!ui_) return;
+    mainloop::remove(uiTimer_);
+    uiTimer_ = 0;
+    LV2UI_Handle handle = ui_;
+    uiActive_ = false;
+    {
+      std::lock_guard lock(uiMutex_);
+      ui_ = nullptr;
+      toPlugin_.clear();
+      toUi_.clear();
+    }
+    uiDesc_->cleanup(handle);
+    frame_ = nullptr;
+  }
+
   /** pset:Preset resources related to the plugin: its bundle's, and those saved in ~/.lv2. */
   std::vector<FxPreset> presets() override {
     World& w = world();
@@ -488,9 +573,121 @@ public:
   }
 
 private:
+  /** The plugin's first X11 UI: its URI, binary and bundle. */
+  void findX11Ui() {
+    World& w = world();
+    LilvNode* x11 = lilv_new_uri(w.world, LV2_UI__X11UI);
+    LilvUIs* uis = lilv_plugin_get_uis(plugin_);
+    LILV_FOREACH (uis, i, uis) {
+      const LilvUI* ui = lilv_uis_get(uis, i);
+      if (!lilv_ui_is_a(ui, x11)) continue;
+      char* binary = lilv_file_uri_parse(lilv_node_as_uri(lilv_ui_get_binary_uri(ui)), nullptr);
+      char* bundle = lilv_file_uri_parse(lilv_node_as_uri(lilv_ui_get_bundle_uri(ui)), nullptr);
+      if (binary && bundle) {
+        uiUri_ = lilv_node_as_uri(lilv_ui_get_uri(ui));
+        uiBinary_ = binary;
+        uiBundle_ = bundle;
+      }
+      lilv_free(binary);
+      lilv_free(bundle);
+      if (!uiUri_.empty()) break;
+    }
+    lilv_uis_free(uis);
+    lilv_node_free(x11);
+  }
+
+  /** The UI library stays loaded for the life of harbor-fx, like plugin libraries. */
+  const LV2UI_Descriptor* uiDescriptor(std::string& error) {
+    void* lib = dlopen(uiBinary_.c_str(), RTLD_NOW | RTLD_LOCAL);
+    using Entry = const LV2UI_Descriptor* (*)(uint32_t);
+    auto entry = lib ? reinterpret_cast<Entry>(dlsym(lib, "lv2ui_descriptor")) : nullptr;
+    for (uint32_t i = 0; entry; ++i) {
+      const LV2UI_Descriptor* d = entry(i);
+      if (!d) break;
+      if (uiUri_ == d->URI) return d;
+    }
+    error = "The plugin's editor could not be loaded";
+    return nullptr;
+  }
+
+  /** From the UI: a control's new value, or an atom for one of the plugin's atom inputs. */
+  static void uiWrite(LV2UI_Controller controller, uint32_t port, uint32_t size, uint32_t protocol, const void* buffer) {
+    auto* me = static_cast<Lv2Plugin*>(controller);
+    if (port >= me->ports_.size() || !buffer) return;
+    if (protocol == 0 && size == sizeof(float)) {
+      const float v = *static_cast<const float*>(buffer);
+      std::lock_guard lock(me->controlMutex_);
+      if (me->active_) me->pendingControls_[port] = v;
+      else me->controls_[port] = v;
+      return;
+    }
+    if (protocol == urids().map(LV2_ATOM__eventTransfer) && size >= sizeof(LV2_Atom)) {
+      const auto* bytes = static_cast<const uint8_t*>(buffer);
+      std::lock_guard lock(me->uiMutex_);
+      me->toPlugin_.push_back({port, std::vector<uint8_t>(bytes, bytes + size)});
+    }
+  }
+
+  /** Audio thread, before run: the UI's atoms into the plugin's atom inputs. */
+  void sendUiAtoms() {
+    std::lock_guard lock(uiMutex_);
+    for (const auto& [port, atom] : toPlugin_) {
+      for (auto& in : atomIns_) {
+        if (in.port != port) continue;
+        std::vector<uint8_t> ev(sizeof(LV2_Atom_Event) - sizeof(LV2_Atom) + atom.size());
+        auto* event = reinterpret_cast<LV2_Atom_Event*>(ev.data());
+        event->time.frames = 0;
+        std::memcpy(&event->body, atom.data(), atom.size());
+        lv2_atom_sequence_append_event(in.seq(), uint32_t(in.data.size() - sizeof(LV2_Atom)), event);
+      }
+    }
+    toPlugin_.clear();
+  }
+
+  /** Audio thread, after run: what the plugin's atom outputs say, for the UI. */
+  void collectUiAtoms() {
+    std::lock_guard lock(uiMutex_);
+    for (auto& out : atomOuts_) {
+      LV2_Atom_Sequence* seq = out.seq();
+      if (seq->atom.type != urids().map(LV2_ATOM__Sequence)) continue;
+      LV2_ATOM_SEQUENCE_FOREACH (seq, ev) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&ev->body);
+        toUi_.push_back({out.port, std::vector<uint8_t>(bytes, bytes + sizeof(LV2_Atom) + ev->body.size)});
+      }
+    }
+  }
+
+  /** Main thread, ~30 times a second: changed controls and the plugin's atoms to the UI, its idle. */
+  void uiTick() {
+    if (!ui_) return;
+    std::vector<std::pair<uint32_t, float>> controls;
+    {
+      std::lock_guard lock(controlMutex_);
+      for (const auto& p : ports_) {
+        if (!p.control) continue;
+        auto pending = pendingControls_.find(p.index);
+        const float v = pending != pendingControls_.end() ? pending->second : controls_[p.index];
+        if (!(v == uiShown_[p.index])) controls.push_back({p.index, v});
+      }
+    }
+    for (const auto& [index, v] : controls) {
+      uiShown_[index] = v;
+      uiDesc_->port_event(ui_, index, sizeof(float), 0, &v);
+    }
+    std::vector<std::pair<uint32_t, std::vector<uint8_t>>> atoms;
+    {
+      std::lock_guard lock(uiMutex_);
+      atoms.swap(toUi_);
+    }
+    const LV2_URID transfer = urids().map(LV2_ATOM__eventTransfer);
+    for (const auto& [port, atom] : atoms) uiDesc_->port_event(ui_, port, uint32_t(atom.size()), transfer, atom.data());
+    if (uiIdle_) uiIdle_->idle(ui_);
+  }
+
   /** An atom sequence port: empty in, room to write out. */
   struct AtomBuffer {
-    explicit AtomBuffer(uint32_t minimum) : data(std::max<size_t>(65536, minimum)) {}
+    AtomBuffer(uint32_t port, uint32_t minimum) : port(port), data(std::max<size_t>(65536, minimum)) {}
+    uint32_t port;
     std::vector<uint8_t> data;
     LV2_Atom_Sequence* seq() { return reinterpret_cast<LV2_Atom_Sequence*>(data.data()); }
     void reset(LV2_URID sequence) {
@@ -586,7 +783,7 @@ private:
         }
       } else if (p.atom) {
         auto& list = p.input ? atomIns_ : atomOuts_;
-        list.emplace_back(p.minimumSize);
+        list.emplace_back(p.index, p.minimumSize);
         list.back().reset(urids().map(LV2_ATOM__Sequence));
         lilv_instance_connect_port(instance_, p.index, list.back().data.data());
       } else {
@@ -649,6 +846,29 @@ private:
   LV2_Worker_Schedule schedule_ {};
   std::vector<LV2_Feature> featureList_;
   std::vector<const LV2_Feature*> features_;
+
+  // The plugin's X11 UI while its editor is open.
+  std::string uiUri_;
+  std::string uiBinary_;
+  std::string uiBundle_;
+  const LV2UI_Descriptor* uiDesc_ = nullptr;
+  const LV2UI_Idle_Interface* uiIdle_ = nullptr;
+  LV2UI_Handle ui_ = nullptr;
+  EditorFrame* frame_ = nullptr;
+  LV2UI_Resize uiResize_ {};
+  LV2_Extension_Data_Feature dataAccess_ {};
+  std::vector<LV2_Feature> uiFeatureList_;
+  std::vector<const LV2_Feature*> uiFeatures_;
+  uint32_t uiWidth_ = 640;
+  uint32_t uiHeight_ = 400;
+  mainloop::Handle uiTimer_ = 0;
+  /** Read on the audio thread: the UI's atoms are passed on. */
+  std::atomic<bool> uiActive_ {false};
+  /** The control values the UI was last told (NaN: not yet). */
+  std::vector<float> uiShown_;
+  std::mutex uiMutex_;
+  std::vector<std::pair<uint32_t, std::vector<uint8_t>>> toPlugin_;
+  std::vector<std::pair<uint32_t, std::vector<uint8_t>>> toUi_;
 };
 
 } // namespace

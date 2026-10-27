@@ -202,7 +202,7 @@ Zielgefühl: native iOS-App im Harbor-Look (Chassis / Elfenbein / Amber). Detail
 | 18 | Verbinden ohne Code als Standard; Code in Settings einschaltbar | done |
 | 19 | Plugin-Rack Stufe 2: VST3 (Mac + Linux), AU (Mac); Scan parallel im Hintergrund; ein Eintrag je Plugin über die Formate | done |
 | 20 | Plugin-Rack Stufe 3: Werks-Presets der Plugins (AU, VST3, CLAP, LV2, LSP), Bonjour-Protokoll 4 für die iOS-App, bearbeiteter WAV-Stream für Netzwerk-Player | done |
-| 21 | Plugin-Rack Stufe 4 (Mac): Original-Editoren der Plugins (CLAP, VST3, AU v2/v3) in Fenstern auf dem Bildschirm des Hosts; AUv3-Erweiterungen laden jetzt | done (Linux-Desktop, Windows folgen) |
+| 21 | Plugin-Rack Stufe 4: Original-Editoren der Plugins in Fenstern auf dem Bildschirm des Hosts — Mac (CLAP, VST3, AU v2/v3), Linux-Desktop (CLAP, VST3, LV2-X11-UIs); AUv3-Erweiterungen laden jetzt | done (Windows folgt mit dem Rack) |
 
 ---
 
@@ -285,7 +285,11 @@ automatische Parameter-Seite pro Plugin (Wertetext vom Plugin), bis zu sechs ang
    (AUv3), Cocoa-UI (AUv2), sonst die generische Ansicht. Web-Remote: „Open the Plugin Window“ im Sheet; offen
    liest der Host die Einstellungen alle 1,5 s zurück. Nebenbei: AUv3-Erweiterungen (BYOD, jj-breeze …) starten
    jetzt, auch im Scan. Geprüft: Pro-Q 4 (CLAP), Pro-L 2 (VST3), BritChannel, AUPeakLimiter, jj-breeze, BYOD.
-   Offen: Linux-Desktop (X11: CLAP/VST3/LV2 mit Timer- und FD-Unterstützung), Windows (Rack läuft dort noch nicht).
+   **Linux-Desktop done** (X11, libX11 zur Laufzeit per `dlopen`, nur mit `DISPLAY`): `poll()`-Schleife auf dem
+   Main-Thread mit Timern und FDs für die Plugins; CLAP mit `timer-support` / `posix-fd-support`, VST3 mit
+   `Linux::IRunLoop`, LV2-X11-UIs über einen kleinen eigenen UI-Host (Controls und Atoms in beide Richtungen).
+   Geprüft mit Xvfb: LSP (CLAP, VST3 mit UI gebaut; LV2 aus apt), x42 fil4; ein per `xdotool` gedrehter Regler kommt
+   in allen drei Formaten an. Offen: Windows (Rack läuft dort noch nicht).
 5. Eigene Module: parametrischer EQ (AutoEQ / REW-Import), Gain / Balance, Crossfeed, Faltung.
 
 ---

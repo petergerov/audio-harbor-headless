@@ -161,3 +161,18 @@ std::unique_ptr<EditorWindow> openEditorWindow(FxPlugin& plugin, const std::stri
   if (!window->open(title, error)) return nullptr;
   return window;
 }
+
+namespace mainloop {
+
+// Mac editors run on Cocoa's own run loop and timers.
+Handle addTimer(uint32_t, std::function<void()>) {
+  return 0;
+}
+
+Handle addFd(int, std::function<void()>) {
+  return 0;
+}
+
+void remove(Handle) {}
+
+} // namespace mainloop

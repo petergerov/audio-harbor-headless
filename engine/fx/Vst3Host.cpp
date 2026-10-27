@@ -6,6 +6,7 @@
 #include "pluginterfaces/base/ipluginbase.h"
 #include "pluginterfaces/base/smartpointer.h"
 #include "pluginterfaces/gui/iplugview.h"
+#include "MainLoop.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
@@ -45,6 +46,9 @@ namespace fs = std::filesystem;
 namespace Steinberg {
 DEF_CLASS_IID(IPlugView)
 DEF_CLASS_IID(IPlugFrame)
+DEF_CLASS_IID(Linux::IRunLoop)
+DEF_CLASS_IID(Linux::IEventHandler)
+DEF_CLASS_IID(Linux::ITimerHandler)
 } // namespace Steinberg
 
 namespace {
@@ -194,10 +198,61 @@ public:
   uint32 PLUGIN_API release() override { return 1; }
 };
 
+/** Linux has no event loop of its own: an editor's file descriptors and timers go on the main loop. */
+class RunLoop final : public Linux::IRunLoop {
+public:
+  ~RunLoop() { clear(); }
+
+  tresult PLUGIN_API registerEventHandler(Linux::IEventHandler* handler, Linux::FileDescriptor fd) override {
+    if (!handler) return kInvalidArgument;
+    const mainloop::Handle h = mainloop::addFd(fd, [handler, fd] { handler->onFDIsSet(fd); });
+    if (!h) return kResultFalse;
+    handles_.insert({handler, h});
+    return kResultOk;
+  }
+  tresult PLUGIN_API unregisterEventHandler(Linux::IEventHandler* handler) override { return drop(handler); }
+  tresult PLUGIN_API registerTimer(Linux::ITimerHandler* handler, Linux::TimerInterval ms) override {
+    if (!handler) return kInvalidArgument;
+    const mainloop::Handle h = mainloop::addTimer(uint32_t(ms), [handler] { handler->onTimer(); });
+    if (!h) return kResultFalse;
+    handles_.insert({handler, h});
+    return kResultOk;
+  }
+  tresult PLUGIN_API unregisterTimer(Linux::ITimerHandler* handler) override { return drop(handler); }
+
+  /** The editor closed: whatever it left registered goes. */
+  void clear() {
+    for (const auto& [_, h] : handles_) mainloop::remove(h);
+    handles_.clear();
+  }
+
+  tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
+    if (FUnknownPrivate::iidEqual(iid, Linux::IRunLoop::iid) || FUnknownPrivate::iidEqual(iid, FUnknown::iid)) {
+      *obj = this;
+      return kResultOk;
+    }
+    *obj = nullptr;
+    return kNoInterface;
+  }
+  uint32 PLUGIN_API addRef() override { return 1; }
+  uint32 PLUGIN_API release() override { return 1; }
+
+private:
+  tresult drop(const void* handler) {
+    auto range = handles_.equal_range(handler);
+    for (auto it = range.first; it != range.second; ++it) mainloop::remove(it->second);
+    handles_.erase(range.first, range.second);
+    return kResultOk;
+  }
+
+  std::multimap<const void*, mainloop::Handle> handles_;
+};
+
 /** The window an editor sits in, as the editor sees it: it may ask for another size. */
 class PlugFrame final : public IPlugFrame {
 public:
   EditorFrame* frame = nullptr;
+  RunLoop runLoop;
   tresult PLUGIN_API resizeView(IPlugView* view, ViewRect* size) override {
     if (!view || !size) return kInvalidArgument;
     if (frame) frame->resize(uint32_t(size->getWidth()), uint32_t(size->getHeight()));
@@ -209,12 +264,25 @@ public:
       *obj = this;
       return kResultOk;
     }
+    // The editor asks its frame for the host's run loop on Linux.
+    if (FUnknownPrivate::iidEqual(iid, Linux::IRunLoop::iid)) {
+      *obj = &runLoop;
+      return kResultOk;
+    }
     *obj = nullptr;
     return kNoInterface;
   }
   uint32 PLUGIN_API addRef() override { return 1; }
   uint32 PLUGIN_API release() override { return 1; }
 };
+
+#if defined(__APPLE__)
+const FIDString kPlatformType = kPlatformTypeNSView;
+#elif defined(_WIN32)
+const FIDString kPlatformType = kPlatformTypeHWND;
+#else
+const FIDString kPlatformType = kPlatformTypeX11EmbedWindowID;
+#endif
 
 /** Where .vstpreset files live, below which come <vendor>/<plugin>/ (Steinberg's preset locations). */
 std::vector<std::string> presetRoots() {
@@ -575,33 +643,25 @@ public:
     return true;
   }
 
-  bool hasEditor() override {
-#if defined(__APPLE__)
-    return controller_ != nullptr;
-#else
-    return false;
-#endif
-  }
+  bool hasEditor() override { return controller_ != nullptr; }
 
-  /** The controller's "editor" view in the window's NSView. */
+  /** The controller's "editor" view in the window (an NSView, an X11 window). */
   bool openEditor(void* parent, EditorFrame& frame, uint32_t& width, uint32_t& height, std::string& error) override {
-#if defined(__APPLE__)
     IPlugView* view = controller_ ? controller_->createView(ViewType::kEditor) : nullptr;
     if (!view) {
       error = "The plugin has no editor";
       return false;
     }
     view_ = owned(view);
-    if (view_->isPlatformTypeSupported(kPlatformTypeNSView) != kResultTrue) {
+    if (view_->isPlatformTypeSupported(kPlatformType) != kResultTrue) {
       view_ = nullptr;
-      error = "The plugin's editor does not run in a Mac window";
+      error = "The plugin's editor does not run in a window here";
       return false;
     }
     plugFrame_.frame = &frame;
     view_->setFrame(&plugFrame_);
-    if (view_->attached(parent, kPlatformTypeNSView) != kResultOk) {
-      view_->setFrame(nullptr);
-      view_ = nullptr;
+    if (view_->attached(parent, kPlatformType) != kResultOk) {
+      closeEditor();
       error = "The plugin's editor did not open";
       return false;
     }
@@ -611,14 +671,6 @@ public:
       height = uint32_t(size.getHeight());
     }
     return true;
-#else
-    (void)parent;
-    (void)frame;
-    (void)width;
-    (void)height;
-    error = "The plugin has no editor here";
-    return false;
-#endif
   }
 
   void closeEditor() override {
@@ -627,6 +679,7 @@ public:
     view_->setFrame(nullptr);
     view_ = nullptr;
     plugFrame_.frame = nullptr;
+    plugFrame_.runLoop.clear();
   }
 
   /** Who made it and its class: where its presets are, and which are its own. */

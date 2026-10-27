@@ -1,6 +1,7 @@
 #include "FxPlugin.h"
 #include "ClapPresets.h"
 #include "LspPresets.h"
+#include "MainLoop.h"
 
 #include <clap/clap.h>
 
@@ -12,6 +13,7 @@
 #include <cstring>
 #include <filesystem>
 #include <list>
+#include <map>
 #include <mutex>
 
 #if defined(_WIN32)
@@ -184,6 +186,14 @@ struct EventQueue {
   }
 };
 
+#if defined(__APPLE__)
+constexpr const char* kWindowApi = CLAP_WINDOW_API_COCOA;
+#elif defined(_WIN32)
+constexpr const char* kWindowApi = CLAP_WINDOW_API_WIN32;
+#else
+constexpr const char* kWindowApi = CLAP_WINDOW_API_X11;
+#endif
+
 class ClapPlugin final : public FxPlugin {
 public:
   ClapPlugin(AudioThread& audio) : audio_(audio) {
@@ -201,6 +211,8 @@ public:
 
   ~ClapPlugin() override {
     closeEditor();
+    for (const auto& [_, handle] : timers_) mainloop::remove(handle);
+    for (const auto& [_, handle] : fds_) mainloop::remove(handle);
     deactivate();
     if (plugin_) plugin_->destroy(plugin_);
   }
@@ -414,18 +426,11 @@ public:
     return state_->load(plugin_, &stream);
   }
 
-  bool hasEditor() override {
-#if defined(__APPLE__)
-    return gui_ && gui_->is_api_supported(plugin_, CLAP_WINDOW_API_COCOA, false);
-#else
-    return false;
-#endif
-  }
+  bool hasEditor() override { return gui_ && gui_->is_api_supported(plugin_, kWindowApi, false); }
 
-  /** clap.gui, embedded: created, sized, given the window's view, shown. */
+  /** clap.gui, embedded: created, sized, given the window (an NSView, an X11 window), shown. */
   bool openEditor(void* parent, EditorFrame& frame, uint32_t& width, uint32_t& height, std::string& error) override {
-#if defined(__APPLE__)
-    if (!hasEditor() || !gui_->create(plugin_, CLAP_WINDOW_API_COCOA, false)) {
+    if (!hasEditor() || !gui_->create(plugin_, kWindowApi, false)) {
       error = "The plugin has no editor";
       return false;
     }
@@ -433,8 +438,14 @@ public:
     frame_ = &frame;
     gui_->get_size(plugin_, &width, &height);
     clap_window window {};
-    window.api = CLAP_WINDOW_API_COCOA;
+    window.api = kWindowApi;
+#if defined(__APPLE__)
     window.cocoa = parent;
+#elif defined(_WIN32)
+    window.win32 = parent;
+#else
+    window.x11 = clap_xwnd(reinterpret_cast<uintptr_t>(parent));
+#endif
     if (!gui_->set_parent(plugin_, &window)) {
       closeEditor();
       error = "The plugin's editor did not open";
@@ -442,14 +453,15 @@ public:
     }
     gui_->show(plugin_);
     return true;
-#else
-    (void)parent;
-    (void)frame;
-    (void)width;
-    (void)height;
-    error = "The plugin has no editor here";
-    return false;
-#endif
+  }
+
+  bool watchFd(int fd) {
+    auto* ext = static_cast<const clap_plugin_posix_fd_support*>(plugin_->get_extension(plugin_, CLAP_EXT_POSIX_FD_SUPPORT));
+    if (!ext || fds_.count(fd)) return false;
+    const mainloop::Handle handle = mainloop::addFd(fd, [this, ext, fd] { ext->on_fd(plugin_, fd, CLAP_POSIX_FD_READ); });
+    if (!handle) return false;
+    fds_[fd] = handle;
+    return true;
   }
 
   void closeEditor() override {
@@ -557,6 +569,8 @@ private:
     if (!std::strcmp(id, CLAP_EXT_STATE)) return &p->hostState_;
     if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &p->hostPorts_;
     if (!std::strcmp(id, CLAP_EXT_GUI)) return &p->hostGui_;
+    if (!std::strcmp(id, CLAP_EXT_TIMER_SUPPORT)) return &p->hostTimers_;
+    if (!std::strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT)) return &p->hostFds_;
     return nullptr;
   }
 
@@ -573,6 +587,10 @@ private:
   const clap_plugin_gui* gui_ = nullptr;
   bool guiOpen_ = false;
   EditorFrame* frame_ = nullptr;
+  /** Editors on Linux: the plugin's timers and file descriptors on the main loop. */
+  std::map<clap_id, mainloop::Handle> timers_;
+  std::map<int, mainloop::Handle> fds_;
+  clap_id nextTimer_ = 1;
   uint32_t inChannels_ = 2;
   uint32_t outChannels_ = 2;
   PortBuffers inPorts_;
@@ -609,6 +627,40 @@ private:
       [](const clap_host*) { return true; },
       [](const clap_host*) { return true; },
       [](const clap_host*, bool) {},
+  };
+  clap_host_timer_support hostTimers_ {
+      [](const clap_host* h, uint32_t periodMs, clap_id* timerId) {
+        ClapPlugin* p = self(h);
+        auto* ext = static_cast<const clap_plugin_timer_support*>(p->plugin_->get_extension(p->plugin_, CLAP_EXT_TIMER_SUPPORT));
+        if (!ext) return false;
+        const clap_id id = p->nextTimer_++;
+        const mainloop::Handle handle = mainloop::addTimer(periodMs, [p, ext, id] { ext->on_timer(p->plugin_, id); });
+        if (!handle) return false;
+        p->timers_[id] = handle;
+        *timerId = id;
+        return true;
+      },
+      [](const clap_host* h, clap_id timerId) {
+        ClapPlugin* p = self(h);
+        auto it = p->timers_.find(timerId);
+        if (it == p->timers_.end()) return false;
+        mainloop::remove(it->second);
+        p->timers_.erase(it);
+        return true;
+      },
+  };
+  // Only readability is watched; a plugin asking for writes gets read events, which it ignores.
+  clap_host_posix_fd_support hostFds_ {
+      [](const clap_host* h, int fd, clap_posix_fd_flags_t) { return self(h)->watchFd(fd); },
+      [](const clap_host* h, int fd, clap_posix_fd_flags_t) { return self(h)->fds_.count(fd) > 0; },
+      [](const clap_host* h, int fd) {
+        ClapPlugin* p = self(h);
+        auto it = p->fds_.find(fd);
+        if (it == p->fds_.end()) return false;
+        mainloop::remove(it->second);
+        p->fds_.erase(it);
+        return true;
+      },
   };
   clap_host_audio_ports hostPorts_ {
       [](const clap_host*, uint32_t) { return false; },

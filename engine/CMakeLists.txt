@@ -166,7 +166,15 @@ if(APPLE)
   target_link_libraries(harbor-fx PRIVATE "-framework CoreFoundation" "-framework AudioToolbox" "-framework CoreAudio"
     "-framework AppKit" "-framework CoreAudioKit" "-framework AudioUnit")
 else()
-  target_sources(harbor-fx PRIVATE fx/MainLoopPlain.cpp)
+  # Linux desktops: editors in X11 windows. Only the headers are needed to build; libX11 is
+  # opened at run time, when there is a DISPLAY.
+  find_path(X11_XLIB_HEADER X11/Xlib.h)
+  if(UNIX AND X11_XLIB_HEADER)
+    target_sources(harbor-fx PRIVATE fx/LinuxUi.cpp)
+    target_include_directories(harbor-fx PRIVATE ${X11_XLIB_HEADER})
+  else()
+    target_sources(harbor-fx PRIVATE fx/MainLoopPlain.cpp)
+  endif()
 endif()
 if(UNIX AND NOT APPLE)
   target_link_libraries(harbor-fx PRIVATE Threads::Threads dl)

@@ -30,6 +30,7 @@ install_apt_deps() {
     libasound2-dev \
     liblilv-dev \
     lv2-dev \
+    libx11-dev \
     libsndfile1-dev \
     curl \
     ca-certificates

@@ -177,6 +177,16 @@ sudo systemctl restart audioharbor@pi  # or: Settings → Rack → Add Plugin �
 
 LV2 is found where lilv looks (`/usr/lib/lv2`, `/usr/local/lib/lv2`, `~/.lv2` of the service user, or `LV2_PATH`), CLAP in the shipped `plugins/clap`, `/usr/lib/clap`, `~/.clap` and `CLAP_PATH`, VST3 in `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3` and `VST3_PATH` (a bundle needs a build for the machine: `Contents/aarch64-linux` on a Pi, `x86_64-linux` on a PC). Only stereo effects can go in the rack. Plugins run in `harbor-fx`, not in the host: one that crashes does not stop the music.
 
+**Plugin windows on a desktop:** on a Linux machine with an X11 desktop (or XWayland), a plugin's own editor can open on its screen — *Open the Plugin Window* in the plugin's sheet. CLAP and VST3 editors and LV2 X11 UIs (x42, LSP from apt, Calf …) are embedded in a window of their own; what is turned there reaches the remote within a moment. The included LSP CLAP has no editor (built without its UI). harbor-fx needs a `DISPLAY` and the right to use it, which the service does not have; on a desktop, give it both with a drop-in (`sudo systemctl edit audioharbor@pi`):
+
+```ini
+[Service]
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+```
+
+or run the host in the desktop session (`./start.sh`). Without a `DISPLAY` (a Pi without a desktop) nothing changes: libX11 is only opened when there is one, so the package needs no X11 libraries.
+
 ## Music on a USB drive
 
 ### From the remote
