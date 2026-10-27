@@ -93,7 +93,7 @@ Publish a release (manual only):
 1. Push `main` with the commits you want
 2. Set macOS signing secrets (once) — see [packaging/macos/README.md](packaging/macos/README.md)
 3. GitHub → **Actions** → **Release packages** → **Run workflow**
-4. Enter tag (e.g. `v1.0.6`), tick the platforms (all but Windows by default) — optional: draft / skip notarization
+4. Enter tag (e.g. `v1.1.0`), tick the platforms (all but Windows by default) — optional: draft / skip notarization
 
 The macOS jobs import **Developer ID** certificates from secrets, sign binaries, build a `.pkg`, and notarize when App Store Connect / Apple ID secrets are present.
 

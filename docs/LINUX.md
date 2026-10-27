@@ -27,7 +27,7 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 
 ### Which package
 
-There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.0.6 has all but Windows**: `.deb` and `.tar.gz` for `arm64` and `amd64`, `.pkg` and `.tar.gz` for Apple Silicon and Intel Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
+There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.1.0 has all but Windows**: `.deb` and `.tar.gz` for `arm64` and `amd64`, `.pkg` and `.tar.gz` for Apple Silicon and Intel Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
 
 ```bash
 dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name
@@ -51,8 +51,8 @@ A package for the wrong CPU fails in apt with `Depends: libc6:amd64 (>= 2.32) bu
 The `.deb` by hand (here `arm64`; on a PC `amd64`), then the first checks (`audioharbor` = the service user, see [Dedicated service user](#dedicated-service-user)):
 
 ```bash
-cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.6/audio-harbor-headless_1.0.6_arm64.deb
-sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.0.6_arm64.deb
+cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.1.0/audio-harbor-headless_1.1.0_arm64.deb
+sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.1.0_arm64.deb
 
 sudo systemctl status audioharbor@audioharbor                    # running?
 journalctl -u audioharbor@audioharbor -b --no-pager | tail -40   # URL and QR code
@@ -96,7 +96,7 @@ If the service already runs for another user, switch it: `sudo systemctl disable
 Without the script — download the `.deb` from the [release page](https://github.com/petergerov/audio-harbor-headless/releases) and:
 
 ```bash
-sudo apt install ./audio-harbor-headless_1.0.6_arm64.deb
+sudo apt install ./audio-harbor-headless_1.1.0_arm64.deb
 ```
 
 ### Requirements
@@ -348,7 +348,7 @@ Share the music from a Pi to the others with Samba (`sudo apt install samba`), r
 
 From the remote (below), or run the installer again, or `sudo apt install ./<new>.deb`. Running instances restart with the new version; a disabled service stays disabled.
 
-A release rebuilt under the same version number (e.g. 1.0.6 again): apt sees the version as installed, so tell it to install anyway. With the installer — it downloads to `/tmp` itself:
+A release rebuilt under the same version number (e.g. 1.1.0 again): apt sees the version as installed, so tell it to install anyway. With the installer — it downloads to `/tmp` itself:
 
 ```bash
 curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/download/install-linux.sh | sudo HARBOR_REINSTALL=1 bash
@@ -357,12 +357,12 @@ curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/d
 Or by hand with `--reinstall`. Download again first — an old file is the previous build — and into `/tmp`, not your home folder: apt reads packages as user `_apt`, who cannot enter a home directory with mode 700 (Raspberry Pi OS Bookworm, Debian 12+) and then ends with `Notice: Download is performed unsandboxed as root …` (harmless, see [Troubleshooting](#troubleshooting)):
 
 ```bash
-cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.0.6/audio-harbor-headless_1.0.6_arm64.deb
-sudo apt install --reinstall ./audio-harbor-headless_1.0.6_arm64.deb
+cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.1.0/audio-harbor-headless_1.1.0_arm64.deb
+sudo apt install --reinstall ./audio-harbor-headless_1.1.0_arm64.deb
 rm -f ~/audio-harbor-headless_*.deb   # an older copy in the home folder, if any
 ```
 
-A file already in the home folder: `mv ~/audio-harbor-headless_1.0.6_arm64.deb /tmp/` and install `/tmp/audio-harbor-headless_1.0.6_arm64.deb`.
+A file already in the home folder: `mv ~/audio-harbor-headless_1.1.0_arm64.deb /tmp/` and install `/tmp/audio-harbor-headless_1.1.0_arm64.deb`.
 
 An update keeps config, library and pairing (`~/.audio-harbor-headless`): paired devices stay paired. A host that had paired devices before the code became optional keeps **Require Pairing Code** on; a new install starts without a code.
 
@@ -413,7 +413,7 @@ Stops and disables every `audioharbor@…` instance and removes `/opt/audio-harb
 For distributions without apt, or to run it without installing:
 
 ```bash
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.0.6-linux-arm64.tar.gz
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.1.0-linux-arm64.tar.gz
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
 sudo apt install -y libasound2   # ALSA runtime
@@ -480,10 +480,10 @@ The run dialog has a checkbox per platform; job `plan` turns the ticked ones int
 | `linux_x64` | `_amd64.deb` + `.tar.gz` | on |
 | `windows_x64` | `.zip` + `.tar.gz` — experimental, packaging on `windows-2022` had rsync issues | off |
 
-At least one must be ticked. From the command line: `gh workflow run release-packages.yml --ref main -f tag=v1.0.6 -f macos_x64=false -f windows_x64=true`; only the Raspberry Pi:
+At least one must be ticked. From the command line: `gh workflow run release-packages.yml --ref main -f tag=v1.1.0 -f macos_x64=false -f windows_x64=true`; only the Raspberry Pi:
 
 ```bash
-gh workflow run release-packages.yml --ref main -f tag=v1.0.6 \
+gh workflow run release-packages.yml --ref main -f tag=v1.1.0 \
   -f macos_arm64=false -f macos_x64=false -f linux_x64=false -f linux_arm64=true
 ```
 
@@ -492,9 +492,9 @@ In the run, the unticked group shows as skipped — named `matrix.platform`, as 
 Rebuilding a release under the same tag: delete the release, move the tag to the new commit and run the workflow again:
 
 ```bash
-gh release delete v1.0.6 -y
-git tag -f -a v1.0.6 -m "Audio Harbor Headless 1.0.6" && git push -f origin v1.0.6
-gh workflow run release-packages.yml --ref main -f tag=v1.0.6   # add -f <platform>=false|true to choose
+gh release delete v1.1.0 -y
+git tag -f -a v1.1.0 -m "Audio Harbor Headless 1.1.0" && git push -f origin v1.1.0
+gh workflow run release-packages.yml --ref main -f tag=v1.1.0   # add -f <platform>=false|true to choose
 ```
 
 Hosts that have this version installed need `HARBOR_REINSTALL=1` or `apt install --reinstall` (see [Update](#update)); a new version number avoids that.
