@@ -19,6 +19,7 @@ import {
 } from '../drives.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
+import { SourceUnavailableError, type SourceMonitor } from '../library/sources.js';
 import type { AccessPolicy } from '../access.js';
 import { isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
@@ -32,6 +33,8 @@ import type { Sharing } from '../upnp/sharing.js';
 
 export interface AppContext {
   catalogue: Catalogue;
+  /** Which library folders, drives and shares are connected now. */
+  sources: SourceMonitor;
   playback: PlaybackService;
   getConfig: () => HarborConfig;
   /** The Settings snapshot the remotes show, and changes to it. */
@@ -215,18 +218,22 @@ export async function buildServer(ctx: AppContext) {
       id: Buffer.from(p).toString('base64url'),
       path: p,
       displayName: path.basename(p),
+      state: ctx.sources.state(p),
     }));
   });
 
   app.post<{ Body: { path: string } }>('/api/v1/mounts', async (req, reply) => {
     const p = path.resolve(String(req.body?.path ?? ''));
-    if (!p || !fs.existsSync(p) || !fs.statSync(p).isDirectory()) {
+    // Async: a path on a share that is gone must not stall the server.
+    const st = await fs.promises.stat(p).catch(() => null);
+    if (!st?.isDirectory()) {
       return reply.code(400).send({ error: 'invalid directory' });
     }
     const cfg = ctx.getConfig();
     if (!cfg.library.roots.includes(p)) cfg.library.roots.push(p);
     saveConfig(cfg);
     ctx.settings.changed();
+    void ctx.sources.checkAll();
     // No scan here — the library reads the new folder on Rescan.
     return { roots: cfg.library.roots };
   });
@@ -244,6 +251,16 @@ export async function buildServer(ctx: AppContext) {
   // USB / SATA drives: set up in /etc/fstab under /mnt/harbor through the root helper.
   app.get('/api/v1/drives', async () => listDrives());
 
+  // A track on a source that is not connected: 409 with the reason, for the toast.
+  const playing = async (reply: FastifyReply, op: () => Promise<unknown>) => {
+    try {
+      return await op();
+    } catch (err) {
+      if (err instanceof SourceUnavailableError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+  };
+
   const driveCall = async (reply: FastifyReply, op: () => Promise<unknown>) => {
     try {
       return await op();
@@ -255,7 +272,9 @@ export async function buildServer(ctx: AppContext) {
 
   app.post<{ Body: { uuid?: string; name?: string } }>('/api/v1/drives', async (req, reply) =>
     driveCall(reply, async () => ({
-      mountPoint: await setUpDrive(String(req.body?.uuid ?? ''), String(req.body?.name ?? '')),
+      mountPoint: await setUpDrive(String(req.body?.uuid ?? ''), String(req.body?.name ?? '')).finally(
+        () => void ctx.sources.checkAll()
+      ),
     }))
   );
 
@@ -275,6 +294,7 @@ export async function buildServer(ctx: AppContext) {
         },
         String(b.name ?? '')
       );
+      void ctx.sources.checkAll();
       return { mountPoint };
     })
   );
@@ -282,6 +302,7 @@ export async function buildServer(ctx: AppContext) {
   app.post<{ Body: { name?: string } }>('/api/v1/drives/eject', async (req, reply) =>
     driveCall(reply, async () => {
       await ejectDrive(String(req.body?.name ?? ''));
+      void ctx.sources.checkAll();
       return { ok: true };
     })
   );
@@ -296,6 +317,7 @@ export async function buildServer(ctx: AppContext) {
       cfg.library.roots = cfg.library.roots.filter((r) => r !== mountPoint && !r.startsWith(`${mountPoint}/`));
       saveConfig(cfg);
       ctx.settings.changed();
+      void ctx.sources.checkAll();
       return { roots: cfg.library.roots };
     })
   );
@@ -306,6 +328,7 @@ export async function buildServer(ctx: AppContext) {
     cfg.library.roots = cfg.library.roots.filter((r) => r !== p);
     saveConfig(cfg);
     ctx.settings.changed();
+    void ctx.sources.checkAll();
     return { roots: cfg.library.roots };
   });
 
@@ -325,7 +348,11 @@ export async function buildServer(ctx: AppContext) {
   app.get('/api/v1/library/scan', async () => ctx.catalogue.progress);
 
   // CPU, memory and disk space of the host, for Settings → About.
-  app.get('/api/v1/system', async () => systemStatus(dataDir(), ctx.getConfig().library.roots));
+  app.get('/api/v1/system', async () => systemStatus(
+    dataDir(),
+    // Only connected ones: a stat of a gone share would hang a pool thread.
+    ctx.getConfig().library.roots.filter((r) => ctx.sources.state(r) === 'connected')
+  ));
 
   // Software update: the latest release on GitHub (`check=1` asks now, else at most hourly).
   // On a .deb install the root helper installs it in its own unit and apt restarts Harbor.
@@ -423,7 +450,7 @@ export async function buildServer(ctx: AppContext) {
       playlistId?: string;
       label?: string;
     };
-  }>('/api/v1/play', async (req, reply) => {
+  }>('/api/v1/play', async (req, reply) => playing(reply, async () => {
     const body = req.body ?? {};
     const roots = ctx.getConfig().library.roots;
 
@@ -480,7 +507,7 @@ export async function buildServer(ctx: AppContext) {
       return ctx.playback.snapshot();
     }
     return reply.code(400).send({ error: 'nothing to play' });
-  });
+  }));
 
   app.get('/api/v1/playlists', async () => ({
     playlists: ctx.catalogue.listPlaylists().map((p) => ({

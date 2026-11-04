@@ -116,10 +116,12 @@ export class SourcesPane implements Pane {
     for (const mount of mounts) {
       const row = document.createElement('div');
       row.className = 'cell';
+      const offline = mount.state === 'disconnected';
+      const status = offline ? 'Not connected · ' : mount.state === 'checking' ? 'Checking… · ' : '';
       row.innerHTML = `
         <div class="row-text">
           <div class="row-title">${escapeHtml(mount.displayName)}</div>
-          <div class="row-sub">${escapeHtml(mount.path)}</div>
+          <div class="row-sub${offline ? ' offline' : ''}">${escapeHtml(status + mount.path)}</div>
         </div>
         <button type="button" class="btn-text danger">Remove</button>
       `;

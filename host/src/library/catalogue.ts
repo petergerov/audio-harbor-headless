@@ -174,6 +174,33 @@ const YIELD_MS = 12;
 
 const nextTick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+/** Whether the folder, drive or share a path lies on can be read now (library/sources.ts). */
+export interface SourceAvailability {
+  /** Last look: readable — reading it will not hang. */
+  isConnected(filePath: string): boolean;
+  /** Last look: unplugged, unmounted, unreachable or empty. */
+  isDisconnected(filePath: string): boolean;
+  /** Looks now when not known yet. */
+  ensure(filePath: string): Promise<boolean>;
+}
+
+/** Without a monitor (`harbor rescan`): every source counts as there. */
+const ALWAYS_THERE: SourceAvailability = {
+  isConnected: () => true,
+  isDisconnected: () => false,
+  ensure: (filePath) => fs.promises.stat(filePath).then(() => true, () => false),
+};
+
+/** One entry of a folder listing. */
+export interface FolderEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  track: Track | null;
+  /** False on a source that is not connected (shown from the catalogue, not the disk). */
+  available?: boolean;
+}
+
 /**
  * Emits `scanning` (true / false) when a scan of the roots starts and ends, and
  * `progress` (ScanProgress) while it runs.
@@ -193,6 +220,8 @@ export class Catalogue extends EventEmitter {
   private lastEmit = 0;
   /** Directories holding tracks (and those above them); rebuilt after a scan. */
   private directories: string[] | null = null;
+  /** Which sources are connected; set by the server once its SourceMonitor runs. */
+  sources: SourceAvailability = ALWAYS_THERE;
 
   constructor(dbPath = cataloguePath()) {
     super();
@@ -317,8 +346,11 @@ export class Catalogue extends EventEmitter {
     const listed: Array<{ root: string; files: string[] }> = [];
     let foundBefore = 0;
     for (const root of roots) {
-      // Async: an unplugged drive's automount takes seconds to fail.
-      if (!(await fs.promises.stat(root).then(() => true, () => false))) continue;
+      // Not on Harbor's threads: an unplugged drive's automount takes seconds to fail.
+      if (!(await this.sources.ensure(root))) {
+        console.warn(`Library: ${root} is not connected — keeping its tracks`);
+        continue;
+      }
       this.report({ phase: 'listing', root });
       const files = await listAudioFiles(root, (found) => this.report({ total: foundBefore + found }));
       foundBefore += files.length;
@@ -489,11 +521,11 @@ export class Catalogue extends EventEmitter {
     const row = this.db
       .prepare('SELECT * FROM tracks WHERE catalogue_path = ?')
       .get(cataloguePathValue) as Record<string, unknown> | undefined;
-    if (row) return rowToTrack(row, this.labelsFor(cataloguePathValue));
+    if (row) return this.toTrack(row);
 
     // Folder browse can surface SACD ISO tracks before/without a library rescan.
     const parsed = parseSacdPath(cataloguePathValue);
-    if (!parsed || !fs.existsSync(parsed.filePath)) return null;
+    if (!parsed || !this.sources.isConnected(parsed.filePath) || !fs.existsSync(parsed.filePath)) return null;
     try {
       const st = fs.statSync(parsed.filePath);
       const sacd = listSacdTracks(parsed.filePath).find(
@@ -511,7 +543,7 @@ export class Catalogue extends EventEmitter {
         'SELECT * FROM tracks ORDER BY album_artist, album, track_number, title LIMIT ? OFFSET ?'
       )
       .all(limit, offset) as Array<Record<string, unknown>>;
-    return rows.map((r) => rowToTrack(r, this.labelsFor(String(r.catalogue_path))));
+    return rows.map((r) => this.toTrack(r));
   }
 
   search(query: string, limit = 50): Track[] {
@@ -525,7 +557,7 @@ export class Catalogue extends EventEmitter {
          LIMIT ?`
       )
       .all(ftsQuery(q), limit) as Array<Record<string, unknown>>;
-    return rows.map((r) => rowToTrack(r, this.labelsFor(String(r.catalogue_path))));
+    return rows.map((r) => this.toTrack(r));
   }
 
   /** Every track the search finds for `query` — for filtering albums, artists and lists by it. */
@@ -597,7 +629,8 @@ export class Catalogue extends EventEmitter {
       .prepare(
         `SELECT album as title, album_artist as artist,
                 MIN(year) as year, COUNT(*) as track_count,
-                MAX(artwork_hash) as artwork_hash
+                MAX(artwork_hash) as artwork_hash,
+                MIN(catalogue_path) as sample_path
          FROM tracks
          GROUP BY album_artist, album
          ORDER BY album_artist, album`
@@ -613,6 +646,7 @@ export class Catalogue extends EventEmitter {
         year: r.year == null ? null : Number(r.year),
         trackCount: Number(r.track_count),
         artworkHash: r.artwork_hash ? String(r.artwork_hash) : null,
+        available: !this.sources.isDisconnected(String(r.sample_path)),
       };
     });
   }
@@ -638,7 +672,7 @@ export class Catalogue extends EventEmitter {
          ORDER BY disc_number, track_number, title`
       )
       .all(album, albumArtist) as Array<Record<string, unknown>>;
-    return rows.map((r) => rowToTrack(r, this.labelsFor(String(r.catalogue_path))));
+    return rows.map((r) => this.toTrack(r));
   }
 
   artists(): Artist[] {
@@ -666,29 +700,23 @@ export class Catalogue extends EventEmitter {
          ORDER BY album, disc_number, track_number, title`
       )
       .all(name) as Array<Record<string, unknown>>;
-    return rows.map((r) => rowToTrack(r, this.labelsFor(String(r.catalogue_path))));
+    return rows.map((r) => this.toTrack(r));
   }
 
-  browseFolder(
-    rootPaths: string[],
-    folderPath?: string | null
-  ): Array<{
-    name: string;
-    path: string;
-    isDirectory: boolean;
-    track: Track | null;
-  }> {
+  browseFolder(rootPaths: string[], folderPath?: string | null): FolderEntry[] {
     if (!folderPath) {
-      return rootPaths
-        .filter((r) => fs.existsSync(r))
-        .map((r) => ({
-          name: path.basename(r),
-          path: r,
-          isDirectory: true,
-          track: null,
-        }));
+      // Every root, the ones not connected too — greyed out by the remotes.
+      return rootPaths.map((r) => ({
+        name: path.basename(r),
+        path: r,
+        isDirectory: true,
+        track: null,
+        available: !this.sources.isDisconnected(r),
+      }));
     }
     if (!isUnderRoots(folderPath, rootPaths)) return [];
+    // Not connected (or not looked at yet): what the catalogue knows, without touching the disk.
+    if (!this.sources.isConnected(folderPath)) return this.cataloguedFolder(folderPath);
 
     // Drill into SACD ISO as a virtual folder of tracks (#sacd/N).
     if (fs.existsSync(folderPath) && fs.statSync(folderPath).isFile()) {
@@ -712,12 +740,7 @@ export class Catalogue extends EventEmitter {
 
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) return [];
     const entries = fs.readdirSync(folderPath, { withFileTypes: true });
-    const out: Array<{
-      name: string;
-      path: string;
-      isDirectory: boolean;
-      track: Track | null;
-    }> = [];
+    const out: FolderEntry[] = [];
 
     // Count SACD ISOs so multi-disc folders can prefix track labels.
     let sacdIsoCount = 0;
@@ -761,6 +784,37 @@ export class Catalogue extends EventEmitter {
       }
     }
     return out;
+  }
+
+  /**
+   * A folder as the last scan saw it: its subfolders that hold tracks, and its catalogued
+   * tracks (an SACD ISO path: the disc's tracks). For sources that are not connected.
+   */
+  private cataloguedFolder(folderPath: string): FolderEntry[] {
+    const dir = path.resolve(folderPath);
+    const available = !this.sources.isDisconnected(dir);
+    const byName = (a: FolderEntry, b: FolderEntry) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    const folders: FolderEntry[] = this.trackDirectories()
+      .filter((d) => d !== dir && path.dirname(d) === dir)
+      .map((d) => ({ name: path.basename(d), path: d, isDirectory: true, track: null, available }));
+    const rows = this.db
+      .prepare('SELECT * FROM tracks WHERE substr(catalogue_path, 1, length(?)) = ?')
+      .all(dir, dir) as Array<Record<string, unknown>>;
+    const tracks: FolderEntry[] = [];
+    for (const row of rows) {
+      const track = this.toTrack(row);
+      const sacd = parseSacdPath(track.cataloguePath);
+      const file = path.resolve(sacd?.filePath ?? track.cataloguePath);
+      if (file !== dir && path.dirname(file) !== dir) continue;
+      const name = sacd
+        ? `${file !== dir ? `${path.basename(file).replace(/\.iso$/i, '')} · ` : ''}${
+            track.trackNumber ? `${String(track.trackNumber).padStart(2, '0')} ` : ''
+          }${track.title}`
+        : path.basename(file);
+      tracks.push({ name, path: track.cataloguePath, isDirectory: false, track, available });
+    }
+    return [...folders.sort(byName), ...tracks.sort(byName)];
   }
 
   browse(scope: BrowseScope, roots: string[], folderPath?: string | null) {
@@ -908,7 +962,7 @@ export class Catalogue extends EventEmitter {
          ORDER BY t.album_artist, t.album, t.disc_number, t.track_number, t.title`
       )
       .all(label) as Array<Record<string, unknown>>;
-    return rows.map((r) => rowToTrack(r, this.labelsFor(String(r.catalogue_path))));
+    return rows.map((r) => this.toTrack(r));
   }
 
   addLabelToPaths(label: string, paths: string[]): number {
@@ -987,7 +1041,20 @@ export class Catalogue extends EventEmitter {
     if (sel.artist) {
       for (const t of this.artistTracks(sel.artist)) push(t.cataloguePath);
     }
-    if (sel.folder && isUnderRoots(sel.folder, roots)) {
+    if (sel.folder && isUnderRoots(sel.folder, roots) && !this.sources.isConnected(sel.folder)) {
+      // Not connected: only what the catalogue holds, nothing read from the disk.
+      const dir = path.resolve(sel.folder);
+      const rows = this.db
+        .prepare(
+          `SELECT catalogue_path FROM tracks WHERE substr(catalogue_path, 1, length(?)) = ?
+           ORDER BY catalogue_path`
+        )
+        .all(dir, dir) as Array<{ catalogue_path: string }>;
+      for (const { catalogue_path: cp } of rows) {
+        const file = path.resolve(parseSacdPath(cp)?.filePath ?? cp);
+        if (isUnderRoots(file, [dir])) push(cp);
+      }
+    } else if (sel.folder && isUnderRoots(sel.folder, roots)) {
       // Playing an SACD ISO "folder" → all virtual tracks on that disc.
       if (
         fs.existsSync(sel.folder) &&
@@ -1076,6 +1143,11 @@ export class Catalogue extends EventEmitter {
       return;
     }
     throw new Error('unknown edit');
+  }
+
+  private toTrack(row: Record<string, unknown>): Track {
+    const cp = String(row.catalogue_path);
+    return { ...rowToTrack(row, this.labelsFor(cp)), available: !this.sources.isDisconnected(cp) };
   }
 
   private labelsFor(cataloguePathValue: string): string[] {

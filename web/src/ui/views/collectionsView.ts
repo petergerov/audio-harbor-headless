@@ -11,9 +11,17 @@ import type { View, ViewHost } from './view';
 
 /** Playlists and labels: the overview, or the one that is open. */
 export class CollectionsView implements View {
+  private unsubscribe: (() => void) | null = null;
+
   constructor(private readonly ctx: AppContext) {}
 
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+  }
+
   async render(root: HTMLElement, host: ViewHost): Promise<void> {
+    this.dispose();
     await this.ctx.collections.refresh();
     if (this.ctx.store.get().collections.open) {
       await this.ctx.collections.loadOpen();
@@ -125,6 +133,14 @@ export class CollectionsView implements View {
       showToast('Pick music in Catalogue, then use Add');
     });
     this.ctx.covers.hydrate(root);
-    paintMediaList(required(root, '[data-list]'), items, { kind: 'collection', collection: open }, this.ctx);
+    const list = required(root, '[data-list]');
+    paintMediaList(list, items, { kind: 'collection', collection: open }, this.ctx);
+    // Reloaded behind the screen (a drive or share came or went): the list repaints.
+    this.unsubscribe = this.ctx.store.subscribe((state, previous) => {
+      const now = state.collections;
+      if (now.items === previous.collections.items || !list.isConnected) return;
+      if (now.open?.kind !== open.kind || now.open.id !== open.id) return;
+      paintMediaList(list, now.items, { kind: 'collection', collection: open }, this.ctx);
+    });
   }
 }

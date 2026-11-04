@@ -578,6 +578,24 @@ svg {
   color: color-mix(in srgb, var(--tint) 70%, var(--secondary));
 }
 
+/* On a folder, drive or share that is not connected: found and listed, not playable. */
+.row-wrap.unavailable .row-icon,
+.row-wrap.unavailable .row-title {
+  opacity: 0.45;
+}
+
+.row-wrap.unavailable .row-icon img {
+  filter: grayscale(1);
+}
+
+.row-wrap.unavailable .row-sub {
+  color: var(--tertiary);
+}
+
+.cell .row-sub.offline {
+  color: var(--tertiary);
+}
+
 .row-trail {
   display: grid;
   place-items: center;

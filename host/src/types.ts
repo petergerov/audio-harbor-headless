@@ -50,6 +50,8 @@ export interface Track {
   artworkHash: string | null;
   labels: string[];
   fileSize: number | null;
+  /** False while its folder, drive or share is not connected: listed and found, not playable. */
+  available?: boolean;
 }
 
 export interface Album {
@@ -59,6 +61,8 @@ export interface Album {
   year: number | null;
   trackCount: number;
   artworkHash: string | null;
+  /** False while its music is on a source that is not connected. */
+  available?: boolean;
 }
 
 export interface Artist {

@@ -14,6 +14,7 @@ import {
 } from '../engine/bridge.js';
 import type { Catalogue } from '../library/catalogue.js';
 import { resolveDstDffPlaybackPath } from '../library/dstDff.js';
+import { SourceUnavailableError } from '../library/sources.js';
 import {
   listSacdTracks,
   parseSacdPath,
@@ -240,6 +241,7 @@ export class PlaybackService extends EventEmitter {
     }
     const track = this.catalogue.getTrack(cataloguePath);
     if (!track) throw new Error('Track not found');
+    if (!(await this.catalogue.sources.ensure(cataloguePath))) throw new SourceUnavailableError(track);
     const source: QueueSource = { kind: 'Album', name: track.album };
 
     // Playing one SACD track queues the whole disc so next/prev + prefetch work.
@@ -272,10 +274,14 @@ export class PlaybackService extends EventEmitter {
   }
 
   /** Queues `tracks` from `source` (else the start track's album) and plays from `startIndex`. */
-  async playTracks(tracks: Track[], startIndex = 0, source?: QueueSource): Promise<void> {
-    if (!tracks.length) return;
+  async playTracks(all: Track[], startIndex = 0, source?: QueueSource): Promise<void> {
+    if (!all.length) return;
+    const first = all[Math.min(Math.max(0, startIndex), all.length - 1)]!;
+    if (!(await this.catalogue.sources.ensure(first.cataloguePath))) throw new SourceUnavailableError(first);
+    // Tracks on sources that are not connected stay out of the queue.
+    const tracks = all.filter((t) => t === first || !this.catalogue.sources.isDisconnected(t.cataloguePath));
     this.ordered = tracks.slice();
-    const start = Math.min(Math.max(0, startIndex), tracks.length - 1);
+    const start = tracks.indexOf(first);
     const album = tracks[start]!.album;
     this.source = source?.name ? source : album ? { kind: 'Album', name: album } : LOOSE_QUEUE;
     if (this.shuffle && tracks.length > 1) {
@@ -621,9 +627,14 @@ export class PlaybackService extends EventEmitter {
   private indexAfterEnd(): number | null {
     if (this.index == null || !this.queue.length) return null;
     if (this.repeat === 'one') return this.index;
-    const next = this.index + 1;
-    if (next < this.queue.length) return next;
-    return this.repeat === 'all' ? 0 : null;
+    const n = this.queue.length;
+    // Tracks on a source that went away are passed over.
+    for (let step = 1; step <= n; step += 1) {
+      const i = this.index + step;
+      if (i >= n && this.repeat !== 'all') return null;
+      if (!this.catalogue.sources.isDisconnected(this.queue[i % n]!.cataloguePath)) return i % n;
+    }
+    return null;
   }
 
   private async networkTrackEnded(ended: Track): Promise<void> {
@@ -658,9 +669,13 @@ export class PlaybackService extends EventEmitter {
     }
     if (this.index == null || !this.queue.length) return;
     let next = this.index + 1;
+    // A source that went away since the queue was made: its tracks are skipped.
+    while (next < this.queue.length && this.catalogue.sources.isDisconnected(this.queue[next]!.cataloguePath)) {
+      next += 1;
+    }
     if (next >= this.queue.length) {
-      if (this.repeat === 'all') next = 0;
-      else {
+      if (this.repeat === 'all') next = this.queue.findIndex((t) => !this.catalogue.sources.isDisconnected(t.cataloguePath));
+      if (next < 0 || next >= this.queue.length) {
         this.loadSeq += 1;
         engineStop();
         this.network.stop();
@@ -681,7 +696,9 @@ export class PlaybackService extends EventEmitter {
       this.emitUpdate();
       return;
     }
-    const prev = Math.max(0, this.index - 1);
+    let prev = Math.max(0, this.index - 1);
+    while (prev > 0 && this.catalogue.sources.isDisconnected(this.queue[prev]!.cataloguePath)) prev -= 1;
+    if (this.catalogue.sources.isDisconnected(this.queue[prev]!.cataloguePath)) return;
     this.index = prev;
     await this.loadAndPlay(this.queue[prev]!);
   }

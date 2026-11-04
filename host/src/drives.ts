@@ -106,6 +106,23 @@ function harborEntries(): FstabEntry[] {
   return entries;
 }
 
+/**
+ * The Harbor drive or share a folder lies on (Linux, below /mnt/harbor): its file system UUID,
+ * or the SMB server — so it can be looked for without touching the automount.
+ */
+export function harborMountFor(folder: string): { uuid: string | null; server: string | null } | null {
+  if (process.platform !== 'linux') return null;
+  const resolved = path.resolve(folder);
+  const entry = harborEntries().find(
+    (e) => resolved === e.mountPoint || resolved.startsWith(`${e.mountPoint}/`)
+  );
+  if (!entry) return null;
+  return {
+    uuid: entry.share ? null : entry.uuid,
+    server: entry.share ? (entry.share.match(/^\/\/([^/]+)/)?.[1] ?? null) : null,
+  };
+}
+
 function isMounted(mountPoint: string): boolean {
   try {
     // Until first access only the automount stub (autofs) sits there.

@@ -77,7 +77,7 @@ export async function startDlnaServer(opts: DlnaOptions): Promise<DlnaServer> {
 
       if (url.pathname.startsWith('/media/wav/')) {
         const cataloguePath = decodeURIComponent(url.pathname.slice('/media/wav/'.length));
-        if (!isPlayablePath(cataloguePath, opts.roots())) {
+        if (!isPlayablePath(cataloguePath, opts.roots()) || !opts.catalogue.sources.isConnected(cataloguePath)) {
           res.writeHead(404);
           res.end();
           return;
@@ -88,7 +88,8 @@ export async function startDlnaServer(opts: DlnaOptions): Promise<DlnaServer> {
 
       if (url.pathname.startsWith('/media/')) {
         const cataloguePath = decodeURIComponent(url.pathname.slice('/media/'.length));
-        if (!isPlayablePath(cataloguePath, opts.roots())) {
+        // Not connected: 404 at once, no stat that would hang on the gone share.
+        if (!isPlayablePath(cataloguePath, opts.roots()) || !opts.catalogue.sources.isConnected(cataloguePath)) {
           res.writeHead(404);
           res.end();
           return;
@@ -350,7 +351,8 @@ function folderDidl(
   folderPath: string | null,
   parentId: string
 ): { didl: string; count: number } {
-  const entries = opts.catalogue.browseFolder(opts.roots(), folderPath);
+  // Players cannot play what is not connected — they do not see it.
+  const entries = opts.catalogue.browseFolder(opts.roots(), folderPath).filter((e) => e.available !== false);
   const parts: string[] = [];
   const tracks: Track[] = [];
   for (const e of entries) {

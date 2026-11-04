@@ -24,6 +24,14 @@ interface PresentedRow {
 
 type Presenter = (item: BrowseItem, scope: ListScope, ctx: AppContext) => PresentedRow | null;
 
+const NOT_CONNECTED = 'Not connected';
+
+/** The row's subtitle, with "Not connected" in front when its source is gone. */
+function withOffline(subtitle: string, offline: boolean): string {
+  if (!offline) return subtitle;
+  return subtitle ? `${NOT_CONNECTED} · ${subtitle}` : NOT_CONNECTED;
+}
+
 /** The library's top level of `scope`, no search: albums, artists or playlists list as entries. */
 function listing(scope: ListScope, of: 'albums' | 'artists' | 'playlists'): boolean {
   if (scope.kind !== 'library') return false;
@@ -37,14 +45,16 @@ const albumEntry: Presenter = (item, scope, ctx) => {
   if (!listing(scope, 'albums') || !item.title || !item.artist || !item.id || item.cataloguePath) return null;
   const album = { id: item.id, title: item.title, artist: item.artist };
   const count = Number(item.trackCount ?? 0);
+  const offline = item.available === false;
   return {
     row: {
       kind: 'album',
       title: album.title,
-      subtitle: count ? `${album.artist} · ${songs(count)}` : album.artist,
+      subtitle: withOffline(count ? `${album.artist} · ${songs(count)}` : album.artist, offline),
       chevron: true,
       artworkHash: item.artworkHash,
       thumb: true,
+      unavailable: offline,
     },
     selection: { albumId: album.id, title: album.title },
     open: () => void ctx.nav.openAlbum(album),
@@ -82,14 +92,16 @@ const albumSearchHit: Presenter = (item, scope, ctx) => {
   if (scope.kind !== 'library' || !scope.library.query) return null;
   if (!item.title || !item.artist || !item.id || item.cataloguePath) return null;
   const album = { id: item.id, title: item.title, artist: item.artist };
+  const offline = item.available === false;
   return {
     row: {
       kind: 'album',
       title: album.title,
-      subtitle: album.artist,
+      subtitle: withOffline(album.artist, offline),
       chevron: true,
       artworkHash: item.artworkHash,
       thumb: true,
+      unavailable: offline,
     },
     selection: { albumId: album.id, title: album.title },
     open: () => void ctx.nav.openAlbum(album, 'albums'),
@@ -100,8 +112,10 @@ const folderEntry: Presenter = (item, _scope, ctx) => {
   if (!item.isDirectory) return null;
   const path = String(item.path);
   const name = String(item.name);
+  const offline = item.available === false;
   return {
-    row: { kind: 'folder', title: name, subtitle: 'Folder', chevron: true },
+    // Still opens: what the catalogue knows of it shows, greyed out.
+    row: { kind: 'folder', title: name, subtitle: offline ? NOT_CONNECTED : 'Folder', chevron: true, unavailable: offline },
     selection: { folder: path, title: name },
     open: () => void ctx.nav.openFolder(path),
   };
@@ -115,18 +129,24 @@ const trackEntry: Presenter = (item, scope, ctx) => {
   if (!path) return null;
   const labels = (track.labels ?? []).slice(0, 2).join(' · ');
   const artist = track.artist ?? '';
+  const offline = track.available === false || item.available === false;
   return {
     row: {
       kind: 'track',
       // Folder browse may send a formatted name ("01 Title", a disc prefix).
       title: item.name || track.title || 'Track',
-      subtitle: labels ? `${artist} · ${labels}` : artist,
+      subtitle: withOffline(labels ? `${artist} · ${labels}` : artist, offline),
       chevron: false,
       artworkHash: track.artworkHash,
       playing: path === nowPlayingPath(ctx.store.get()),
+      unavailable: offline,
     },
     selection: { cataloguePath: path, title: track.title ?? item.name ?? 'Track' },
     open: () => {
+      if (offline) {
+        showToast('Not connected — cannot play it now');
+        return;
+      }
       // The song already loaded pauses or resumes; its queue stays.
       if (!isCurrentTrack(ctx.store.get(), path)) {
         void ctx.actions.play(playContextFor(path, scope));

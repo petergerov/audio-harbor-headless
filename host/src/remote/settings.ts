@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { rootUuid, type Catalogue } from '../library/catalogue.js';
+import type { SourceMonitor } from '../library/sources.js';
 import type { PlaybackService } from '../playback/service.js';
 import type { DsdPcmLevel, HarborConfig, NetworkDsdMode, NetworkStreamQuality, OutputMode } from '../types.js';
 import type { Sharing } from '../upnp/sharing.js';
@@ -43,6 +44,8 @@ export interface RemoteDirectory {
   id: string;
   name: string;
   displayPath: string;
+  /** False while the folder, drive or share is not connected (Harbor addition; Swift ignores it). */
+  isConnected: boolean;
 }
 
 export interface RemoteAbout {
@@ -67,6 +70,8 @@ export interface SettingsSources {
   catalogue: Catalogue;
   sharing: Sharing;
   getConfig: () => HarborConfig;
+  /** Which library folders, drives and shares are connected now. */
+  sources: SourceMonitor;
   /** Scans the library roots again (the catalogue reports while it runs). */
   rescan: () => Promise<unknown>;
   version: string;
@@ -111,10 +116,12 @@ export class RemoteSettings {
     sources.playback.on('settings', () => this.changed());
     sources.catalogue.on('scanning', () => this.changed());
     sources.sharing.on('change', () => this.changed());
+    // A folder, drive or share came or went: remotes grey its music out or bring it back.
+    sources.sources.on('change', () => this.changed());
   }
 
   snapshot(): SettingsSnapshot {
-    const { playback, catalogue, sharing, getConfig, version } = this.sources;
+    const { playback, catalogue, sharing, getConfig, version, sources } = this.sources;
     const cfg = getConfig();
     const status = playback.outputStatus();
     const picked = status.selectedUid ? status.devices.find((d) => d.uid === status.selectedUid) : undefined;
@@ -149,6 +156,7 @@ export class RemoteSettings {
         id: rootUuid(root),
         name: path.basename(root) || root,
         displayPath: root,
+        isConnected: sources.state(root) !== 'disconnected',
       })),
       isScanning: catalogue.isScanning,
       about: {

@@ -2,6 +2,7 @@ import type { AuthApi } from '../api/authApi';
 import { ApiError } from '../api/http';
 import type { TokenStore } from '../api/http';
 import type { LiveUpdates } from '../api/liveUpdates';
+import type { SettingsSnapshot } from '../api/types';
 import { errorMessage } from '../core/errors';
 import type { Store } from '../core/store';
 import type { CollectionsService } from '../services/collectionsService';
@@ -15,6 +16,12 @@ import type { PlayerBindings } from '../ui/components/playerBindings';
 import { showToast } from '../ui/overlay';
 import type { Shell } from '../ui/shell';
 import { PairingView } from '../ui/views/pairingView';
+
+/** Which library roots are connected, as one string to compare; null before the first snapshot. */
+function connectedRoots(settings: SettingsSnapshot | null | undefined): string | null {
+  if (!settings) return null;
+  return settings.directories.map((d) => `${d.id}:${d.isConnected !== false}`).join(',');
+}
 
 export interface AppDeps {
   root: HTMLElement;
@@ -57,7 +64,12 @@ export class App {
     live.connect((message) => {
       if (message.type === 'nowPlaying') playback.receive(message.payload);
       else if (message.type === 'queue') playback.receiveQueue(message.payload);
-      else if (message.type === 'settings') settings.receive(message.payload);
+      else if (message.type === 'settings') {
+        const before = connectedRoots(this.deps.store.get().settings);
+        settings.receive(message.payload);
+        // A folder, drive or share came or went: grey its music out, or bring it back.
+        if (this.ready && before !== null && before !== connectedRoots(message.payload)) this.sourcesChanged();
+      }
       else if (message.type === 'rack') this.deps.store.update({ rack: message.payload });
       else if (message.type === 'scan') {
         const finished = Boolean(this.deps.store.get().scan?.scanning) && !message.payload.scanning;
@@ -85,6 +97,12 @@ export class App {
     ]);
     this.ready = true;
     shell.render();
+  }
+
+  private sourcesChanged(): void {
+    const { library, collections } = this.deps;
+    void library.load().catch(() => {});
+    if (this.deps.store.get().collections.open) void collections.loadOpen().catch(() => {});
   }
 
   /** The host wants a code (or cannot say: then the pairing screen, as before). */

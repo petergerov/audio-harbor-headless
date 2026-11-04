@@ -48,9 +48,12 @@ function drillOf(library: LibraryState): Drill | null {
 
 /** Catalogue: Dirs · Albums · Artists · Lists. */
 export class LibraryView implements View {
+  private unsubscribe: (() => void) | null = null;
+
   constructor(private readonly ctx: AppContext) {}
 
   render(root: HTMLElement, host: ViewHost): void {
+    this.dispose();
     const library = this.ctx.store.get().library;
     const drill = drillOf(library);
     root.innerHTML = `
@@ -87,13 +90,21 @@ export class LibraryView implements View {
       let debounce: number | undefined;
       search.addEventListener('input', () => {
         window.clearTimeout(debounce);
-        debounce = window.setTimeout(async () => {
-          await this.ctx.nav.search(search.value);
-          this.paintList(list);
-        }, SEARCH_DEBOUNCE_MS);
+        // The new items repaint the list (below).
+        debounce = window.setTimeout(() => void this.ctx.nav.search(search.value), SEARCH_DEBOUNCE_MS);
       });
     }
     this.paintList(list);
+    // Items loaded behind the screen — a search, a scan that ended, a drive or share that came
+    // or went — repaint the list; the header and search field stay.
+    this.unsubscribe = this.ctx.store.subscribe((state, previous) => {
+      if (state.library.items !== previous.library.items && list.isConnected) this.paintList(list);
+    });
+  }
+
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
   }
 
   private browseControls(library: LibraryState): string {

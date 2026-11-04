@@ -36,6 +36,8 @@ export interface Track {
   artworkHash: string | null;
   labels: string[];
   fileSize: number | null;
+  /** False while its folder, drive or share is not connected: listed and found, not playable. */
+  available?: boolean;
 }
 
 export interface AlbumEntry {
@@ -45,6 +47,8 @@ export interface AlbumEntry {
   year: number | null;
   trackCount: number;
   artworkHash: string | null;
+  /** False while its music is on a source that is not connected. */
+  available?: boolean;
 }
 
 export interface ArtistEntry {
@@ -58,6 +62,8 @@ export interface FolderEntry {
   path: string;
   isDirectory: boolean;
   track: Track | null;
+  /** False on a source that is not connected (listed from the catalogue). */
+  available?: boolean;
 }
 
 /** One row of a browse or search answer: an album, an artist, a folder entry or a track. */
@@ -161,7 +167,7 @@ export interface SettingsSnapshot {
     blockedByLicense: boolean;
     activeStreams: number;
   };
-  directories: Array<{ id: string; name: string; displayPath: string }>;
+  directories: Array<{ id: string; name: string; displayPath: string; isConnected?: boolean }>;
   isScanning: boolean;
   about: {
     appName: string;
@@ -197,10 +203,14 @@ export interface CollectionTracks {
   tracks: BrowseItem[];
 }
 
+/** checking: not looked at yet; disconnected: unplugged, not mounted, unreachable or empty. */
+export type SourceState = 'checking' | 'connected' | 'disconnected';
+
 export interface Mount {
   id: string;
   path: string;
   displayName: string;
+  state: SourceState;
 }
 
 /** CPU, memory and disk space of the host (GET /api/v1/system). */

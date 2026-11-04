@@ -17,6 +17,8 @@ export interface RowModel {
   thumb?: boolean;
   /** The track that plays now. */
   playing?: boolean;
+  /** On a folder, drive or share that is not connected: greyed out, not playable. */
+  unavailable?: boolean;
 }
 
 export const PLAYING_GLYPH = `<span class="playing-glyph" aria-label="Now playing">${icons.speaker}</span>`;
@@ -64,6 +66,11 @@ export function mediaRow(options: {
   more.innerHTML = `<span class="more-glyph">···</span>`;
 
   if (options.path) wrap.dataset.path = options.path;
+  if (options.row.unavailable) {
+    wrap.classList.add('unavailable');
+    // Folders and albums still open (the catalogue shows them); a track does not play.
+    if (options.row.kind === 'track') open.setAttribute('aria-disabled', 'true');
+  }
   if (options.row.playing) {
     wrap.classList.add('playing');
     open.classList.add('playing');

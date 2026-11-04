@@ -6,6 +6,7 @@ import { buildServer, loadPairing, printPairingInfo, rotatePin } from './api/ser
 import { configLacked, loadConfig, saveConfig } from './config.js';
 import { engineVersion } from './engine/bridge.js';
 import { Catalogue } from './library/catalogue.js';
+import { SourceMonitor } from './library/sources.js';
 import { lanBaseUrl } from './net.js';
 import { hostPackagePath } from './paths.js';
 import { PlaybackService } from './playback/service.js';
@@ -61,6 +62,10 @@ async function main(): Promise<void> {
   };
 
   const catalogue = new Catalogue();
+  // Which folders, drives and shares are there — looked at off Harbor's threads, every 30 s.
+  const sources = new SourceMonitor(() => cfg.library.roots);
+  catalogue.sources = sources;
+  sources.start();
   // In the background: the remote is up at once and shows the scan's progress.
   if (cfg.library.roots.length) {
     void catalogue
@@ -94,6 +99,7 @@ async function main(): Promise<void> {
     catalogue,
     sharing,
     getConfig,
+    sources,
     rescan: () => catalogue.scanRoots(cfg.library.roots),
     version: hostVersion() || 'unknown',
   });
@@ -105,6 +111,7 @@ async function main(): Promise<void> {
   let remoteUrl: string | null = null;
   const app = await buildServer({
     catalogue,
+    sources,
     playback,
     getConfig,
     settings,
