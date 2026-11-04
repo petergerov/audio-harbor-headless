@@ -22,7 +22,7 @@ export function queueContextTitle(queue: QueueSnapshot | null): string {
 export function queueContextSubtitle(queue: QueueSnapshot | null): string {
   if (!queue?.tracks.length) return '';
   const count = `${queue.tracks.length} track${queue.tracks.length === 1 ? '' : 's'}`;
-  const current = queue.tracks[queue.currentIndex];
+  const current = queue.currentIndex === null ? undefined : queue.tracks[queue.currentIndex];
   const artist = current?.artist?.trim();
   if (artist) return `${artist.toUpperCase()} · ${count}`;
   return count;
