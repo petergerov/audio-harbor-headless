@@ -31,6 +31,14 @@ export interface SettingsApi {
   setUpDrive(uuid: string, name: string): Promise<string>;
   /** Adds an SMB share to /etc/fstab and mounts it; answers with the mount point. */
   setUpShare(share: { server: string; share: string; domain: string; user: string; password: string; name: string }): Promise<string>;
+  /**
+   * Sets the drive or share a folder mounted by hand lies on up under /mnt/harbor (mounts on
+   * its own after a restart) and moves the library over; answers with the new mount point.
+   */
+  automount(
+    path: string,
+    options: { name: string; user?: string; password?: string; domain?: string }
+  ): Promise<string>;
   ejectDrive(name: string): Promise<void>;
   removeDrive(name: string): Promise<void>;
   /** CPU, memory and disk space of the host. */
@@ -111,6 +119,17 @@ export class HttpSettingsApi implements SettingsApi {
     name: string;
   }): Promise<string> {
     const { mountPoint } = await this.http.post<{ mountPoint: string }>('/api/v1/shares', share);
+    return mountPoint;
+  }
+
+  async automount(
+    path: string,
+    options: { name: string; user?: string; password?: string; domain?: string }
+  ): Promise<string> {
+    const { mountPoint } = await this.http.post<{ mountPoint: string }>('/api/v1/mounts/automount', {
+      path,
+      ...options,
+    });
     return mountPoint;
   }
 

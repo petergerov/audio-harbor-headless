@@ -1145,6 +1145,71 @@ export class Catalogue extends EventEmitter {
     throw new Error('unknown edit');
   }
 
+  /**
+   * Moves every track below `from` to the same place below `to` — a drive or share that now
+   * mounts somewhere else. Tags, labels and playlist entries go with it; nothing is read again.
+   * Answers how many tracks moved.
+   */
+  movePaths(from: string, to: string): number {
+    const a = path.resolve(from);
+    const b = path.resolve(to);
+    if (a === b) return 0;
+    const moved = (p: string): string | null =>
+      p === a ? b : p.startsWith(`${a}/`) ? b + p.slice(a.length) : null;
+    const below = 'WHERE substr(catalogue_path, 1, length(?)) = ?';
+
+    let count = 0;
+    this.db.exec('BEGIN');
+    try {
+      const tracks = this.db.prepare(`SELECT catalogue_path FROM tracks ${below}`).all(a, a) as Array<{
+        catalogue_path: string;
+      }>;
+      const updateTrack = this.db.prepare(
+        'UPDATE OR REPLACE tracks SET catalogue_path = ?, id = ? WHERE catalogue_path = ?'
+      );
+      for (const { catalogue_path: cp } of tracks) {
+        const next = moved(cp);
+        if (!next) continue;
+        updateTrack.run(next, trackId(next), cp);
+        count += 1;
+      }
+      const labels = this.db.prepare(`SELECT catalogue_path, label FROM labels ${below}`).all(a, a) as Array<{
+        catalogue_path: string;
+        label: string;
+      }>;
+      const addLabel = this.db.prepare('INSERT OR IGNORE INTO labels (catalogue_path, label) VALUES (?, ?)');
+      const dropLabel = this.db.prepare('DELETE FROM labels WHERE catalogue_path = ? AND label = ?');
+      for (const { catalogue_path: cp, label } of labels) {
+        const next = moved(cp);
+        if (!next) continue;
+        addLabel.run(next, label);
+        dropLabel.run(cp, label);
+      }
+      const playlists = this.db.prepare('SELECT id, paths_json FROM playlists').all() as Array<{
+        id: string;
+        paths_json: string;
+      }>;
+      const updatePlaylist = this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?');
+      for (const pl of playlists) {
+        let paths: string[];
+        try {
+          paths = JSON.parse(pl.paths_json) as string[];
+        } catch {
+          continue;
+        }
+        const next = paths.map((p) => moved(p) ?? p);
+        if (next.some((p, i) => p !== paths[i])) updatePlaylist.run(JSON.stringify(next), pl.id);
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    this.db.exec(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`);
+    this.directories = null;
+    return count;
+  }
+
   private toTrack(row: Record<string, unknown>): Track {
     const cp = String(row.catalogue_path);
     return { ...rowToTrack(row, this.labelsFor(cp)), available: !this.sources.isDisconnected(cp) };

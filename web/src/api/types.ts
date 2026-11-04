@@ -211,6 +211,18 @@ export interface Mount {
   path: string;
   displayName: string;
   state: SourceState;
+  /** On a drive or share mounted by hand (Linux): it can be set up to mount on its own. */
+  automount: AutomountOffer | null;
+}
+
+/** Where a folder mounted by hand comes from, for setting it up under /mnt/harbor. */
+export interface AutomountOffer {
+  kind: 'drive' | 'share';
+  /** `//server/share`, or the drive's UUID and file system. */
+  source: string;
+  /** Where it was mounted. */
+  mountPoint: string;
+  suggestedName: string;
 }
 
 /** CPU, memory and disk space of the host (GET /api/v1/system). */

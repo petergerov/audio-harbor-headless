@@ -16,10 +16,12 @@ import {
   removeDrive,
   setUpDrive,
   setUpShare,
+  suggestName,
 } from '../drives.js';
 import { engineVersion, listLocalDevices } from '../engine/bridge.js';
 import { Catalogue } from '../library/catalogue.js';
 import { SourceUnavailableError, type SourceMonitor } from '../library/sources.js';
+import { splitShare, type SourceOrigin, type SourceOrigins } from '../library/origins.js';
 import type { AccessPolicy } from '../access.js';
 import { isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
@@ -31,8 +33,21 @@ import type { BrowseScope, HarborConfig, OutputMode, QueueSource, Track } from '
 import { UpdateError, type Updater } from '../update.js';
 import type { Sharing } from '../upnp/sharing.js';
 
+/** What the remote shows for setting a folder up to mount on its own; null: nothing to offer. */
+function automountOffer(origin: SourceOrigin | null) {
+  if (!origin) return null;
+  return {
+    kind: origin.kind,
+    source: origin.kind === 'share' ? origin.share : `UUID ${origin.uuid} (${origin.fsType})`,
+    mountPoint: origin.mountPoint,
+    suggestedName: suggestName(path.basename(origin.mountPoint)),
+  };
+}
+
 export interface AppContext {
   catalogue: Catalogue;
+  /** Where library folders mounted by hand come from (Linux). */
+  origins: SourceOrigins;
   /** Which library folders, drives and shares are connected now. */
   sources: SourceMonitor;
   playback: PlaybackService;
@@ -219,6 +234,7 @@ export async function buildServer(ctx: AppContext) {
       path: p,
       displayName: path.basename(p),
       state: ctx.sources.state(p),
+      automount: automountOffer(ctx.origins.get(p)),
     }));
   });
 
@@ -237,6 +253,62 @@ export async function buildServer(ctx: AppContext) {
     // No scan here — the library reads the new folder on Rescan.
     return { roots: cfg.library.roots };
   });
+
+  // A folder on a drive or share mounted by hand: set it up under /mnt/harbor (systemd
+  // automount, back after every restart) and move the library — roots, tracks, labels,
+  // playlists — over to the new mount point.
+  app.post<{
+    Body: { path?: string; name?: string; user?: string; password?: string; domain?: string };
+  }>('/api/v1/mounts/automount', async (req, reply) =>
+    driveCall(reply, async () => {
+      const b = req.body ?? {};
+      const root = path.resolve(String(b.path ?? ''));
+      const origin = ctx.origins.get(root);
+      if (!origin || !ctx.getConfig().library.roots.some((r) => path.resolve(r) === root)) {
+        throw new DriveError('Harbor does not know where this folder comes from — connect it once first');
+      }
+      const name = suggestName(String(b.name ?? '').trim() || path.basename(origin.mountPoint));
+      let mountPoint: string;
+      // Where the old mount point's files are now: a share mounted at a folder inside it
+      // comes back as the whole share, the folder below its mount point.
+      let target: string;
+      if (origin.kind === 'drive') {
+        mountPoint = await setUpDrive(origin.uuid, name);
+        target = mountPoint;
+      } else {
+        const share = splitShare(origin.share);
+        if (!share) throw new DriveError(`Cannot read the share ${origin.share}`);
+        mountPoint = await setUpShare(
+          {
+            server: share.server,
+            share: share.share,
+            domain: String(b.domain ?? '').trim(),
+            user: String(b.user ?? '').trim(),
+            password: String(b.password ?? ''),
+          },
+          name
+        );
+        target = share.subfolder ? path.join(mountPoint, share.subfolder) : mountPoint;
+      }
+
+      const from = path.resolve(origin.mountPoint);
+      const move = (r: string) => {
+        const resolved = path.resolve(r);
+        return resolved === from || resolved.startsWith(`${from}/`) ? target + resolved.slice(from.length) : r;
+      };
+      // The catalogue first (one transaction): a failure there leaves the roots as they were.
+      const moved = ctx.catalogue.movePaths(from, target);
+      const cfg = ctx.getConfig();
+      const before = cfg.library.roots;
+      cfg.library.roots = [...new Set(before.map(move))];
+      saveConfig(cfg);
+      ctx.origins.drop(before.filter((r) => move(r) !== r));
+      req.log.info({ from, to: target, tracks: moved }, 'Library folder now mounts automatically');
+      ctx.settings.changed();
+      void ctx.sources.checkAll();
+      return { mountPoint, roots: cfg.library.roots, movedTracks: moved };
+    })
+  );
 
   // Folder picker: the folders inside `path`, or the places to start from without it.
   app.get<{ Querystring: { path?: string } }>('/api/v1/folders', async (req, reply) => {
@@ -327,6 +399,7 @@ export async function buildServer(ctx: AppContext) {
     const cfg = ctx.getConfig();
     cfg.library.roots = cfg.library.roots.filter((r) => r !== p);
     saveConfig(cfg);
+    ctx.origins.keep(cfg.library.roots);
     ctx.settings.changed();
     void ctx.sources.checkAll();
     return { roots: cfg.library.roots };

@@ -1,5 +1,5 @@
 import type { SettingsApi } from '../../../api/settingsApi';
-import type { Drive, DriveList, ScanProgress } from '../../../api/types';
+import type { AutomountOffer, Drive, DriveList, Mount, ScanProgress } from '../../../api/types';
 import { errorMessage } from '../../../core/errors';
 import { escapeHtml, required } from '../../../core/html';
 import type { Store } from '../../../core/store';
@@ -118,17 +118,23 @@ export class SourcesPane implements Pane {
       row.className = 'cell';
       const offline = mount.state === 'disconnected';
       const status = offline ? 'Not connected · ' : mount.state === 'checking' ? 'Checking… · ' : '';
+      // Mounted by hand: Harbor can take the drive or share over, so it comes back after a restart.
+      const offer = drives.supported ? mount.automount : null;
       row.innerHTML = `
         <div class="row-text">
           <div class="row-title">${escapeHtml(mount.displayName)}</div>
           <div class="row-sub${offline ? ' offline' : ''}">${escapeHtml(status + mount.path)}</div>
         </div>
-        <button type="button" class="btn-text danger">Remove</button>
+        ${offer ? `<button type="button" class="btn-text" data-automount>Auto-Mount</button>` : ''}
+        <button type="button" class="btn-text danger" data-remove>Remove</button>
       `;
-      required(row, 'button').addEventListener('click', async () => {
+      required(row, '[data-remove]').addEventListener('click', async () => {
         await this.settings.removeMount(mount.path);
         await this.render(root);
       });
+      if (offer) {
+        required(row, '[data-automount]').addEventListener('click', () => this.automount(root, mount, offer));
+      }
       list.appendChild(row);
     }
 
@@ -264,6 +270,38 @@ export class SourcesPane implements Pane {
         // Straight on to the music folder on it, as for a drive (after the form has closed).
         window.setTimeout(() => this.chooseFolder(root, mountPoint), 0);
       },
+    });
+  }
+
+  /** A folder on a drive or share mounted by hand → under /mnt/harbor, mounting on its own. */
+  private automount(root: HTMLElement, mount: Mount, offer: AutomountOffer): void {
+    const done = async (mountPoint: string) => {
+      showToast(`${mount.displayName} now mounts on its own at ${mountPoint}`);
+      await this.render(root);
+    };
+    if (offer.kind === 'share') {
+      // A folder inside the share was mounted: the whole share mounts, the library keeps the folder.
+      const [server = '', share = ''] = offer.source.replace(/^\/\//, '').split('/');
+      openShareDialog({
+        known: { server, share, name: offer.suggestedName },
+        onConfirm: async (form) =>
+          done(
+            await this.settings.automount(mount.path, {
+              name: form.name,
+              user: form.user,
+              password: form.password,
+              domain: form.domain,
+            })
+          ),
+      });
+      return;
+    }
+    openNameDialog({
+      title: `Auto-Mount ${mount.displayName}`,
+      placeholder: 'Name under /mnt/harbor (letters, digits, - _ .)',
+      initial: offer.suggestedName,
+      confirmLabel: 'Set Up',
+      onConfirm: async (name) => done(await this.settings.automount(mount.path, { name })),
     });
   }
 
