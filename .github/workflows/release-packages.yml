@@ -67,7 +67,8 @@ jobs:
           build='[]'
           linux='[]'
           add() { jq -c --argjson e "$2" '. + [$e]' <<<"$1"; }
-          [[ "$MACOS_ARM64" == true ]] && build=$(add "$build" '{"platform":"darwin-arm64","runner":"macos-14","macos":true}')
+          # macos-15 is the arm64 macOS runner (the macos-14 image is no longer offered)
+          [[ "$MACOS_ARM64" == true ]] && build=$(add "$build" '{"platform":"darwin-arm64","runner":"macos-15","macos":true}')
           # macos-15-intel is the current x86_64 macOS runner (macos-13 retired Dec 2025)
           [[ "$MACOS_X64" == true ]] && build=$(add "$build" '{"platform":"darwin-x64","runner":"macos-15-intel","macos":true}')
           # Experimental — rsync/packaging issues on windows-2022 kept it disabled so far.
