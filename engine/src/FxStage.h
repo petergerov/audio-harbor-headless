@@ -6,6 +6,17 @@
 #include <thread>
 #include <vector>
 
+/** Where the rack reads a track's decoded PCM: interleaved float frames by absolute position. */
+class DryPcm {
+public:
+  virtual ~DryPcm() = default;
+  /**
+   * Copies up to `frames` frames from `pos` into `out`; fewer (or 0) when they are not decoded
+   * yet. Called from the device thread and the rack's worker at once.
+   */
+  virtual size_t readDry(size_t pos, float* out, size_t frames) = 0;
+};
+
 /**
  * The plugin rack between a player's decoded PCM and its device. A worker renders ahead of
  * the playhead through harbor-fx into a ring; the player reads the ring instead of the PCM.
@@ -25,8 +36,8 @@ public:
   FxStage(const FxStage&) = delete;
   FxStage& operator=(const FxStage&) = delete;
 
-  /** `dry` holds `total` frames, of which `ready` are decoded; valid until detach(). */
-  void attach(const float* dry, const std::atomic<size_t>* ready, size_t total, uint32_t rate, uint16_t channels);
+  /** The track's `total` frames come from `dry`, which stays valid until detach(). */
+  void attach(DryPcm* dry, size_t total, uint32_t rate, uint16_t channels);
   void detach();
 
   /** The rack shapes this track: inserts loaded, PCM of one or two channels. */
@@ -50,8 +61,7 @@ private:
   void restartAt(size_t pos);
   bool renderBlock(uint32_t block);
 
-  const float* dry_ = nullptr;
-  const std::atomic<size_t>* ready_ = nullptr;
+  DryPcm* dry_ = nullptr;
   size_t total_ = 0;
   uint32_t rate_ = 0;
   uint16_t channels_ = 2;
@@ -81,4 +91,5 @@ private:
 
   // Device thread only.
   float gain_ = 1.0f;  // 1 = processed, 0 = dry
+  std::vector<float> dryMix_;  // the dry frames an A/B fade mixes in
 };

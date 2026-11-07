@@ -202,3 +202,21 @@ set_target_properties(fx-stage-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_
 if(UNIX AND NOT APPLE)
   target_link_libraries(fx-stage-test PRIVATE Threads::Threads dl)
 endif()
+
+# PlaybackFeed's ring against FrameSource read straight (not shipped): build/feed-test
+add_executable(feed-test test/FeedTest.cpp src/PlaybackFeed.cpp src/FrameSource.cpp src/DsdPipeline.cpp
+  src/PcmDecoder.cpp)
+target_include_directories(feed-test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+set_target_properties(feed-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+if(APPLE)
+  target_link_libraries(feed-test PRIVATE "-framework AudioToolbox" "-framework CoreFoundation" "-framework Accelerate")
+elseif(UNIX)
+  find_package(Threads REQUIRED)
+  target_link_libraries(feed-test PRIVATE Threads::Threads)
+endif()
+if(MSVC)
+  target_compile_definitions(feed-test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()

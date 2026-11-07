@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <vector>
@@ -41,6 +42,23 @@ double maxDiff(const std::vector<float>& a, const float* b, double scale) {
   return worst;
 }
 
+/** The whole track in memory, as decoded. */
+class VectorPcm final : public DryPcm {
+public:
+  VectorPcm(const std::vector<float>& pcm, uint16_t channels) : pcm_(pcm), channels_(channels) {}
+  size_t readDry(size_t pos, float* out, size_t frames) override {
+    const size_t total = pcm_.size() / channels_;
+    if (pos >= total) return 0;
+    const size_t n = std::min(frames, total - pos);
+    std::memcpy(out, pcm_.data() + pos * channels_, n * channels_ * sizeof(float));
+    return n;
+  }
+
+private:
+  const std::vector<float>& pcm_;
+  uint16_t channels_;
+};
+
 std::string chain(const std::string& plugin, const char* id) {
   return std::string(R"({"cmd":"setChain","inserts":[{"id":"t","format":"clap","path":")") + plugin +
          R"(","pluginId":")" + id + R"("}]})";
@@ -65,10 +83,10 @@ int main(int argc, char** argv) {
     dry[i * 2] = float(0.5 * std::sin(i * 0.031));
     dry[i * 2 + 1] = float(0.4 * std::sin(i * 0.017));
   }
-  std::atomic<size_t> ready {total};
+  VectorPcm source(dry, ch);
 
   FxStage stage;
-  stage.attach(dry.data(), &ready, total, rate, ch);
+  stage.attach(&source, total, rate, ch);
   check(!stage.engaged(), "empty rack: not engaged");
   auto plain = pull(stage, 1000, 4096, ch);
   check(plain.size() == 4096u * ch && maxDiff(plain, dry.data() + 1000 * ch, 1.0) == 0, "empty rack: PCM untouched");

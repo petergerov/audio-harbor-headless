@@ -132,7 +132,6 @@ void convertFloat(const float* in, size_t samples, float gain, snd_pcm_format_t 
 class LinuxPlayer final : public IPlayer {
 public:
   ~LinuxPlayer() override {
-    cancelDecode_();
     stop();
   }
 
@@ -203,16 +202,12 @@ public:
   }
 
   bool load(const std::string& path) override {
-    cancelDecode_();
-    stopUnlocked_();
+    haltThread_(HARBOR_STATE_LOADING);
     std::lock_guard lock(mutex_);
+    teardown_();
     path_ = path;
     state_ = HARBOR_STATE_LOADING;
     error_.clear();
-    pcm_.clear();
-    dop_.clear();
-    readyFrames_.store(0);
-    totalFrames_.store(0);
     isDop_ = false;
     sampleRate_ = 44100;
     channels_ = 2;
@@ -240,13 +235,10 @@ public:
     sampleRate_ = feed_.sampleRate();
     channels_ = feed_.channels();
     isDop_ = feed_.isDop();
-    totalFrames_.store(size_t(feed_.frameCount()));
     duration_ = double(feed_.frameCount()) / double(sampleRate_ ? sampleRate_ : 1);
 
     if (isDop_) {
       badge_ = "DoP";
-      cancelDecodeFlag_.store(false);
-      feed_.startDopFill(dop_, readyFrames_, cancelDecodeFlag_);
     } else {
       if (isDsd) {
         badge_ = effectiveMode_ == HARBOR_MODE_EXCLUSIVE
@@ -255,20 +247,14 @@ public:
       } else if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) {
         badge_ = "Exclusive";
       }
-      cancelDecodeFlag_.store(false);
-      feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
-      fx_.attach(pcm_.data(), &readyFrames_, totalFrames_.load(), sampleRate_, channels_);
+      fx_.attach(&feed_, size_t(feed_.frameCount()), sampleRate_, channels_);
     }
 
-    const size_t want = std::min<size_t>(4096, totalFrames_.load());
-    for (int i = 0; i < 20000; ++i) {
-      if (readyFrames_.load(std::memory_order_acquire) >= want) break;
-      if (cancelDecodeFlag_.load()) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    // The first quantum, so the device can start at once.
+    feed_.waitReady(0, 4096, 20000);
 
     if (!openAlsa_()) {
-      cancelDecode_();
+      teardown_();
       if (error_.empty()) error_ = "ALSA open failed";
       state_ = HARBOR_STATE_FAILED;
       emit_("state", nullptr);
@@ -297,14 +283,19 @@ public:
   }
 
   void stop() override {
+    haltThread_(HARBOR_STATE_IDLE);
     std::lock_guard lock(mutex_);
-    stopUnlocked_();
+    teardown_();
+    state_ = HARBOR_STATE_IDLE;
     emit_("state", nullptr);
   }
 
   void seek(double seconds) override {
     std::lock_guard lock(mutex_);
-    frameIndex_ = size_t(std::max(0.0, seconds) * sampleRate_);
+    const size_t frame = std::min<size_t>(size_t(std::max(0.0, seconds) * sampleRate_), size_t(feed_.frameCount()));
+    // The device thread sees the new index and keeps it (it advances only from the one it read).
+    frameIndex_ = frame;
+    feed_.seek(frame);
     emit_("state", nullptr);
   }
 
@@ -453,34 +444,40 @@ private:
     pcmHandle_ = nullptr;
   }
 
-  void cancelDecode_() {
-    cancelDecodeFlag_.store(true);
-    feed_.join();
-    cancelDecodeFlag_.store(false);
+  /**
+   * Leaves `state` and waits for the device thread to finish its last write. Called without
+   * mutex_: the thread takes it on each pass.
+   */
+  void haltThread_(HarborPlaybackState state) {
+    {
+      std::lock_guard lock(mutex_);
+      if (state_ == HARBOR_STATE_PLAYING) state_ = state;
+    }
+    if (thread_.joinable()) thread_.join();
+    threadRunning_ = false;
   }
 
-  void stopUnlocked_() {
-    state_ = HARBOR_STATE_IDLE;
-    cancelDecode_();
-    feed_.close();
+  /** The device thread is not running: the track's device, rack and decoder go. */
+  void teardown_() {
     closeAlsa_();
     fx_.detach();
+    feed_.close();
     path_.clear();
-    pcm_.clear();
-    dop_.clear();
-    readyFrames_.store(0);
-    totalFrames_.store(0);
     frameIndex_ = 0;
     duration_ = -1;
   }
 
+  /** Under mutex_. */
   void ensureThread_() {
     if (threadRunning_) return;
+    // A thread that left on its own cleared threadRunning_ on its way out; it needs no lock any more.
+    if (thread_.joinable()) thread_.join();
     threadRunning_ = true;
-    std::thread([this] {
+    thread_ = std::thread([this] {
       constexpr size_t block = 1024;
       std::vector<uint8_t> out;
-      std::vector<float> fxBuf;
+      std::vector<float> pcm;
+      std::vector<int32_t> dop;
       while (true) {
         HarborPlaybackState st;
         {
@@ -492,9 +489,8 @@ private:
           }
         }
         size_t idx = frameIndex_.load();
-        const size_t ready = readyFrames_.load(std::memory_order_acquire);
-        const size_t total = totalFrames_.load(std::memory_order_acquire);
-        if (total > 0 && idx >= total) {
+        const size_t total = size_t(feed_.endFrame());
+        if (idx >= total) {
           std::lock_guard lock(mutex_);
           state_ = HARBOR_STATE_IDLE;
           emit_("ended", "{}");
@@ -502,14 +498,15 @@ private:
           threadRunning_ = false;
           break;
         }
+        const size_t want = std::min(block, total - idx);
         size_t n = 0;
-        const bool viaFx = !isDop_ && fx_.engaged();
-        if (viaFx) {
-          // Through the plugin rack, which renders ahead of this loop.
-          fxBuf.resize(block * channels_);
-          n = fx_.read(idx, fxBuf.data(), block);
-        } else if (idx < ready) {
-          n = std::min(block, ready - idx);
+        if (isDop_) {
+          dop.resize(want * channels_);
+          n = feed_.readDop(idx, dop.data(), want);
+        } else {
+          // Through the plugin rack when it has inserts; it renders ahead of this loop.
+          pcm.resize(want * channels_);
+          n = fx_.read(idx, pcm.data(), want);
         }
         if (n == 0) {
           std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -517,11 +514,10 @@ private:
         }
         bool ok = true;
         if (isDop_) {
-          ok = writeFrames_(dop_.data() + idx * channels_, n);
+          ok = writeFrames_(dop.data(), n);
         } else {
           out.resize(n * frameBytes_);
-          const float* src = viaFx ? fxBuf.data() : pcm_.data() + idx * channels_;
-          convertFloat(src, n * channels_, volume_, format_, out.data());
+          convertFloat(pcm.data(), n * channels_, volume_, format_, out.data());
           ok = writeFrames_(out.data(), n);
         }
         if (!ok) {
@@ -532,9 +528,10 @@ private:
           threadRunning_ = false;
           break;
         }
-        frameIndex_.store(idx + n);
+        // A seek meanwhile moved the index: it stands.
+        if (frameIndex_.compare_exchange_strong(idx, idx + n)) feed_.consume(idx + n);
       }
-    }).detach();
+    });
   }
 
   void emit_(const char* event, const char* json) {
@@ -556,19 +553,15 @@ private:
   uint32_t sampleRate_ = 44100;
   uint16_t channels_ = 2;
   bool isDop_ = false;
-  std::vector<float> pcm_;
-  std::vector<int32_t> dop_;
   PlaybackFeed feed_;
   std::atomic<size_t> frameIndex_ { 0 };
-  std::atomic<size_t> readyFrames_ { 0 };
-  std::atomic<size_t> totalFrames_ { 0 };
-  std::atomic<bool> cancelDecodeFlag_ { false };
   snd_pcm_t* pcmHandle_ = nullptr;
   snd_pcm_format_t format_ = SND_PCM_FORMAT_FLOAT_LE;
   uint32_t deviceRate_ = 0;
   int deviceBits_ = 0;
   size_t frameBytes_ = 8;
-  bool threadRunning_ = false;
+  bool threadRunning_ = false;  // under mutex_
+  std::thread thread_;
   FxStage fx_;
 };
 

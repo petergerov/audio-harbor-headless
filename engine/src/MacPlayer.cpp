@@ -37,7 +37,6 @@ class MacPlayer final : public IPlayer {
 public:
   MacPlayer() = default;
   ~MacPlayer() override {
-    cancelDecode_();
     stop();
     releaseHog();
   }
@@ -120,16 +119,11 @@ public:
   }
 
   bool load(const std::string& path) override {
-    cancelDecode_();
-    stopUnlocked_();
     std::lock_guard lock(mutex_);
+    stopUnlocked_();
     path_ = path;
     state_ = HARBOR_STATE_LOADING;
     error_.clear();
-    pcm_.clear();
-    dop_.clear();
-    readyFrames_.store(0);
-    totalFrames_.store(0);
     isDop_ = false;
     sampleRate_ = 44100;
     channels_ = 2;
@@ -157,13 +151,10 @@ public:
     sampleRate_ = feed_.sampleRate();
     channels_ = feed_.channels();
     isDop_ = feed_.isDop();
-    totalFrames_.store(size_t(feed_.frameCount()));
     duration_ = double(feed_.frameCount()) / double(sampleRate_ ? sampleRate_ : 1);
 
     if (isDop_) {
       badge_ = "DoP";
-      cancelDecodeFlag_.store(false);
-      feed_.startDopFill(dop_, readyFrames_, cancelDecodeFlag_);
     } else {
       if (isDsd) {
         badge_ = effectiveMode_ == HARBOR_MODE_EXCLUSIVE
@@ -174,21 +165,14 @@ public:
       } else if (badge_.empty()) {
         badge_.clear();
       }
-      cancelDecodeFlag_.store(false);
-      feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
-      fx_.attach(pcm_.data(), &readyFrames_, totalFrames_.load(), sampleRate_, channels_);
+      fx_.attach(&feed_, size_t(feed_.frameCount()), sampleRate_, channels_);
     }
 
     // Wait for the first quantum so the device can start immediately.
-    const size_t want = std::min<size_t>(4096, totalFrames_.load());
-    for (int i = 0; i < 20000; ++i) {
-      if (readyFrames_.load(std::memory_order_acquire) >= want) break;
-      if (cancelDecodeFlag_.load()) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    feed_.waitReady(0, 4096, 20000);
 
     if (!openUnit_()) {
-      cancelDecode_();
+      stopUnlocked_();
       error_ = "Failed to open audio unit";
       state_ = HARBOR_STATE_FAILED;
       emit_("state", nullptr);
@@ -224,7 +208,10 @@ public:
 
   void seek(double seconds) override {
     std::lock_guard lock(mutex_);
-    frameIndex_ = size_t(std::max(0.0, seconds) * sampleRate_);
+    const size_t frame = std::min<size_t>(size_t(std::max(0.0, seconds) * sampleRate_), size_t(feed_.frameCount()));
+    // The render callback sees the new index and keeps it (it advances only from the one it read).
+    frameIndex_ = frame;
+    feed_.seek(frame);
     emit_("state", nullptr);
   }
 
@@ -421,22 +408,12 @@ private:
     releaseHog();
   }
 
-  void cancelDecode_() {
-    cancelDecodeFlag_.store(true);
-    feed_.join();
-    cancelDecodeFlag_.store(false);
-  }
-
+  /** The unit first: once disposed, no render callback reads the rack or the decoder. */
   void stopUnlocked_() {
-    cancelDecode_();
-    feed_.close();
     closeUnit_();
     fx_.detach();
+    feed_.close();
     path_.clear();
-    pcm_.clear();
-    dop_.clear();
-    readyFrames_.store(0);
-    totalFrames_.store(0);
     frameIndex_ = 0;
     duration_ = -1;
     state_ = HARBOR_STATE_IDLE;
@@ -463,69 +440,31 @@ private:
     if (!ioData || !ioData->mNumberBuffers) return noErr;
     auto& buf = ioData->mBuffers[0];
     const size_t ch = self->channels_;
+    const size_t frames = inNumberFrames;
     size_t idx = self->frameIndex_.load();
+    const size_t total = size_t(self->feed_.endFrame());
+    const size_t want = idx < total ? std::min(frames, total - idx) : 0;
 
+    // What is not decoded (or, through the plugin rack, rendered) yet plays as silence, position held.
+    size_t got = 0;
     if (self->isDop_) {
       auto* out = static_cast<int32_t*>(buf.mData);
-      const size_t ready = self->readyFrames_.load(std::memory_order_acquire);
-      const size_t total = self->totalFrames_.load(std::memory_order_acquire);
-      for (UInt32 i = 0; i < inNumberFrames; ++i) {
-        if (total > 0 && idx >= total) {
-          for (size_t c = 0; c < ch; ++c) out[i * ch + c] = 0;
-          ++idx;
-          continue;
-        }
-        if (idx >= ready) {
-          for (size_t c = 0; c < ch; ++c) out[i * ch + c] = 0;
-          continue;
-        }
-        for (size_t c = 0; c < ch; ++c) out[i * ch + c] = self->dop_[idx * ch + c];
-        ++idx;
-      }
-      self->frameIndex_.store(idx);
-      if (total > 0 && idx >= total && self->state_ == HARBOR_STATE_PLAYING) {
-        self->state_ = HARBOR_STATE_IDLE;
-        self->emit_("ended", "{}");
-        self->emit_("state", nullptr);
-      }
-    } else if (self->fx_.engaged()) {
-      // Through the plugin rack: what is not rendered yet plays as silence, position held.
-      auto* out = static_cast<float*>(buf.mData);
-      const size_t total = self->totalFrames_.load(std::memory_order_acquire);
-      size_t got = 0;
-      if (total == 0 || idx < total) got = self->fx_.read(idx, out, inNumberFrames);
-      std::fill(out + got * ch, out + size_t(inNumberFrames) * ch, 0.0f);
-      idx += got;
-      self->frameIndex_.store(idx);
-      if (total > 0 && idx >= total && self->state_ == HARBOR_STATE_PLAYING) {
-        self->state_ = HARBOR_STATE_IDLE;
-        self->emit_("ended", "{}");
-        self->emit_("state", nullptr);
-      }
+      if (want) got = self->feed_.readDop(idx, out, want);
+      std::fill(out + got * ch, out + frames * ch, 0);
     } else {
       auto* out = static_cast<float*>(buf.mData);
-      const size_t ready = self->readyFrames_.load(std::memory_order_acquire);
-      const size_t total = self->totalFrames_.load(std::memory_order_acquire);
-      for (UInt32 i = 0; i < inNumberFrames; ++i) {
-        if (total > 0 && idx >= total) {
-          for (size_t c = 0; c < ch; ++c) out[i * ch + c] = 0.0f;
-          ++idx;
-          continue;
-        }
-        if (idx >= ready) {
-          // Decoder still catching up — hold position, play silence.
-          for (size_t c = 0; c < ch; ++c) out[i * ch + c] = 0.0f;
-          continue;
-        }
-        for (size_t c = 0; c < ch; ++c) out[i * ch + c] = self->pcm_[idx * ch + c];
-        ++idx;
-      }
-      self->frameIndex_.store(idx);
-      if (total > 0 && idx >= total && self->state_ == HARBOR_STATE_PLAYING) {
-        self->state_ = HARBOR_STATE_IDLE;
-        self->emit_("ended", "{}");
-        self->emit_("state", nullptr);
-      }
+      if (want) got = self->fx_.read(idx, out, want);
+      std::fill(out + got * ch, out + frames * ch, 0.0f);
+    }
+    // A seek meanwhile moved the index: it stands.
+    if (got && self->frameIndex_.compare_exchange_strong(idx, idx + got)) {
+      idx += got;
+      self->feed_.consume(idx);
+    }
+    if (idx >= total && self->state_ == HARBOR_STATE_PLAYING) {
+      self->state_ = HARBOR_STATE_IDLE;
+      self->emit_("ended", "{}");
+      self->emit_("state", nullptr);
     }
     return noErr;
   }
@@ -545,13 +484,8 @@ private:
   uint32_t sampleRate_ = 44100;
   uint16_t channels_ = 2;
   bool isDop_ = false;
-  std::vector<float> pcm_;
-  std::vector<int32_t> dop_;
   PlaybackFeed feed_;
   std::atomic<size_t> frameIndex_ { 0 };
-  std::atomic<size_t> readyFrames_ { 0 };
-  std::atomic<size_t> totalFrames_ { 0 };
-  std::atomic<bool> cancelDecodeFlag_ { false };
   AudioUnit audioUnit_ = nullptr;
   AudioDeviceID hoggedId_ = kAudioObjectUnknown;
   FxStage fx_;

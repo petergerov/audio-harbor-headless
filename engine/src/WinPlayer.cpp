@@ -95,7 +95,6 @@ class WinPlayer final : public IPlayer {
 public:
   WinPlayer() = default;
   ~WinPlayer() override {
-    cancelDecode_();
     stop();
     closeClient_();
   }
@@ -166,16 +165,12 @@ public:
   }
 
   bool load(const std::string& path) override {
-    cancelDecode_();
-    stopUnlocked_();
+    haltThread_(HARBOR_STATE_LOADING);
     std::lock_guard lock(mutex_);
+    teardown_();
     path_ = path;
     state_ = HARBOR_STATE_LOADING;
     error_.clear();
-    pcm_.clear();
-    dop_.clear();
-    readyFrames_.store(0);
-    totalFrames_.store(0);
     isDop_ = false;
     frameIndex_ = 0;
     sampleRate_ = 44100;
@@ -199,13 +194,10 @@ public:
     sampleRate_ = feed_.sampleRate();
     channels_ = feed_.channels();
     isDop_ = feed_.isDop();
-    totalFrames_.store(size_t(feed_.frameCount()));
     duration_ = double(feed_.frameCount()) / double(sampleRate_ ? sampleRate_ : 1);
 
     if (isDop_) {
       badge_ = "DoP · WASAPI Exclusive";
-      cancelDecodeFlag_.store(false);
-      feed_.startDopFill(dop_, readyFrames_, cancelDecodeFlag_);
     } else {
       if (isDsd) {
         badge_ = effectiveMode_ == HARBOR_MODE_EXCLUSIVE ? "Exclusive · DSD→PCM"
@@ -213,19 +205,13 @@ public:
       } else if (effectiveMode_ == HARBOR_MODE_EXCLUSIVE) {
         badge_ = "Exclusive · WASAPI";
       }
-      cancelDecodeFlag_.store(false);
-      feed_.startFloatFill(pcm_, readyFrames_, cancelDecodeFlag_);
     }
 
-    const size_t want = std::min<size_t>(4096, totalFrames_.load());
-    for (int i = 0; i < 20000; ++i) {
-      if (readyFrames_.load(std::memory_order_acquire) >= want) break;
-      if (cancelDecodeFlag_.load()) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    // The first quantum, so the device can start at once.
+    feed_.waitReady(0, 4096, 20000);
 
     if (!openClient_()) {
-      cancelDecode_();
+      teardown_();
       if (error_.empty()) error_ = "WASAPI open failed";
       state_ = HARBOR_STATE_FAILED;
       emit_("state", nullptr);
@@ -255,14 +241,19 @@ public:
   }
 
   void stop() override {
+    haltThread_(HARBOR_STATE_IDLE);
     std::lock_guard lock(mutex_);
-    stopUnlocked_();
+    teardown_();
+    state_ = HARBOR_STATE_IDLE;
     emit_("state", nullptr);
   }
 
   void seek(double seconds) override {
     std::lock_guard lock(mutex_);
-    frameIndex_ = size_t(std::max(0.0, seconds) * sampleRate_);
+    const size_t frame = std::min<size_t>(size_t(std::max(0.0, seconds) * sampleRate_), size_t(feed_.frameCount()));
+    // The device thread sees the new index and keeps it (it advances only from the one it read).
+    frameIndex_ = frame;
+    feed_.seek(frame);
     emit_("state", nullptr);
   }
 
@@ -522,81 +513,85 @@ private:
     bufferFrames_ = 0;
   }
 
-  void cancelDecode_() {
-    cancelDecodeFlag_.store(true);
-    feed_.join();
-    cancelDecodeFlag_.store(false);
+  /**
+   * Leaves `state` and waits for the device thread to finish its last buffer. Called without
+   * mutex_: the thread takes it on each pass.
+   */
+  void haltThread_(HarborPlaybackState state) {
+    {
+      std::lock_guard lock(mutex_);
+      if (state_ == HARBOR_STATE_PLAYING) state_ = state;
+    }
+    if (thread_.joinable()) thread_.join();
+    threadRunning_ = false;
   }
 
-  void stopUnlocked_() {
-    state_ = HARBOR_STATE_IDLE;
-    cancelDecode_();
-    feed_.close();
+  /** The device thread is not running: the track's client and decoder go. */
+  void teardown_() {
     closeClient_();
+    feed_.close();
     path_.clear();
-    pcm_.clear();
-    dop_.clear();
-    readyFrames_.store(0);
-    totalFrames_.store(0);
     frameIndex_ = 0;
     duration_ = -1;
   }
 
+  /** Device thread only: `frames` frames into the device buffer, silence for what is not decoded. */
   void writeFrames_(BYTE* data, UINT32 frames) {
     if (frames == 0) return;
     size_t idx = frameIndex_.load();
-    const size_t ready = readyFrames_.load(std::memory_order_acquire);
-    const size_t total = totalFrames_.load(std::memory_order_acquire);
-    size_t advanced = 0;
+    const size_t total = size_t(feed_.endFrame());
+    // The decoder's layout; Shared mode may give the device another channel count.
+    const size_t srcCh = feed_.channels();
+    const size_t want = idx < total ? std::min<size_t>(frames, total - idx) : 0;
+    size_t got = 0;
     if (isDop_) {
-      for (UINT32 f = 0; f < frames; ++f) {
-        for (uint16_t c = 0; c < channels_; ++c) {
-          int32_t sample = 0;
-          if (idx + f < ready) sample = dop_[(idx + f) * channels_ + c];
+      dopBuf_.resize(size_t(frames) * srcCh);
+      if (want) got = feed_.readDop(idx, dopBuf_.data(), want);
+    } else {
+      pcmBuf_.resize(size_t(frames) * srcCh);
+      if (want) got = feed_.readFloat(idx, pcmBuf_.data(), want);
+    }
+
+    for (UINT32 f = 0; f < frames; ++f) {
+      for (uint16_t c = 0; c < channels_; ++c) {
+        const bool have = f < got && c < srcCh;
+        if (isDop_) {
+          const int32_t sample = have ? dopBuf_[f * srcCh + c] : 0;
           if (bitsPerSample_ <= 16) {
             reinterpret_cast<int16_t*>(data)[f * channels_ + c] = int16_t(sample >> 16);
           } else {
             reinterpret_cast<int32_t*>(data)[f * channels_ + c] = sample;
           }
+          continue;
         }
-        if (idx + f < ready) ++advanced;
-        else if (total > 0 && idx + f >= total) ++advanced;
-      }
-      frameIndex_.store(idx + advanced);
-      return;
-    }
-
-    for (UINT32 f = 0; f < frames; ++f) {
-      for (uint16_t c = 0; c < channels_; ++c) {
-        float sample = 0.f;
-        if (idx + f < ready) sample = pcm_[(idx + f) * channels_ + c] * volume_;
+        const float sample = have ? pcmBuf_[f * srcCh + c] * volume_ : 0.f;
         if (useFloat_) {
           reinterpret_cast<float*>(data)[f * channels_ + c] = sample;
         } else if (bitsPerSample_ <= 16) {
           const float clamped = std::max(-1.f, std::min(1.f, sample));
-          reinterpret_cast<int16_t*>(data)[f * channels_ + c] =
-              int16_t(clamped * 32767.f);
+          reinterpret_cast<int16_t*>(data)[f * channels_ + c] = int16_t(clamped * 32767.f);
         } else {
           const float clamped = std::max(-1.f, std::min(1.f, sample));
-          reinterpret_cast<int32_t*>(data)[f * channels_ + c] =
-              int32_t(clamped * 2147483647.f);
+          reinterpret_cast<int32_t*>(data)[f * channels_ + c] = int32_t(clamped * 2147483647.f);
         }
       }
-      if (idx + f < ready) ++advanced;
-      else if (total > 0 && idx + f >= total) ++advanced;
     }
-    frameIndex_.store(idx + advanced);
+    // Past the end the silence counts, so the track ends; a seek meanwhile moved the index: it stands.
+    const size_t next = idx + got >= total ? total : idx + got;
+    if (next != idx && frameIndex_.compare_exchange_strong(idx, next)) feed_.consume(next);
   }
 
   bool ended_() const {
-    const size_t total = totalFrames_.load(std::memory_order_acquire);
-    return total > 0 && frameIndex_.load() >= total;
+    return frameIndex_.load() >= size_t(feed_.endFrame());
   }
 
+  /** Under mutex_. */
   void ensureThread_() {
     if (threadRunning_) return;
+    // A thread that left on its own cleared threadRunning_ on its way out; it needs no lock any more.
+    if (thread_.joinable()) thread_.join();
     threadRunning_ = true;
-    std::thread([this] {
+    thread_ = std::thread([this] {
       ComInit com;
       while (true) {
         HarborPlaybackState st;
@@ -626,9 +621,7 @@ private:
         }
 
         const size_t idx = frameIndex_.load();
-        const size_t ready = readyFrames_.load(std::memory_order_acquire);
-        const size_t total = totalFrames_.load(std::memory_order_acquire);
-        if (idx >= ready && (total == 0 || idx < total)) {
+        if (feed_.available(idx) == 0) {
           std::this_thread::sleep_for(std::chrono::milliseconds(2));
           continue;
         }
@@ -663,7 +656,7 @@ private:
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
-    }).detach();
+    });
   }
 
   void emit_(const char* event, const char* json) {
@@ -687,17 +680,16 @@ private:
   bool isDop_ = false;
   bool useFloat_ = true;
   WORD bitsPerSample_ = 32;
-  std::vector<float> pcm_;
-  std::vector<int32_t> dop_;
   PlaybackFeed feed_;
   std::atomic<size_t> frameIndex_ { 0 };
-  std::atomic<size_t> readyFrames_ { 0 };
-  std::atomic<size_t> totalFrames_ { 0 };
-  std::atomic<bool> cancelDecodeFlag_ { false };
+  // Device thread only.
+  std::vector<float> pcmBuf_;
+  std::vector<int32_t> dopBuf_;
   IAudioClient* client_ = nullptr;
   IAudioRenderClient* render_ = nullptr;
   UINT32 bufferFrames_ = 0;
-  bool threadRunning_ = false;
+  bool threadRunning_ = false;  // under mutex_
+  std::thread thread_;
 };
 
 } // namespace

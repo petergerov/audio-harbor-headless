@@ -52,11 +52,9 @@ bool FxStage::live() {
   return steadyMs() < g_liveUntilMs.load();
 }
 
-void FxStage::attach(const float* dry, const std::atomic<size_t>* ready, size_t total, uint32_t rate,
-                     uint16_t channels) {
+void FxStage::attach(DryPcm* dry, size_t total, uint32_t rate, uint16_t channels) {
   detach();
   dry_ = dry;
-  ready_ = ready;
   total_ = total;
   rate_ = rate ? rate : 44100;
   channels_ = channels;
@@ -65,6 +63,7 @@ void FxStage::attach(const float* dry, const std::atomic<size_t>* ready, size_t 
   capacity_ = lookahead_ + 2 * size_t(block_);
   ring_.assign(capacity_ * channels_, 0.0f);
   scratch_.assign(size_t(block_) * channels_, 0.0f);
+  dryMix_.assign(4096 * size_t(channels_), 0.0f);
   readPos_ = 0;
   writePos_ = 0;
   seekRequest_ = 0;
@@ -79,7 +78,6 @@ void FxStage::detach() {
   stop_ = true;
   if (worker_.joinable()) worker_.join();
   dry_ = nullptr;
-  ready_ = nullptr;
   total_ = 0;
   wet_ = false;
 }
@@ -91,13 +89,7 @@ bool FxStage::engaged() const {
 size_t FxStage::read(size_t pos, float* out, size_t frames) {
   if (!dry_ || pos >= total_) return 0;
   const size_t ch = channels_;
-  if (!engaged()) {
-    const size_t ready = ready_->load(std::memory_order_acquire);
-    if (pos >= ready) return 0;
-    const size_t n = std::min(frames, ready - pos);
-    std::memcpy(out, dry_ + pos * ch, n * ch * sizeof(float));
-    return n;
-  }
+  if (!engaged()) return dry_->readDry(pos, out, std::min(frames, total_ - pos));
   if (seekRequest_.load(std::memory_order_acquire) != seekAck_.load(std::memory_order_acquire)) return 0;
   if (!wet_.load(std::memory_order_acquire) || pos != readPos_.load(std::memory_order_relaxed)) {
     seekTo_.store(pos, std::memory_order_relaxed);
@@ -105,9 +97,15 @@ size_t FxStage::read(size_t pos, float* out, size_t frames) {
     return 0;
   }
   const size_t avail = writePos_.load(std::memory_order_acquire) - pos;
-  const size_t n = std::min(frames, avail);
+  size_t n = std::min(frames, avail);
   const float target = g_bypassed.load(std::memory_order_relaxed) ? 0.0f : 1.0f;
   const float step = float(1.0 / (kFadeSecs * rate_));
+  // Fading or bypassed: the dry frames too. They are decoded — the rack rendered past them.
+  const bool mix = gain_ != 1.0f || target != 1.0f;
+  if (mix && n > 0) {
+    if (dryMix_.size() < n * ch) dryMix_.resize(n * ch);
+    n = dry_->readDry(pos, dryMix_.data(), n);
+  }
   for (size_t i = 0; i < n; ++i) {
     const float* wet = ring_.data() + ((pos + i) % capacity_) * ch;
     float* o = out + i * ch;
@@ -117,7 +115,7 @@ size_t FxStage::read(size_t pos, float* out, size_t frames) {
     }
     if (gain_ < target) gain_ = std::min(target, gain_ + step);
     else if (gain_ > target) gain_ = std::max(target, gain_ - step);
-    const float* d = dry_ + (pos + i) * ch;
+    const float* d = dryMix_.data() + i * ch;
     for (size_t c = 0; c < ch; ++c) o[c] = gain_ * wet[c] + (1.0f - gain_) * d[c];
   }
   readPos_.store(pos + n, std::memory_order_release);
@@ -176,15 +174,11 @@ void FxStage::restartAt(size_t pos) {
 
 bool FxStage::renderBlock(uint32_t block) {
   const size_t ch = channels_;
-  const size_t ready = ready_->load(std::memory_order_acquire);
-  const size_t need = std::min(feedPos_ + block, total_);
-  if (ready < need && ready < total_) return false;  // decoder still behind
-
   const size_t written = writePos_.load(std::memory_order_relaxed);
   size_t produced = 0;
   if (!dryFallback_) {
     const size_t real = feedPos_ < total_ ? std::min<size_t>(block, total_ - feedPos_) : 0;
-    std::memcpy(scratch_.data(), dry_ + feedPos_ * ch, real * ch * sizeof(float));
+    if (real > 0 && dry_->readDry(feedPos_, scratch_.data(), real) < real) return false;  // decoder still behind
     std::fill(scratch_.begin() + long(real * ch), scratch_.begin() + long(size_t(block) * ch), 0.0f);
     if (FxClient::instance().process(scratch_.data(), block)) {
       const size_t skip = std::min<size_t>(discard_, block);
@@ -202,8 +196,9 @@ bool FxStage::renderBlock(uint32_t block) {
   }
   // harbor-fx is gone: the music goes on dry until it is back (a new generation).
   produced = std::min<size_t>(block, total_ - written);
+  if (produced > 0 && dry_->readDry(written, scratch_.data(), produced) < produced) return false;
   for (size_t i = 0; i < produced; ++i) {
-    std::memcpy(ring_.data() + ((written + i) % capacity_) * ch, dry_ + (written + i) * ch, ch * sizeof(float));
+    std::memcpy(ring_.data() + ((written + i) % capacity_) * ch, scratch_.data() + i * ch, ch * sizeof(float));
   }
   writePos_.store(written + produced, std::memory_order_release);
   return true;
