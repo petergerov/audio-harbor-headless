@@ -1,5 +1,6 @@
 #include "FrameSource.h"
 
+#include "AlacReader.h"
 #include "DsdPipeline.h"
 #include "PcmDecoder.h"
 
@@ -251,6 +252,39 @@ private:
   drflac* flac_ = nullptr;
   uint16_t bits_ = 24;
   uint64_t position_ = 0;
+  std::vector<int32_t> buffer_;
+};
+
+/** Apple Lossless in MP4 / M4A, decoded natively packet by packet (AlacReader). */
+class AlacSource final : public FrameSource {
+public:
+  bool open(const std::string& path, std::string& error, bool& notAlac) {
+    if (!reader_.open(path, error, notAlac)) return false;
+    bits_ = reader_.bitDepth() <= 16 ? 16 : 24;
+    return true;
+  }
+  uint32_t sampleRate() const override { return reader_.sampleRate(); }
+  uint16_t channels() const override { return reader_.channels(); }
+  uint64_t frameCount() const override { return reader_.frameCount(); }
+  uint16_t bitsPerSample() const override { return bits_; }
+
+  size_t readFloat(uint64_t startFrame, size_t count, float* out) override {
+    buffer_.resize(count * channels());
+    const size_t n = reader_.readS32(startFrame, count, buffer_.data());
+    s32ToFloat(buffer_.data(), n * channels(), out);
+    return n;
+  }
+
+  size_t readPacked(uint64_t startFrame, size_t count, uint8_t* out) override {
+    buffer_.resize(count * channels());
+    const size_t n = reader_.readS32(startFrame, count, buffer_.data());
+    packS32(buffer_.data(), n * channels(), bits_, out);
+    return n;
+  }
+
+private:
+  AlacReader reader_;
+  uint16_t bits_ = 24;
   std::vector<int32_t> buffer_;
 };
 
@@ -629,7 +663,7 @@ private:
 };
 #endif
 
-/** Whole file decoded up front (ALAC / AAC through ffmpeg off the Mac). */
+/** Whole file decoded up front (AAC through ffmpeg off the Mac; ALAC is AlacSource). */
 class MemorySource final : public FrameSource {
 public:
   bool open(const std::string& path, std::string& error) {
@@ -687,6 +721,16 @@ std::unique_ptr<FrameSource> openFrameSource(
   }
 
   std::unique_ptr<FrameSource> source;
+  // MP4 / M4A: Apple Lossless natively everywhere; other codecs in it (AAC) go on below.
+  std::string alacError;
+  if (endsWithCi(path, ".m4a") || endsWithCi(path, ".mp4") || endsWithCi(path, ".alac") ||
+      endsWithCi(path, ".m4b")) {
+    auto alac = std::make_unique<AlacSource>();
+    bool notAlac = false;
+    if (alac->open(path, alacError, notAlac)) return alac;
+    if (notAlac) alacError.clear();
+  }
+
   if (endsWithCi(path, ".flac")) source = tryOpen<FlacSource>(path, error);
   else if (endsWithCi(path, ".wav") || endsWithCi(path, ".wave")) source = tryOpen<WavSource>(path, error);
   else if (endsWithCi(path, ".mp3")) source = tryOpen<Mp3Source>(path, error);
@@ -699,5 +743,8 @@ std::unique_ptr<FrameSource> openFrameSource(
   source = tryOpen<AppleFileSource>(path, error);
   if (source) return source;
 #endif
-  return tryOpen<MemorySource>(path, error);
+  source = tryOpen<MemorySource>(path, error);
+  // An ALAC file the native reader could not read: its reason, not the fallback's.
+  if (!source && !alacError.empty()) error = alacError;
+  return source;
 }

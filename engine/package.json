@@ -8,6 +8,7 @@
     "build": "node scripts/build.js",
     "clean": "rm -rf build",
     "test:feed": "build/feed-test",
+    "test:alac": "build/alac-test",
     "test:fx": "build/fx-stage-test build/Release/harbor-fx build/test-plugins/harbor-test-gain.clap && node fx/test/net-fx-test.js build/Release/harbor-fx build/test-plugins/harbor-test-gain.clap"
   },
   "dependencies": {

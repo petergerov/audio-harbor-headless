@@ -49,7 +49,24 @@ elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../node_modules/node-addon-api")
   include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../node_modules/node-addon-api")
 endif()
 
+# Apple's open-source ALAC decoder (third_party/alac, Apache 2.0): Apple Lossless natively.
+set(ALAC_SOURCES
+  third_party/alac/ALACDecoder.cpp
+  third_party/alac/ALACBitUtilities.c
+  third_party/alac/ag_dec.c
+  third_party/alac/dp_dec.c
+  third_party/alac/matrix_dec.c
+  third_party/alac/EndianPortable.c
+)
+# Its predictor can overflow on a damaged packet: defined wrap-around (noise) instead of undefined
+# behaviour — the same result real CPUs give, without the optimizer assuming it never happens.
+if(NOT MSVC)
+  set_source_files_properties(${ALAC_SOURCES} PROPERTIES COMPILE_OPTIONS "-fwrapv")
+endif()
+
 set(ENGINE_SOURCES
+  ${ALAC_SOURCES}
+  src/AlacReader.cpp
   src/HarborEngine.cpp
   src/PlayerFactory.cpp
   src/StubPlayer.cpp
@@ -203,9 +220,24 @@ if(UNIX AND NOT APPLE)
   target_link_libraries(fx-stage-test PRIVATE Threads::Threads dl)
 endif()
 
+# The native ALAC decoder against a reference decode (not shipped): build/alac-test <file.m4a>…
+add_executable(alac-test test/AlacTest.cpp src/AlacReader.cpp src/FrameSource.cpp src/DsdPipeline.cpp
+  src/PcmDecoder.cpp ${ALAC_SOURCES})
+target_include_directories(alac-test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+set_target_properties(alac-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+if(APPLE)
+  target_link_libraries(alac-test PRIVATE "-framework AudioToolbox" "-framework CoreFoundation" "-framework Accelerate")
+endif()
+if(MSVC)
+  target_compile_definitions(alac-test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 # PlaybackFeed's ring against FrameSource read straight (not shipped): build/feed-test
 add_executable(feed-test test/FeedTest.cpp src/PlaybackFeed.cpp src/FrameSource.cpp src/DsdPipeline.cpp
-  src/PcmDecoder.cpp)
+  src/PcmDecoder.cpp src/AlacReader.cpp ${ALAC_SOURCES})
 target_include_directories(feed-test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party

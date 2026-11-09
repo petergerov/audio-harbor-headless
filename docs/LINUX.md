@@ -104,7 +104,7 @@ sudo apt install ./audio-harbor-headless_1.2.2_arm64.deb
 - 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package. See [Which package](#which-package).
 - glibc 2.32 or newer: Raspberry Pi OS Bookworm or newer, Debian 12+, Ubuntu 22.04+. The package states the exact version in `Depends`.
 - systemd for the service. Without it (e.g. in a container) the package installs and `audioharbor` starts by hand.
-- `ffmpeg` for ALAC / AAC (`.m4a`): the engine decodes those through `ffprobe` / `ffmpeg` (FLAC, WAV, AIFF, MP3 and DSD need nothing). The package recommends it, so apt installs it with Harbor and with an update; on a host where it is missing — the remote says *ALAC/AAC requires ffmpeg/ffprobe* — `sudo apt install ffmpeg`. Cover art is scaled with it too.
+- `ffmpeg`, optional: only for AAC (`.m4a` from iTunes purchases, say) and for scaling large cover art. Apple Lossless (ALAC) — like FLAC, WAV, AIFF, MP3 and DSD — needs nothing: the engine decodes it natively. The package suggests `ffmpeg` rather than installing it, since Debian's build brings ~200 packages (video codecs, GTK, Mesa) Harbor never uses; for AAC: `sudo apt install --no-install-recommends ffmpeg` (the remote says *AAC needs ffmpeg on the host* when it is missing).
 
 Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 

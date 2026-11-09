@@ -162,7 +162,8 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
     return !out.interleaved.empty();
   }
 
-  // ALAC / AAC / M4A via ffmpeg when available (Linux/Windows; Mac prefers ExtAudioFile)
+  // AAC / other MP4 audio via ffmpeg when available (Linux/Windows; Mac prefers ExtAudioFile).
+  // Apple Lossless never gets here: AlacReader decodes it natively.
   if (endsWithCi(path, ".m4a") || endsWithCi(path, ".mp4") || endsWithCi(path, ".alac") ||
       endsWithCi(path, ".aac")) {
 #if defined(_WIN32)
@@ -201,7 +202,8 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
       harbor_pclose(probe);
     }
     if (!rate || !channels) {
-      error = "ALAC/AAC requires ffmpeg/ffprobe";
+      // ALAC is decoded natively (AlacReader); what comes here is AAC or another MP4 codec.
+      error = "AAC needs ffmpeg on the host (sudo apt install ffmpeg)";
       return false;
     }
     std::snprintf(
@@ -212,7 +214,7 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
     );
     FILE* pipe = harbor_popen(cmd, "r");
     if (!pipe) {
-      error = "ffmpeg not available for ALAC/AAC";
+      error = "ffmpeg not available for AAC";
       return false;
     }
     std::vector<float> samples;
@@ -224,7 +226,7 @@ bool decodePcmFile(const std::string& path, DecodedPcm& out, std::string& error)
     }
     const int status = harbor_pclose(pipe);
     if (status != 0 || samples.empty()) {
-      error = "ffmpeg ALAC/AAC decode failed";
+      error = "ffmpeg AAC decode failed";
       return false;
     }
     out.channels = static_cast<uint16_t>(channels);
