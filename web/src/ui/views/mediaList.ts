@@ -18,7 +18,8 @@ export type ListScope =
 interface PresentedRow {
   row: RowModel;
   selection: Selection;
-  open(): void;
+  /** A promise while a track starts: the row shows it is loading. */
+  open(): void | Promise<unknown>;
   /** Track rows carry their path (playing mark, long press). */
   path?: string;
 }
@@ -148,11 +149,9 @@ const trackEntry: Presenter = (item, scope, ctx) => {
         showToast('Not connected — cannot play it now');
         return;
       }
-      // The song already loaded pauses or resumes; its queue stays.
-      if (!isCurrentTrack(ctx.store.get(), path)) {
-        void ctx.actions.play(playContextFor(path, scope));
-        return;
-      }
+      // Another song starts (the row shows it is loading); the one already loaded pauses or
+      // resumes, its queue stays.
+      if (!isCurrentTrack(ctx.store.get(), path)) return ctx.actions.play(playContextFor(path, scope));
       haptic('medium');
       void ctx.playback.transport('toggle').catch((err) => showToast(errorMessage(err, 'Playback failed'), { error: true }));
     },

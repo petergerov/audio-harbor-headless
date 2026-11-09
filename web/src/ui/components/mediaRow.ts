@@ -1,3 +1,4 @@
+import { haptic } from '../../core/device';
 import { initial } from '../../core/format';
 import { escapeHtml } from '../../core/html';
 import { icons } from '../icons';
@@ -21,6 +22,10 @@ export interface RowModel {
   unavailable?: boolean;
 }
 
+/** How long a press must last to open the row's actions, and how far the finger may drift. */
+const LONG_PRESS_MS = 480;
+const LONG_PRESS_SLOP_PX = 10;
+
 export const PLAYING_GLYPH = `<span class="playing-glyph" aria-label="Now playing">${icons.speaker}</span>`;
 
 function rowHtml(row: RowModel, covers: Covers): string {
@@ -42,15 +47,19 @@ function rowHtml(row: RowModel, covers: Covers): string {
   `;
 }
 
-/** A tappable row with a `···` button beside it. */
+/**
+ * A tappable row with a `···` button beside it. When `onOpen` returns a promise (a track starting),
+ * the row shows it is loading until the promise settles.
+ */
 export function mediaRow(options: {
   row: RowModel;
   covers: Covers;
-  onOpen: () => void;
+  onOpen: () => void | Promise<unknown>;
   onMore: () => void;
   moreLabel: string;
-  /** Track rows: the path marks the playing one and a long press / right click opens `onMore`. */
+  /** Track rows: the path marks the playing one. */
   path?: string;
+  /** A long press (touch) or right click opens `onMore`. */
   contextMenu?: boolean;
 }): HTMLElement {
   const wrap = document.createElement('div');
@@ -75,17 +84,79 @@ export function mediaRow(options: {
     wrap.classList.add('playing');
     open.classList.add('playing');
   }
-  open.addEventListener('click', () => options.onOpen());
+  // Set by a long press: the click that follows the finger lifting is not a tap.
+  let swallowClick = false;
+  open.addEventListener('click', () => {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    const pending = options.onOpen();
+    if (!pending) return;
+    wrap.classList.add('pending');
+    void Promise.resolve(pending)
+      .catch(() => undefined)
+      .finally(() => wrap.classList.remove('pending'));
+  });
   more.addEventListener('click', (event) => {
     event.stopPropagation();
     options.onMore();
   });
-  if (options.contextMenu) {
-    open.addEventListener('contextmenu', (event) => {
-      event.preventDefault();
-      options.onMore();
-    });
-  }
+  if (options.contextMenu) bindLongPress(open, options.onMore, () => (swallowClick = true));
   wrap.append(open, more);
   return wrap;
+}
+
+/**
+ * Opens the actions on a long press — iOS Safari fires no `contextmenu` for one — and on a right
+ * click. Android fires both; the second within a moment is dropped.
+ */
+function bindLongPress(el: HTMLElement, onMore: () => void, swallowClick: () => void): void {
+  let timer: number | undefined;
+  let startX = 0;
+  let startY = 0;
+  let openedAt = 0;
+  const openMenu = () => {
+    if (Date.now() - openedAt < 800) return;
+    openedAt = Date.now();
+    onMore();
+  };
+  const cancel = () => {
+    window.clearTimeout(timer);
+    timer = undefined;
+    el.classList.remove('pressing');
+  };
+  el.addEventListener(
+    'touchstart',
+    (event) => {
+      const touch = event.touches[0];
+      if (event.touches.length !== 1 || !touch) return;
+      startX = touch.clientX;
+      startY = touch.clientY;
+      el.classList.add('pressing');
+      timer = window.setTimeout(() => {
+        cancel();
+        haptic('medium');
+        swallowClick();
+        openMenu();
+      }, LONG_PRESS_MS);
+    },
+    { passive: true }
+  );
+  el.addEventListener(
+    'touchmove',
+    (event) => {
+      const touch = event.touches[0];
+      if (!touch || timer === undefined) return;
+      if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > LONG_PRESS_SLOP_PX) cancel();
+    },
+    { passive: true }
+  );
+  el.addEventListener('touchend', cancel);
+  el.addEventListener('touchcancel', cancel);
+  el.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    cancel();
+    openMenu();
+  });
 }

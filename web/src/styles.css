@@ -623,6 +623,37 @@ svg {
   height: 18px;
 }
 
+/* A track starting: the row stays lit and its trail spins until the host answers */
+.row-wrap.pending .row {
+  background: var(--hover);
+}
+
+.row-wrap.pending:not(.playing) .row-trail > * {
+  display: none;
+}
+
+.row-wrap.pending:not(.playing) .row-trail::after {
+  content: "";
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--fill-strong);
+  border-top-color: var(--tint);
+  animation: fade-in 0.15s ease 0.1s both, rescan-spin 0.8s linear infinite;
+}
+
+/* A long press opens the actions: no text selection or iOS callout on the way */
+.row-wrap .row {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.row-wrap .row.pressing {
+  background: var(--hover);
+  transition: background 0.4s ease;
+}
+
 .row-wrap.playing + .row-wrap::before,
 .row-wrap + .row-wrap.playing::before {
   opacity: 0;

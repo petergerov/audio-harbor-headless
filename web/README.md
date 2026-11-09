@@ -67,6 +67,8 @@ src/
 - **New tab or settings pane**: add the class and one entry in `views/registry.ts` or `SettingsView`'s
   `PANES`; the shell does not change.
 - **New list row type**: add a presenter to `PRESENTERS` in `views/mediaList.ts` (first match wins).
+  A presenter's `open` returns a promise when it starts a track; `mediaRow` shows the row as loading
+  until it settles. Rows with `contextMenu` open their actions on a long press (touch) or right click.
 - **Live player state** (title, play/pause, position, volume, badge, error, playing row) follows the
   markup contract in `components/playerBindings.ts` (`PlayerMarkup`). Any element carrying it stays
   current without re-rendering its view.

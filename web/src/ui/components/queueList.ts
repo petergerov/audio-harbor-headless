@@ -53,9 +53,11 @@ export function paintQueueList(list: HTMLElement, deps: QueueDeps): void {
         contextMenu: true,
         onOpen: () => {
           haptic(index === queue.currentIndex ? 'medium' : 'light');
-          void deps.playback
+          const jump = deps.playback
             .playQueueIndex(index)
             .catch((err) => showToast(errorMessage(err, 'Could not play'), { error: true }));
+          // Another track: the row shows it is loading until the host answers.
+          return index === queue.currentIndex ? undefined : jump;
         },
         onMore: () => deps.actions.organize({ cataloguePath: track.cataloguePath, title: track.title }, null),
       })

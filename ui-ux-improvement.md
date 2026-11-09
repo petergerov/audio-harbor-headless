@@ -62,16 +62,21 @@ out-of-order answers made the slider jump back.
 the latest level (≥ 60 ms apart). While it sends, and 0.7 s after, snapshots keep the local level, so
 nothing pulls the slider back. Measured: 101 slider events → 8 requests, the last one the final level.
 
-### 6. ⬜ Tapping a track: no immediate feedback
+### 6. ✅ Tapping a track: no immediate feedback
 `PlaybackService.play()` awaits `play` and then `refresh` before the row is marked playing.
 
-**Fix:** mark the row as "loading" at once (spinner or pulsing speaker glyph).
+**Fix:** when a row's `onOpen` returns a promise (a track starting, a jump in the queue), `mediaRow`
+marks it `pending` until the promise settles: the row stays lit and its trail spins (fading in after
+0.1 s, so a quick host shows no flash); then the playing mark takes over, or the error toast shows.
 
-### 7. ⬜ Long press on iPhone
-`mediaRow.ts` uses the `contextmenu` event; iOS Safari does not fire it reliably on long press, so
-the actions sheet is only reachable via `···`.
+### 7. ✅ Long press on iPhone
+`mediaRow.ts` used the `contextmenu` event; iOS Safari does not fire it on a long press, so the actions
+sheet was only reachable via `···`.
 
-**Fix:** own long-press via touch events and a timer (cancel on move).
+**Fix:** own long press on touch (0.48 s, cancelled when the finger drifts > 10 px, i.e. a scroll):
+the row lights up while held, then a haptic and the actions sheet; the click after lifting is not a
+tap. Right click still works; Android, which fires both, opens the sheet once. Rows no longer select
+text or show the iOS callout on a long press.
 
 ### 8. ⬜ Gestures
 Swipe left / right on the mini player for next / previous, swipe up opens the Deck; swipe down on the
