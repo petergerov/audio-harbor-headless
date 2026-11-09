@@ -156,10 +156,10 @@ export class App {
   private playbackChanged(state: AppState, previous: AppState): void {
     this.announceError(state);
     if (!this.ready) return;
-    const { shell, bindings } = this.deps;
+    const { shell, bindings, clock } = this.deps;
     if (!shell.fits()) shell.updateChrome();
     if (currentTrack(state)?.id !== currentTrack(previous)?.id) shell.trackChanged();
-    bindings.sync(state);
+    bindings.sync(state, clock.position);
   }
 
   /** Toasts a playback failure once, when it first appears. */

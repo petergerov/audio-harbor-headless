@@ -85,18 +85,21 @@ export function bindDeckStage(
   return () => mql.removeEventListener('change', onWide);
 }
 
-/** Live play / pause and progress without rebuilding the stage. */
+/** Live play / pause and progress without rebuilding the stage; writes only what changed. */
 export function syncDeckStage(root: ParentNode, playing: boolean, style: DeckStyle, progress: number): void {
   const rig = root.querySelector<HTMLElement>('[data-deck-rig]');
   if (!rig) return;
-  rig.classList.toggle('is-playing', playing);
-  rig.dataset.deckKind = style;
+  if (rig.classList.contains('is-playing') !== playing) rig.classList.toggle('is-playing', playing);
+  if (rig.dataset.deckKind !== style) rig.dataset.deckKind = style;
   const p = clamp01(progress);
-  rig.style.setProperty('--deck-progress', String(p));
-  const status = root.querySelector('[data-deck-status]');
-  const groove = root.querySelector('[data-deck-groove]');
-  if (status) status.textContent = deckStatusLabel(style, playing);
-  if (groove) groove.textContent = deckProgressLabel(style, p);
+  const value = p.toFixed(4);
+  if (rig.style.getPropertyValue('--deck-progress') !== value) rig.style.setProperty('--deck-progress', value);
+  setText(root.querySelector('[data-deck-status]'), deckStatusLabel(style, playing));
+  setText(root.querySelector('[data-deck-groove]'), deckProgressLabel(style, p));
+}
+
+function setText(el: Element | null, text: string): void {
+  if (el && el.textContent !== text) el.textContent = text;
 }
 
 function paintCover(root: ParentNode, covers: Covers, hash: string | null, title: string): void {

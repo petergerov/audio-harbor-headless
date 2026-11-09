@@ -67,8 +67,10 @@ src/
 - **New tab or settings pane**: add the class and one entry in `views/registry.ts` or `SettingsView`'s
   `PANES`; the shell does not change.
 - **New list row type**: add a presenter to `PRESENTERS` in `views/mediaList.ts` (first match wins).
-  A presenter's `open` returns a promise when it starts a track; `mediaRow` shows the row as loading
-  until it settles. Rows with `contextMenu` open their actions on a long press (touch) or right click.
+  Lists paint through `paintRows` (`components/mediaRow.ts`): one parse for all rows and one set of
+  listeners per list, rows off screen skip layout (`content-visibility`). A presenter's `open`
+  returns a promise when it starts a track; the row shows it is loading until it settles. Rows with
+  `contextMenu` open their actions on a long press (touch) or right click.
 - **Live player state** (title, play/pause, position, volume, badge, error, playing row) follows the
   markup contract in `components/playerBindings.ts` (`PlayerMarkup`). Any element carrying it stays
   current without re-rendering its view.
@@ -93,6 +95,9 @@ src/
   the page comes back from the back-forward cache; after a drop with backoff (0.5 … 5 s), not while
   hidden. `AppState.connection` drives the "Connecting to Harbor…" pill
   (`components/connectionBanner.ts`, after 1.2 s).
+- **Position**: `PlaybackClock` counts from the last reported position and its timestamp (idle while
+  hidden); snapshots the remote makes itself do not move it back. Per tick only changed values are
+  written to the DOM.
 - **Volume**: `PlaybackService.setVolume` moves the store at once and keeps one request in flight,
   always the latest level; snapshots defer to the local level while it sends and shortly after.
 - **Deck queue**: shared paint/bind lives in `components/queueList.ts`. Desktop mounts

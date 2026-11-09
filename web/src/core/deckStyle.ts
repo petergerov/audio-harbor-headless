@@ -8,13 +8,28 @@ export const DECK_STYLES: ReadonlyArray<{ id: DeckStyle; title: string }> = [
 
 const STORAGE_KEY = 'harbor.deckStyle';
 
+/** Read once: the deck asks for it on every position tick. */
+let current: DeckStyle | null = null;
+
 export function loadDeckStyle(): DeckStyle {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  return raw === 'reelToReel' ? 'reelToReel' : 'turntable';
+  if (current) return current;
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    /* storage off (private mode): the default */
+  }
+  current = raw === 'reelToReel' ? 'reelToReel' : 'turntable';
+  return current;
 }
 
 export function saveDeckStyle(style: DeckStyle): void {
-  localStorage.setItem(STORAGE_KEY, style);
+  current = style;
+  try {
+    localStorage.setItem(STORAGE_KEY, style);
+  } catch {
+    /* kept for this page only */
+  }
 }
 
 /** Status line left of the stage (needle / transport). */

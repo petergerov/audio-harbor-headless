@@ -6,7 +6,7 @@ import { songs } from '../../core/format';
 import { escapeHtml } from '../../core/html';
 import type { LibraryState, OpenCollection } from '../../state/appState';
 import { isCurrentTrack, nowPlayingPath } from '../../state/selectors';
-import { mediaRow, type RowModel } from '../components/mediaRow';
+import { paintRows, type RowEntry, type RowModel } from '../components/mediaRow';
 import { showToast } from '../overlay';
 
 /** Where a list shows: the library (browse or search), or an open playlist / label. */
@@ -224,23 +224,21 @@ export function paintMediaList(list: HTMLElement, items: BrowseItem[], scope: Li
     return;
   }
   const inCollection = scope.kind === 'collection' ? scope.collection : null;
+  const entries: RowEntry[] = [];
   for (const item of items) {
     const presented = PRESENTERS.reduce<PresentedRow | null>(
       (found, present) => found ?? present(item, scope, ctx),
       null
     );
     if (!presented) continue;
-    list.appendChild(
-      mediaRow({
-        row: presented.row,
-        covers: ctx.covers,
-        path: presented.path,
-        moreLabel: 'Actions',
-        contextMenu: true,
-        onOpen: presented.open,
-        onMore: () => ctx.actions.organize(presented.selection, inCollection),
-      })
-    );
+    entries.push({
+      row: presented.row,
+      path: presented.path,
+      moreLabel: 'Actions',
+      contextMenu: true,
+      onOpen: presented.open,
+      onMore: () => ctx.actions.organize(presented.selection, inCollection),
+    });
   }
-  ctx.covers.hydrate(list);
+  paintRows(list, entries, ctx.covers);
 }

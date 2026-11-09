@@ -482,6 +482,9 @@ svg {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   position: relative;
+  /* Rows off screen skip layout and paint: long folders scroll and open smoothly. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
 }
 
 .row-more {

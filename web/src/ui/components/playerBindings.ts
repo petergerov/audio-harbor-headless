@@ -54,8 +54,8 @@ function artistLine(el: HTMLElement, track: Track | null): string {
 export class PlayerBindings {
   constructor(private readonly root: ParentNode = document) {}
 
-  /** Everything that follows the now-playing snapshot. */
-  sync(state: AppState): void {
+  /** Everything that follows the now-playing snapshot; `position` is the clock's (else the snapshot's). */
+  sync(state: AppState, position?: number): void {
     const track = currentTrack(state);
     const playing = isPlaying(state);
     const duration = durationSecs(state);
@@ -72,7 +72,7 @@ export class PlayerBindings {
       el.classList.toggle('is-lit', playing);
       el.setAttribute('aria-pressed', String(playing));
     });
-    const progress = duration > 0 ? Number(state.nowPlaying?.positionSecs ?? 0) / duration : 0;
+    const progress = duration > 0 ? Number(position ?? state.nowPlaying?.positionSecs ?? 0) / duration : 0;
     syncDeckStage(this.root, playing, loadDeckStyle(), progress);
     this.each<HTMLInputElement>(PlayerMarkup.seek, (el) => {
       if (duration > 0) el.max = String(duration);
@@ -111,26 +111,26 @@ export class PlayerBindings {
     this.markTrackRows(nowPlayingPath(state));
   }
 
-  /** Scrubbers, position labels and deck dolly; untouched while the user drags. */
+  /** Scrubbers, position labels and deck dolly (each tick while playing); untouched while the user drags. */
   paintPosition(position: number, scrubbing: boolean, duration = 0): void {
     if (scrubbing) return;
+    const value = String(position);
     this.each<HTMLInputElement>(PlayerMarkup.seek, (el) => {
-      el.value = String(position);
+      if (el.value !== value) el.value = value;
     });
-    this.labelPosition(position);
-    const playing = this.root.querySelector(PlayerMarkup.deckRig)?.classList.contains('is-playing') ?? false;
-    syncDeckStage(this.root, playing, loadDeckStyle(), duration > 0 ? position / duration : 0);
+    this.labelPosition(position, duration);
   }
 
-  /** Position labels alone — what a drag previews (deck dolly follows the thumb). */
-  labelPosition(position: number): void {
+  /** Position labels and deck dolly — also what a drag previews (the dolly follows the thumb). */
+  labelPosition(position: number, duration?: number): void {
+    const text = formatTime(position);
     this.each(PlayerMarkup.position, (el) => {
-      el.textContent = formatTime(position);
+      if (el.textContent !== text) el.textContent = text;
     });
-    const seek = this.root.querySelector<HTMLInputElement>(PlayerMarkup.seek);
-    const duration = Number(seek?.max ?? 0);
-    const playing = this.root.querySelector(PlayerMarkup.deckRig)?.classList.contains('is-playing') ?? false;
-    syncDeckStage(this.root, playing, loadDeckStyle(), duration > 0 ? position / duration : 0);
+    const rig = this.root.querySelector(PlayerMarkup.deckRig);
+    if (!rig) return;
+    const total = duration ?? Number(this.root.querySelector<HTMLInputElement>(PlayerMarkup.seek)?.max ?? 0);
+    syncDeckStage(this.root, rig.classList.contains('is-playing'), loadDeckStyle(), total > 0 ? position / total : 0);
   }
 
   /** Highlights the playing track in any list on screen. */

@@ -3,7 +3,7 @@ import type { CollectionKind } from '../../api/types';
 import { initial, songs } from '../../core/format';
 import { escapeHtml, required } from '../../core/html';
 import type { OpenCollection } from '../../state/appState';
-import { mediaRow } from '../components/mediaRow';
+import { paintRows } from '../components/mediaRow';
 import { icons } from '../icons';
 import { showToast } from '../overlay';
 import { paintLoadError, paintMediaList, paintPlaceholders } from './mediaList';
@@ -85,18 +85,19 @@ export class CollectionsView implements View {
       group.innerHTML = empty;
       return;
     }
-    for (const entry of entries) {
-      const count = Number(entry.count ?? 0);
-      group.appendChild(
-        mediaRow({
+    paintRows(
+      group,
+      entries.map((entry) => {
+        const count = Number(entry.count ?? 0);
+        return {
           row: { kind, title: entry.name, subtitle: count === 0 ? 'Empty' : songs(count), chevron: true },
-          covers: this.ctx.covers,
           moreLabel: 'More',
           onOpen: () => void this.ctx.nav.openCollection(kind, entry.id, entry.name),
           onMore: () => this.ctx.actions.manageCollection(kind, entry.id, entry.name),
-        })
-      );
-    }
+        };
+      }),
+      this.ctx.covers
+    );
   }
 
   private renderDetail(root: HTMLElement, host: ViewHost, open: OpenCollection): void {

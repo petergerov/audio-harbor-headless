@@ -92,14 +92,33 @@ the sheet instead of leaving the screen.
 `document.startViewTransition()` for drill-in / back (slide in / out; Safari 18+, others fall back to
 the plain swap). A few lines now that navigation swaps only `#main`.
 
-### 11. ⬜ Long lists
-`paintMediaList` builds every row at once; folders / artists with thousands of tracks jank.
-`content-visibility: auto` with `contain-intrinsic-size` on `.row-wrap` helps a lot; chunked rendering
-or virtualisation beyond that.
+### 11. ✅ Long lists
+`paintMediaList` built every row on its own — one HTML parse and ~8 listeners per row (24 000 for a
+folder of 3000 tracks) — and the browser laid out all of them.
 
-### 12. ⬜ Needless work while playing
-Every position tick (4× per second) runs `syncDeckStage` and `loadDeckStyle()` (i.e. `localStorage`)
-twice — via `paintPosition` and `labelPosition`. Cache the style, sync the stage once per tick.
+**Fix:** `paintRows` (`components/mediaRow.ts`) parses all rows in one go and binds one set of
+listeners per list (tap, `···`, long press, right click, found by the row's index); covers retry
+through one capturing listener per list. `.row-wrap` has `content-visibility: auto`, so rows off
+screen skip layout and paint. Library, labels, playlists overview and the queue use it.
+
+Measured (3000-track folder, from memory, tap → painted, desktop Chrome): **~440 ms → ~110 ms**.
+Scroll restore to y = 90 000 in that list still lands exactly.
+
+### 12. ✅ Needless work while playing
+Every position tick (4× per second) ran `syncDeckStage` twice and read `localStorage` twice
+(`loadDeckStyle`), and rewrote every label and attribute whether it changed or not.
+
+**Fix:**
+- The deck style is read once and kept in memory; one stage sync per tick; labels, the progress
+  property and the stage's texts are written only when they change.
+- `PlaybackClock` counts from the last reported position and its timestamp instead of adding up
+  ticks: exact however late a tick comes, and it does nothing while the page is hidden.
+- Found on the way: a snapshot the remote makes itself (play / pause flipped at once, a volume
+  change) carries the last *reported* position, so the time jumped back — on every step of a volume
+  drag. The clock now keeps running from where it is for those.
+
+Measured on the Deck while playing: 0 `localStorage` reads (was ~32 per 4 s), 0 DOM changes while
+hidden, the position right at once when the page comes back.
 
 ### 13. ✅ Service worker update flow
 `public/sw.js` served `index.html` cache-first. Seen while testing 4: after a host restart with a new
