@@ -93,6 +93,9 @@ src/
   goes to its top. Saved to the home screen on a phone, a swipe from the left edge goes back
   (`ui/edgeSwipe.ts`). An open sheet has its own entry on top (`overlay.ts` → `OverlayHistory`), so
   the back key closes it; closing it in the UI takes the entry away again.
+- **Catalogue search**: the scopes and the search field stay on every level; typing searches from the
+  top level (`nav.search` leaves a drill as a new entry), the ✕ clears to the top level. The view
+  repaints only its header and list during a search, never the field.
 - **Gestures** (`ui/swipe.ts`): mini player left / right → next / previous, up → Deck; the Deck (phone)
   pulled down → `nav.leaveDeck()`.
 - **Live connection**: the host sends every snapshot when a socket opens, so `LiveUpdates` resyncs by

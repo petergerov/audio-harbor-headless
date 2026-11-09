@@ -178,3 +178,15 @@ corners filled black so iOS rounds it cleanly: `icon-180.png` (apple-touch-icon)
 (manifest); favicons 32 / 64 for the browser tab; manifest colours the chassis (`#12100e`). iOS keeps
 the icon it saw when the remote was added — remove the home-screen app and add it again to get it. A
 512 px icon (Android splash) needs a larger master than the 180 px one in the repo.
+
+### 17. ✅ Search on every level, with a clear button
+The search field (and the Dirs · Albums · Artists · Lists scopes) disappeared inside a folder, album,
+artist or list, and the field had no clear button of its own.
+
+**Fix** (as in the Mac / iOS remote, `RemoteControllerView`): scopes and search stay on every level.
+Typing searches from the top level — inside a folder it leaves it as a history entry of its own, so
+back returns there; the field is never rebuilt while used, so the keyboard stays up. An ✕ shows while
+there is text: it empties the field, keeps the focus and shows the scope's top level again (in Dirs:
+the mounted directories). The browser's own clear button is hidden. Enter searches at once and puts
+the keyboard away.
+

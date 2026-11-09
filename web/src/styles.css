@@ -406,6 +406,50 @@ svg {
   color: var(--secondary);
 }
 
+/* The field's own clear button (below), not the browser's */
+.search-wrap input::-webkit-search-cancel-button,
+.search-wrap input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+.search-wrap input {
+  padding-right: 40px;
+}
+
+.search-clear {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--secondary);
+  cursor: pointer;
+}
+
+.search-clear[hidden] {
+  display: none;
+}
+
+.search-clear:active {
+  color: var(--label);
+}
+
+/* The search icon sits left; the clear button keeps its own colour */
+.search-wrap .search-clear svg {
+  position: static;
+  transform: none;
+  color: inherit;
+}
+
 .search-wrap input:focus {
   background: var(--fill-strong);
 }

@@ -148,8 +148,14 @@ export class Navigator implements Navigation {
   }
 
   async setLibraryScope(scope: LibraryScope): Promise<void> {
-    // A segmented control: the entry changes, no new one.
-    await this.move((s) => ({ library: { ...withoutDrill(s.library), scope, query: '' } }), 'replace', 'none');
+    // A segmented control: at a top level the entry changes; from inside an album or folder it is a
+    // move of its own (back returns there).
+    const drilled = libraryDepth(routeOf(this.store.get())) > 0;
+    await this.move(
+      (s) => ({ library: { ...withoutDrill(s.library), scope, query: '' } }),
+      drilled ? 'push' : 'replace',
+      'none'
+    );
   }
 
   canGoBack(): boolean {
@@ -191,11 +197,24 @@ export class Navigator implements Navigation {
     });
   }
 
+  /**
+   * Filters the library from its top level (as the Mac and iOS remotes do). Typing inside an
+   * album or folder leaves it — a new entry, so back returns there; at the top level the query
+   * belongs to the entry (back from a hit returns to the hits). An empty query is the top level.
+   */
   async search(query: string): Promise<void> {
+    const leaving = libraryDepth(routeOf(this.store.get())) > 0;
+    const leavingScroll = this.history.scrollY();
     this.store.update((state) => ({ library: { ...withoutDrill(state.library), query } }));
-    // The query belongs to this entry: back from a hit returns to the hits.
-    this.history.replace(routeOf(this.store.get()));
-    this.library.prime({ keepOnMiss: true });
+    const route = routeOf(this.store.get());
+    if (leaving) {
+      this.history.push(route, leavingScroll);
+      this.history.scrollTo(0);
+    } else {
+      this.history.replace(route);
+    }
+    // Leaving a folder: its tracks do not stay under the search; typing on: the hits stay until new ones come.
+    this.library.prime({ keepOnMiss: !leaving });
     await this.library.load().catch(() => undefined);
   }
 
