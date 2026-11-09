@@ -27,6 +27,8 @@ export interface Navigation {
   search(query: string): Promise<void>;
   setSettingsPane(pane: SettingsPane): void;
   openNowPlaying(): void;
+  /** Off the Deck (a swipe down): back where the user came from, else to the Catalogue. */
+  leaveDeck(): void;
   /** Fresh playlists and labels, then the current screen again (after a change to them). */
   refresh(): Promise<void>;
 }
@@ -199,6 +201,12 @@ export class Navigator implements Navigation {
 
   openNowPlaying(): void {
     void this.goTo('now');
+  }
+
+  leaveDeck(): void {
+    if (this.store.get().tab !== 'now') return;
+    if (this.history.previous()) this.history.back();
+    else void this.goTo('library');
   }
 
   async refresh(): Promise<void> {

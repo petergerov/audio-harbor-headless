@@ -12,9 +12,33 @@ export type MenuItem = {
 
 let lastFocus: HTMLElement | null = null;
 
+/** Browser history for sheets, so the back key (Android, browser) closes one instead of leaving the screen. */
+export interface OverlayHistory {
+  /** A sheet opened: a history entry for it. */
+  openSheet(): void;
+  /** It closed by itself (a button, the backdrop, a swipe): its entry goes. */
+  closeSheet(): void;
+}
+
+let overlayHistory: OverlayHistory | null = null;
+
+export function connectOverlayHistory(history: OverlayHistory): void {
+  overlayHistory = history;
+}
+
 export function closeOverlay(): void {
+  if (dismiss()) overlayHistory?.closeSheet();
+}
+
+/** The back key closed it: its history entry is gone already. */
+export function closeOverlayFromHistory(): void {
+  dismiss();
+}
+
+/** Takes the open overlay away; false when there was none. */
+function dismiss(): boolean {
   const el = document.getElementById('ah-overlay');
-  if (!el) return;
+  if (!el) return false;
   // Drop the id right away so a follow-up overlay can mount while this one animates out.
   el.removeAttribute('id');
   const panel = el.querySelector<HTMLElement>('.ah-panel');
@@ -26,6 +50,7 @@ export function closeOverlay(): void {
     lastFocus.focus();
     lastFocus = null;
   }
+  return true;
 }
 
 function lockScroll(): void {
@@ -62,7 +87,8 @@ function trapFocus(root: HTMLElement): void {
 }
 
 function mountShell(ariaLabel: string): { backdrop: HTMLElement; panel: HTMLElement } {
-  closeOverlay();
+  // A sheet that replaces another keeps its history entry.
+  dismiss();
   lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   lockScroll();
   const backdrop = document.createElement('div');
@@ -82,6 +108,7 @@ function mountShell(ariaLabel: string): { backdrop: HTMLElement; panel: HTMLElem
     if (e.target === backdrop) closeOverlay();
   });
   document.body.appendChild(backdrop);
+  overlayHistory?.openSheet();
   trapFocus(panel);
   if (!isDesktopUi()) enableSwipeDismiss(panel, inner);
   queueMicrotask(() => {

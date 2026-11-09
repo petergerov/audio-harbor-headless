@@ -89,7 +89,10 @@ src/
   position; back / forward and a reload restore the route. In-app back links step back through
   history when the previous entry is above. Tabs keep their place; tapping the active Catalogue tab
   goes to its top. Saved to the home screen on a phone, a swipe from the left edge goes back
-  (`ui/edgeSwipe.ts`).
+  (`ui/edgeSwipe.ts`). An open sheet has its own entry on top (`overlay.ts` → `OverlayHistory`), so
+  the back key closes it; closing it in the UI takes the entry away again.
+- **Gestures** (`ui/swipe.ts`): mini player left / right → next / previous, up → Deck; the Deck (phone)
+  pulled down → `nav.leaveDeck()`.
 - **Live connection**: the host sends every snapshot when a socket opens, so `LiveUpdates` resyncs by
   reconnecting — at once when the page returns from the background (> 3 s), the network returns or
   the page comes back from the back-forward cache; after a drop with backoff (0.5 … 5 s), not while

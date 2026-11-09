@@ -78,15 +78,20 @@ the row lights up while held, then a haptic and the actions sheet; the click aft
 tap. Right click still works; Android, which fires both, opens the sheet once. Rows no longer select
 text or show the iOS callout on a long press.
 
-### 8. ⬜ Gestures
-Swipe left / right on the mini player for next / previous, swipe up opens the Deck; swipe down on the
-Deck goes back. The swipe-to-dismiss logic of the sheets (`overlay.ts`) can be reused.
+### 8. ✅ Gestures
+**Done** (`ui/swipe.ts` — one touch-swipe helper: the first clear move decides, the page does not
+scroll during a swipe, the click after lifting is dropped, sliders never start one):
+- Mini player: swipe left → next track, right → previous (it follows the finger, slides out and the
+  new track slides in from the other side); swipe up → Deck.
+- Deck (phone): pull down → back where you came from (else Catalogue); it follows the finger.
+- A flick commits only after some distance (45 px across, 50 px down), so a short twitch does nothing.
 
-### 9. ⬜ Android back closes sheets
-With history in place (3), opening a sheet could push an entry so Android back / browser back closes
-the sheet instead of leaving the screen.
-
-## 🟡 Polish and performance
+### 9. ✅ Back key closes sheets
+**Done:** an open sheet has a history entry of its own on top of the screen's (`BrowserHistory` as
+`OverlayHistory`). The back key (Android, browser) closes the sheet and the screen stays, scroll and
+all. A sheet closed in the UI (button, backdrop, swipe) takes its entry away, so the next back leaves
+the screen as expected; a sheet action that navigates takes the sheet's entry over (no stray entry);
+a sheet replacing another keeps the one entry.
 
 ### 10. ⬜ View Transitions
 `document.startViewTransition()` for drill-in / back (slide in / out; Safari 18+, others fall back to

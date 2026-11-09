@@ -5,7 +5,10 @@ import type { Store } from '../../core/store';
 import type { Navigation } from '../../services/navigator';
 import type { AppState } from '../../state/appState';
 import { currentTrack, durationSecs, isPlaying } from '../../state/selectors';
+import { errorMessage } from '../../core/errors';
 import { icons } from '../icons';
+import { showToast } from '../overlay';
+import { bindSwipe } from '../swipe';
 import type { Covers } from './covers';
 import { bindPlayerControls, type PlayerControlDeps } from './playerControls';
 
@@ -53,7 +56,70 @@ export class MiniPlayer implements PlayerChrome {
     this.deps.covers.fill(el.querySelector('[data-art]'), track.artworkHash);
     required(el, '[data-open]').addEventListener('click', () => openNowPlaying(this.deps));
     bindPlayerControls(el, this.deps);
+    bindMiniSwipe(el, this.deps);
   }
+}
+
+/** Mini players with their swipe already bound (the element stays while its content repaints). */
+const swipeBound = new WeakSet<HTMLElement>();
+
+/**
+ * Swipe the mini player left for the next track, right for the previous one (it slides out and the
+ * new one slides in), up to open the Deck.
+ */
+function bindMiniSwipe(el: HTMLElement, deps: ChromeDeps): void {
+  if (swipeBound.has(el)) return;
+  swipeBound.add(el);
+  let axis: 'x' | 'y' = 'x';
+  const settle = (transition: string) => {
+    el.style.transition = transition;
+    el.style.transform = '';
+    el.style.opacity = '';
+    window.setTimeout(() => el.removeAttribute('style'), 320);
+  };
+  bindSwipe(el, {
+    accept: (dx, dy) => {
+      axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      return axis === 'x' || dy < 0;
+    },
+    move: (dx, dy) => {
+      el.style.transition = 'none';
+      if (axis === 'x') {
+        el.style.transform = `translateX(${dx}px)`;
+        el.style.opacity = String(Math.max(0.35, 1 - Math.abs(dx) / 320));
+      } else {
+        el.style.transform = `translateY(${Math.max(dy * 0.4, -28)}px)`;
+      }
+    },
+    end: (dx, dy, vx, vy) => {
+      if (axis === 'y') {
+        settle('transform 0.22s var(--ease-out)');
+        if (dy < -36 || (dy < -20 && vy < -0.35)) openNowPlaying(deps);
+        return;
+      }
+      // Far enough, or a quick flick that still went a little way.
+      const flick = Math.abs(dx) > 45 && Math.abs(vx) > 0.5;
+      if (Math.abs(dx) < 70 && !flick) {
+        settle('transform 0.22s var(--ease-out), opacity 0.22s ease');
+        return;
+      }
+      const toLeft = dx < 0;
+      haptic('light');
+      el.style.transition = 'transform 0.18s ease-in, opacity 0.18s ease-in';
+      el.style.transform = `translateX(${toLeft ? -el.offsetWidth : el.offsetWidth}px)`;
+      el.style.opacity = '0';
+      void deps.playback
+        .transport(toLeft ? 'next' : 'previous')
+        .catch((err) => showToast(errorMessage(err, 'Playback failed'), { error: true }));
+      // In again from the other side, with the new track.
+      window.setTimeout(() => {
+        el.style.transition = 'none';
+        el.style.transform = `translateX(${toLeft ? 48 : -48}px)`;
+        void el.offsetWidth;
+        settle('transform 0.28s var(--ease-out), opacity 0.22s ease');
+      }, 190);
+    },
+  });
 }
 
 /** Phone: compact player in the page header of Library and Playlists. */

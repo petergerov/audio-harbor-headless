@@ -17,6 +17,7 @@ import { bindPlayerControls } from '../components/playerControls';
 import { icons } from '../icons';
 import { openQueueSheet } from '../sheets/queueSheet';
 import { openRackSheet } from '../sheets/rackSheet';
+import { bindSwipe } from '../swipe';
 import type { View } from './view';
 
 /** Deck: photoreal stage (Turntable / Reel-to-Reel), cover chip, hardware transport. */
@@ -146,6 +147,7 @@ export class NowPlayingView implements View {
       pill.classList.toggle('is-lit', Boolean(next.rack?.path.lit));
       pill.title = next.rack?.path.label ?? '';
     });
+    if (!desktop) this.bindSwipeDown(root.querySelector<HTMLElement>('.now-screen'));
     root.querySelector('[data-queue]')?.addEventListener('click', () => {
       if (isDesktopUi()) {
         this.setRailOpen(!this.railOpen);
@@ -167,6 +169,30 @@ export class NowPlayingView implements View {
     this.disposeRack?.();
     this.disposeRack = null;
     this.root = null;
+  }
+
+  /** Phone: pull the Deck down to leave it — it follows the finger, then the previous screen shows. */
+  private bindSwipeDown(screen: HTMLElement | null): void {
+    if (!screen) return;
+    bindSwipe(screen, {
+      accept: (dx, dy) => dy > 0 && dy > Math.abs(dx),
+      move: (_dx, dy) => {
+        screen.style.transition = 'none';
+        screen.style.transform = `translateY(${dy * 0.6}px)`;
+        screen.style.opacity = String(Math.max(0.4, 1 - dy / 600));
+      },
+      end: (_dx, dy, _vx, vy) => {
+        screen.style.transition = 'transform 0.22s var(--ease-out), opacity 0.22s ease';
+        if (dy < 110 && !(dy > 50 && vy > 0.6)) {
+          screen.style.transform = '';
+          screen.style.opacity = '';
+          return;
+        }
+        screen.style.transform = `translateY(${Math.round(window.innerHeight * 0.4)}px)`;
+        screen.style.opacity = '0';
+        window.setTimeout(() => this.ctx.nav.leaveDeck(), 160);
+      },
+    });
   }
 
   private setRailOpen(open: boolean): void {
