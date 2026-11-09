@@ -97,7 +97,18 @@ Publish a release (manual only):
 
 The macOS jobs import **Developer ID** certificates from secrets, sign binaries, build a `.pkg`, and notarize when App Store Connect / Apple ID secrets are present.
 
-Or locally:
+Or the whole release from an Apple Silicon Mac, without GitHub Actions — builds the packages, creates the release `v<package.json version>` at the pushed HEAD and uploads them:
+
+```bash
+./release-local.sh                                   # linux-arm64 (Docker) + darwin-arm64 (signed .pkg)
+./release-local.sh --platforms linux-arm64,linux-x64,darwin-arm64   # + Intel Linux (Docker, emulated: slow)
+./release-local.sh --dry-run                         # build and check only → dist/release/<tag>/
+./release-local.sh --draft | --replace | --require-notary
+```
+
+It needs `gh` signed in, Docker for Linux, the Developer ID certificates in the keychain for macOS, and notarizes when `HARBOR_NOTARY_PROFILE` (a `notarytool` keychain profile) or the `APPLE_*` variables are set. It builds from a clean snapshot of HEAD with Node 22, so uncommitted changes are not packaged and the working tree stays untouched. Intel Macs and Windows still come from the workflow. Details: `./release-local.sh --help`.
+
+Or package by hand:
 
 ```bash
 npm run package:prebuilt                 # → dist/packages/*-<platform>.tar.gz
