@@ -122,7 +122,7 @@ export class App {
       settings.refresh().catch((err) => showToast(errorMessage(err, 'Could not load settings'), { error: true })),
     ]);
     this.ready = true;
-    shell.render('forward');
+    void shell.render('forward');
   }
 
   private sourcesChanged(): void {

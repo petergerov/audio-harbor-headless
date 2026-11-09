@@ -6,8 +6,14 @@ import { withoutDrill } from '../state/selectors';
 import type { CollectionsService } from './collectionsService';
 import type { LibraryService } from './libraryService';
 
-/** How the next screen comes in: deeper / another tab, one level up, or in place. */
-export type Transition = 'forward' | 'back' | 'none';
+/** How the next screen comes in: one level deeper, one level up, another tab, or in place. */
+export type Transition = 'forward' | 'back' | 'tab' | 'none';
+
+/**
+ * Shows the state's screen; `afterSwap` runs right after the new screen is in (where the scroll
+ * belongs). Resolves then — with an animated transition, a frame or so later.
+ */
+export type Render = (transition: Transition, afterSwap?: () => void) => void | Promise<void>;
 
 /** Where the screens can go. */
 export interface Navigation {
@@ -43,8 +49,8 @@ export interface HistoryPort {
   back(): void;
   /** The route of the entry before the current one, when this page made it. */
   previous(): Route | null;
-  /** Back / forward landed on `route`, last seen at `scroll`. */
-  onPop(listener: (route: Route, scroll: number) => void): void;
+  /** Back / forward landed on `route`, last seen at `scroll`; `animated` when the browser animated it (a swipe). */
+  onPop(listener: (route: Route, scroll: number, animated: boolean) => void): void;
   scrollY(): number;
   scrollTo(y: number, smooth?: boolean): void;
 }
@@ -69,9 +75,9 @@ export class Navigator implements Navigation {
     private readonly library: LibraryService,
     private readonly collections: CollectionsService,
     private readonly history: HistoryPort,
-    private readonly render: (transition: Transition) => void
+    private readonly render: Render
   ) {
-    history.onPop((route, scroll) => void this.arrive(route, scroll));
+    history.onPop((route, scroll, animated) => void this.arrive(route, scroll, animated ? 'none' : 'back'));
   }
 
   /** Back to where a reload left off, and the first history entry. */
@@ -93,7 +99,7 @@ export class Navigator implements Navigation {
           library: { ...withoutDrill(s.library), scope: 'playlists', query: '' },
         }),
         'push',
-        'forward'
+        'tab'
       );
       return;
     }
@@ -108,7 +114,7 @@ export class Navigator implements Navigation {
     }
     // Another tab: it comes back where it was left (album, folder, search).
     if (tab === 'library') void this.collections.refresh();
-    await this.move((s) => ({ tab, collections: withOpen(s.collections, null) }), 'push', 'forward');
+    await this.move((s) => ({ tab, collections: withOpen(s.collections, null) }), 'push', 'tab');
   }
 
   async openCollection(kind: CollectionKind, id: string, title: string): Promise<void> {
@@ -196,7 +202,7 @@ export class Navigator implements Navigation {
   setSettingsPane(pane: SettingsPane): void {
     this.store.update({ settingsPane: pane });
     this.history.replace(routeOf(this.store.get()));
-    this.render('none');
+    void this.render('none');
   }
 
   openNowPlaying(): void {
@@ -217,8 +223,7 @@ export class Navigator implements Navigation {
     // A rename or delete may have moved the open label.
     this.history.replace(routeOf(this.store.get()));
     const y = this.history.scrollY();
-    this.render('none');
-    this.history.scrollTo(y);
+    await this.render('none', () => this.history.scrollTo(y));
   }
 
   /** One level deeper in the catalogue: a new entry, the top of the new list. */
@@ -248,9 +253,9 @@ export class Navigator implements Navigation {
   }
 
   /** Back / forward: the route of the entry, at its scroll. */
-  private async arrive(route: Route, scroll: number): Promise<void> {
+  private async arrive(route: Route, scroll: number, transition: Transition): Promise<void> {
     this.store.update((state) => this.toRoute(state, route));
-    await this.show('back', scroll);
+    await this.show(transition, scroll);
   }
 
   /**
@@ -263,8 +268,7 @@ export class Navigator implements Navigation {
     let ready = true;
     if (state.tab === 'library') ready = this.library.prime();
     if (state.tab === 'collections') ready = !state.collections.loading;
-    this.render(transition);
-    this.history.scrollTo(ready ? scroll : 0);
+    await this.render(transition, () => this.history.scrollTo(ready ? scroll : 0));
     try {
       if (state.tab === 'library') await this.library.load();
       else if (state.tab === 'collections') await this.collections.loadOpen();

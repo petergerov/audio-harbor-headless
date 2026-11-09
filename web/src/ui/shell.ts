@@ -27,6 +27,8 @@ export class Shell {
   private frame: HTMLElement | null = null;
   /** Markup of the sidebar / tab bar on screen: replaced only when it changes. */
   private navMarkup = '';
+  /** The latest animated transition (a newer one replaces it). */
+  private transitionSeq = 0;
 
   constructor(
     private readonly root: HTMLElement,
@@ -56,13 +58,33 @@ export class Shell {
     );
   }
 
-  /** The current tab's screen, inside a frame that fits the state. */
-  render(transition: Transition = 'none'): void {
-    const chrome = chromeFor(this.ctx.store.get(), isDesktopUi());
-    if (this.needsFrame(chrome)) this.buildFrame(chrome);
-    else this.syncChrome(chrome);
-    this.syncNavigation();
-    this.showView(transition, chrome);
+  /**
+   * The current tab's screen, inside a frame that fits the state; `afterSwap` runs once it is in.
+   * Where the browser has View Transitions the screen slides (deeper / up) or cross-fades (another
+   * tab) while the tab bar, mini player, sidebar and pills stay put; elsewhere it fades in.
+   */
+  render(transition: Transition = 'none', afterSwap?: () => void): Promise<void> {
+    const animate = transition !== 'none' && !this.needsFrame(this.chromeNow()) && canAnimate();
+    const swap = () => {
+      const chrome = this.chromeNow();
+      if (this.needsFrame(chrome)) this.buildFrame(chrome);
+      else this.syncChrome(chrome);
+      this.syncNavigation();
+      this.showView(animate ? 'none' : transition, chrome);
+      afterSwap?.();
+    };
+    if (!animate) {
+      swap();
+      return Promise.resolve();
+    }
+    const html = document.documentElement;
+    const seq = ++this.transitionSeq;
+    html.dataset.nav = transition;
+    const view = document.startViewTransition(swap);
+    void view.finished.finally(() => {
+      if (seq === this.transitionSeq) delete html.dataset.nav;
+    });
+    return view.updateCallbackDone.catch(() => undefined);
   }
 
   /** The player chrome came or went (a track loaded, the window crossed the breakpoint); the view stays. */
@@ -80,6 +102,10 @@ export class Shell {
     this.paintChrome();
     this.paintHeader();
     this.view?.onTrackChange?.();
+  }
+
+  private chromeNow(): Chrome {
+    return chromeFor(this.ctx.store.get(), isDesktopUi());
   }
 
   private needsFrame(chrome: Chrome): boolean {
@@ -165,7 +191,7 @@ export class Shell {
     main.classList.remove('enter-forward', 'enter-back');
     if (transition !== 'none') {
       void main.offsetWidth; // restart the entry animation
-      main.classList.add(`enter-${transition}`);
+      main.classList.add(transition === 'back' ? 'enter-back' : 'enter-forward');
     }
     main.innerHTML = '';
     const state = this.ctx.store.get();
@@ -191,4 +217,13 @@ export class Shell {
     const slot = this.root.querySelector<HTMLElement>('#headerPlayer');
     if (slot) this.chrome.header.paint(slot);
   }
+}
+
+/** View Transitions there, motion wanted, page on screen. */
+function canAnimate(): boolean {
+  return (
+    typeof document.startViewTransition === 'function' &&
+    document.visibilityState === 'visible' &&
+    !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
 }

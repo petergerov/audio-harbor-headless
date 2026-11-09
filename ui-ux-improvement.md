@@ -93,9 +93,14 @@ all. A sheet closed in the UI (button, backdrop, swipe) takes its entry away, so
 the screen as expected; a sheet action that navigates takes the sheet's entry over (no stray entry);
 a sheet replacing another keeps the one entry.
 
-### 10. ⬜ View Transitions
-`document.startViewTransition()` for drill-in / back (slide in / out; Safari 18+, others fall back to
-the plain swap). A few lines now that navigation swaps only `#main`.
+### 10. ✅ View Transitions
+**Done:** where the browser has View Transitions (Safari 18+, Chrome), `Shell.render` swaps the screen
+inside `document.startViewTransition`: one level deeper slides in from the right, one level up from
+the left, another tab cross-fades. The tab bar, mini player, now bar, sidebar and pills have their own
+`view-transition-name`, so they stay put while the screen moves. The scroll position is set inside
+the swap (`afterSwap`), so back still lands exactly. No animation with *Reduce Motion*, for a page in
+the background, or when Safari's own swipe back already animated it (`hasUAVisualTransition`);
+browsers without View Transitions keep the fade-in.
 
 ### 11. ✅ Long lists
 `paintMediaList` built every row on its own — one HTML parse and ~8 listeners per row (24 000 for a
@@ -162,3 +167,14 @@ settings the host pushes. A pane with nothing to show after 120 ms gets placehol
 
 Tested with a slow host (600 ms): placeholders at 250 ms, then the pane; every later visit to
 Sources, Output and About paints in the same moment as the tap.
+
+## Also
+
+### 16. ✅ Home-screen icon
+"Add to Home Screen" showed a plain blue square: `web/public/icon-180.png` was a placeholder.
+
+**Fix:** the Headless icon (`docs/images/web/icon-180.png`, as on the product page), its transparent
+corners filled black so iOS rounds it cleanly: `icon-180.png` (apple-touch-icon) and `icon-192.png`
+(manifest); favicons 32 / 64 for the browser tab; manifest colours the chassis (`#12100e`). iOS keeps
+the icon it saw when the remote was added — remove the home-screen app and add it again to get it. A
+512 px icon (Android splash) needs a larger master than the 180 px one in the repo.

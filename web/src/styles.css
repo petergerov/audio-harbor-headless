@@ -3723,6 +3723,57 @@ body.overlay-open .ah-toast {
   }
 }
 
+/* —— View Transitions (Shell.render): the screen moves, the chrome stays —— */
+.tab-bar { view-transition-name: tab-bar; }
+.mini-player { view-transition-name: mini-player; }
+.now-bar { view-transition-name: now-bar; }
+.sidebar { view-transition-name: sidebar; }
+.connection-banner { view-transition-name: connection-banner; }
+.update-notice { view-transition-name: update-notice; }
+
+/* One level deeper: the new screen comes in from the right, the old one gives way to the left. */
+html[data-nav="forward"]::view-transition-old(root) {
+  animation: vt-out-start 0.22s ease-in both;
+}
+
+html[data-nav="forward"]::view-transition-new(root) {
+  animation: vt-in-end 0.3s var(--ease-out) both;
+}
+
+/* One level up: the other way round. */
+html[data-nav="back"]::view-transition-old(root) {
+  animation: vt-out-end 0.22s ease-in both;
+}
+
+html[data-nav="back"]::view-transition-new(root) {
+  animation: vt-in-start 0.3s var(--ease-out) both;
+}
+
+/* Another tab: a quick cross-fade. */
+html[data-nav="tab"]::view-transition-old(root) {
+  animation: fade-in 0.14s ease reverse both;
+}
+
+html[data-nav="tab"]::view-transition-new(root) {
+  animation: fade-in 0.2s ease both;
+}
+
+@keyframes vt-out-start {
+  to { opacity: 0; transform: translateX(-8%); }
+}
+
+@keyframes vt-in-end {
+  from { opacity: 0; transform: translateX(10%); }
+}
+
+@keyframes vt-out-end {
+  to { opacity: 0; transform: translateX(10%); }
+}
+
+@keyframes vt-in-start {
+  from { opacity: 0; transform: translateX(-8%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

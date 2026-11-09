@@ -5,7 +5,7 @@
  */
 const CACHE = 'harbor-shell-v2';
 const PAGE = '/';
-const SHELL = [PAGE, '/manifest.webmanifest', '/icon-180.png'];
+const SHELL = [PAGE, '/manifest.webmanifest', '/icon-180.png', '/icon-192.png', '/favicon-32.png', '/favicon-64.png'];
 /** A host that does not answer this fast: the cached page shows (the network keeps going). */
 const PAGE_TIMEOUT_MS = 4000;
 
@@ -69,7 +69,7 @@ async function asset(request) {
   return res;
 }
 
-/** Icon and manifest: the cache at once, refreshed behind it. */
+/** Icons and manifest: the cache at once, refreshed behind it. */
 async function staleWhileRevalidate(request) {
   const cache = await caches.open(CACHE);
   const cached = await cache.match(request);
@@ -92,7 +92,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(page(request));
   } else if (url.pathname.startsWith('/assets/')) {
     event.respondWith(asset(request));
-  } else if (url.pathname === '/manifest.webmanifest' || url.pathname === '/icon-180.png') {
+  } else if (SHELL.includes(url.pathname)) {
     event.respondWith(staleWhileRevalidate(request));
   }
 });

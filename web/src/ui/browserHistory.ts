@@ -33,7 +33,7 @@ export class BrowserHistory implements HistoryPort, OverlayHistory {
   private count = 0;
   private readonly session = Math.random().toString(36).slice(2, 8);
   private readonly fromReload: SavedEntry | null;
-  private readonly listeners: Array<(route: Route, scroll: number) => void> = [];
+  private readonly listeners: Array<(route: Route, scroll: number, animated: boolean) => void> = [];
   /** A sheet's entry on top: open, or closed with its entry about to go. */
   private sheet: 'none' | 'open' | 'closing' = 'none';
   /** The pop that takes a closed sheet's entry away: nothing to do on screen. */
@@ -42,7 +42,8 @@ export class BrowserHistory implements HistoryPort, OverlayHistory {
   constructor() {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
     this.fromReload = savedEntry(history.state);
-    window.addEventListener('popstate', (event) => this.popped(event.state));
+    // Safari's swipe back animates the page itself: then the app does not animate it again.
+    window.addEventListener('popstate', (event) => this.popped(event.state, event.hasUAVisualTransition === true));
     connectOverlayHistory(this);
   }
 
@@ -112,7 +113,7 @@ export class BrowserHistory implements HistoryPort, OverlayHistory {
     return this.entries[this.index - 1]?.route ?? null;
   }
 
-  onPop(listener: (route: Route, scroll: number) => void): void {
+  onPop(listener: (route: Route, scroll: number, animated: boolean) => void): void {
     this.listeners.push(listener);
   }
 
@@ -124,7 +125,7 @@ export class BrowserHistory implements HistoryPort, OverlayHistory {
     window.scrollTo({ top: y, behavior: smooth ? 'smooth' : 'instant' });
   }
 
-  private popped(state: unknown): void {
+  private popped(state: unknown, animated = false): void {
     if (this.ignorePop) {
       this.ignorePop = false;
       return;
@@ -154,7 +155,7 @@ export class BrowserHistory implements HistoryPort, OverlayHistory {
     // A sheet belongs to the screen it was opened on.
     closeOverlayFromHistory();
     const entry = this.entries[this.index]!;
-    for (const listener of this.listeners) listener(entry.route, entry.scroll);
+    for (const listener of this.listeners) listener(entry.route, entry.scroll, animated);
   }
 
   private newId(): string {

@@ -50,8 +50,8 @@ const covers = new Covers(new HttpArtworkApi(tokens));
 
 // The navigator renders through the shell, which needs the navigator: bound late.
 let shell: Shell | null = null;
-const nav = new Navigator(store, library, collections, new BrowserHistory(), (transition) =>
-  shell?.render(transition)
+const nav = new Navigator(store, library, collections, new BrowserHistory(), (transition, afterSwap) =>
+  shell?.render(transition, afterSwap)
 );
 const actions = new SheetActions({ store, collections, nav, playback });
 

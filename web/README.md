@@ -75,7 +75,9 @@ src/
   markup contract in `components/playerBindings.ts` (`PlayerMarkup`). Any element carrying it stays
   current without re-rendering its view.
 - **Rendering**: the shell builds its frame once (again only when the window crosses the desktop
-  breakpoint). Navigation swaps the view inside `#main` (`enter-forward` / `enter-back` animate it);
+  breakpoint). Navigation swaps the view inside `#main` — inside a View Transition where the browser
+  has one (`html[data-nav=forward|back|tab]` picks the slide or cross-fade; tab bar, mini player, now
+  bar and sidebar are named so they stay put), else with `enter-forward` / `enter-back`;
   sidebar and tab bar are replaced only when their markup changes. Playback changes do the least that
   is needed: chrome appearing or going → the mini player / now bar is added or removed, the view stays;
   another track → chrome and `onTrackChange`; anything else → bindings. Lists therefore keep their
