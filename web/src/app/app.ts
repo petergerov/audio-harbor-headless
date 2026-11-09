@@ -23,6 +23,9 @@ function connectedRoots(settings: SettingsSnapshot | null | undefined): string |
   return settings.directories.map((d) => `${d.id}:${d.isConnected !== false}`).join(',');
 }
 
+/** How often the start is tried again while the host cannot be reached. */
+const START_RETRY_MS = 2000;
+
 export interface AppDeps {
   root: HTMLElement;
   store: Store<AppState>;
@@ -57,7 +60,20 @@ export class App {
     });
   }
 
+  /**
+   * Starts the app; while the host cannot be reached (offline shell from the cache, host restarting)
+   * it waits with the "Connecting…" pill and tries again, instead of asking for a code.
+   */
   async start(): Promise<void> {
+    try {
+      await this.boot();
+    } catch (err) {
+      if (err instanceof ApiError) throw err; // The host answered: not a reachability problem.
+      window.setTimeout(() => void this.start(), START_RETRY_MS);
+    }
+  }
+
+  private async boot(): Promise<void> {
     const { tokens, live, playback, clock, collections, library, settings, shell } = this.deps;
     if (!tokens.get() && (await this.codeRequired())) {
       this.showPairing();
@@ -116,12 +132,16 @@ export class App {
     if (this.deps.store.get().collections.open) void collections.loadOpen().catch(() => {});
   }
 
-  /** The host wants a code (or cannot say: then the pairing screen, as before). */
+  /**
+   * The host wants a code (an older host without the setup route: the pairing screen, as before).
+   * Throws when the host cannot be reached, so the start waits for it.
+   */
   private async codeRequired(): Promise<boolean> {
     try {
       return (await this.deps.auth.setup()).required;
-    } catch {
-      return true;
+    } catch (err) {
+      if (err instanceof ApiError) return true;
+      throw err;
     }
   }
 

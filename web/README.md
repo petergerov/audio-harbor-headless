@@ -95,6 +95,10 @@ src/
   always the latest level; snapshots defer to the local level while it sends and shortly after.
 - **Deck queue**: shared paint/bind lives in `components/queueList.ts`. Desktop mounts
   `deckQueueRail`; phone opens `sheets/queueSheet.ts`.
-- **Offline shell**: `public/sw.js` caches the shell (stale-while-revalidate) — only in a secure
-  context (`localhost`, `127.0.0.1`), not over plain `http` to a phone. After a Software Update the
-  About pane drops the caches before it reloads, so the new remote loads, not the cached one.
+- **Offline shell**: `public/sw.js` — only in a secure context (`localhost`, `127.0.0.1`), not over
+  plain `http` to a phone. The page is network-first (cached copy when offline or after 4 s), the
+  hashed `/assets/` are cache-first and pruned to what the current page links. Each time the push
+  channel opens, `components/updateNotice.ts` compares the script the host's `index.html` links with
+  the one running and offers *Reload* when they differ; `ui/reloadRemote.ts` drops the caches and
+  reloads (also used by the About pane after a Software Update). While the host cannot be reached,
+  `App.start` waits with the "Connecting…" pill and tries again every 2 s instead of asking for a code.

@@ -2333,6 +2333,48 @@ button.cell:disabled .value {
 }
 
 /* Toast */
+/* The host serves a newer remote: tap to load it */
+.update-notice {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--safe-top) + 8px);
+  z-index: 260;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  min-height: 36px;
+  padding: 6px 8px 6px 16px;
+  border-radius: 980px;
+  background: rgba(28, 28, 30, 0.96);
+  border: 0.5px solid var(--separator);
+  color: var(--label);
+  font: inherit;
+  font-size: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition: opacity 0.22s ease, transform 0.26s var(--ease-out);
+}
+
+.update-notice.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.update-notice strong {
+  padding: 4px 12px;
+  border-radius: 980px;
+  background: var(--tint-soft);
+  color: var(--tint);
+  font-weight: 600;
+}
+
+.update-notice:active {
+  opacity: 0.7;
+}
+
 /* Host out of reach: a quiet pill at the top until the push channel is back */
 .connection-banner {
   position: fixed;

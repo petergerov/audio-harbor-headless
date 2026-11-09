@@ -1,4 +1,5 @@
 import type { SettingsApi } from '../../../api/settingsApi';
+import { reloadRemote } from '../../reloadRemote';
 import type { SystemStatus, UpdateStatus } from '../../../api/types';
 import { errorMessage } from '../../../core/errors';
 import { escapeHtml, required } from '../../../core/html';
@@ -65,17 +66,6 @@ function systemHtml(s: SystemStatus): string {
   return rows.join('');
 }
 
-/** The new build of the remote — the service worker answers from its cache first, so drop that. */
-async function loadNewRemote(): Promise<void> {
-  if ('caches' in window) {
-    await caches
-      .keys()
-      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-      .catch(() => undefined);
-  }
-  location.reload();
-}
-
 /**
  * An update in progress, kept when Settings is left: asks the host until it answers with
  * another version, then loads the new remote. `paint` is the About pane while it is open;
@@ -102,7 +92,7 @@ class UpdateWatch {
       if (s && s.current !== from) {
         this.timer = null;
         showToast(`Updated to ${s.current}`);
-        window.setTimeout(() => void loadNewRemote(), 1200);
+        window.setTimeout(() => void reloadRemote(), 1200);
         return;
       }
       if (s?.state === 'failed' || Date.now() > until) {

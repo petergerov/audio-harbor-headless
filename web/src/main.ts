@@ -26,6 +26,7 @@ import { initialState, type AppState } from './state/appState';
 import { Covers } from './ui/components/covers';
 import { mountConnectionBanner } from './ui/components/connectionBanner';
 import { PlayerBindings } from './ui/components/playerBindings';
+import { watchForNewRemote } from './ui/components/updateNotice';
 import { HeaderPlayer, MiniPlayer, NowBar } from './ui/components/playerChrome';
 import { BrowserHistory } from './ui/browserHistory';
 import { bindEdgeSwipe } from './ui/edgeSwipe';
@@ -91,6 +92,7 @@ const app = new App({
 });
 bindEdgeSwipe(nav);
 mountConnectionBanner(store);
+watchForNewRemote(store);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

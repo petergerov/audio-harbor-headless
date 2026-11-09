@@ -96,12 +96,28 @@ or virtualisation beyond that.
 Every position tick (4× per second) runs `syncDeckStage` and `loadDeckStyle()` (i.e. `localStorage`)
 twice — via `paintPosition` and `labelPosition`. Cache the style, sync the stage once per tick.
 
-### 13. ⬜ Service worker update flow
-`public/sw.js` serves `index.html` cache-first: after an update the old UI shows once, at worst with
-missing asset files. Network-first for navigations, plus a "New version — reload" toast.
+### 13. ✅ Service worker update flow
+`public/sw.js` served `index.html` cache-first. Seen while testing 4: after a host restart with a new
+build, the cached `index.html` asked for the old `assets/index-*.js`; the host answered with the SPA
+fallback (HTML) and the module failed to load — a blank remote until the cache was cleared.
+
+**Fix:**
+- The page is network-first (the cached copy when offline, or when the host takes longer than 4 s);
+  hashed `/assets/` stay cache-first and are pruned to what the current page links. Cache `v2` drops
+  the old one.
+- Each time the push channel opens, the remote compares the script the host's `index.html` links
+  with its own; when they differ, a "New version of the remote · Reload" pill offers the new build.
+- Offline start: the remote no longer shows the pairing screen when the host cannot be reached (and
+  no longer stays blank with a stored token) — it waits with the "Connecting…" pill and starts by
+  itself when the host is back.
+
+Tested: build A cached → host restarted with build B → pill on the open page, Reload loads B and
+prunes A's script; plain reload after an update loads the new build; reload with the host down shows
+the cached shell, then the app once the host returns.
 
 ### 14. ⬜ Error toasts pile up
-With the host gone, every action fails and toasts stack up. One "Host not reachable" status is calmer.
+With the host gone, every action fails and toasts stack up. The "Connecting…" pill (4) now says it
+once; actions could stay quiet (or disabled) while `AppState.connection` is not `open`.
 
 ### 15. ⬜ Labels and Settings still wait for the network
 The label detail renders from the store at once and refreshes behind (done with 2), but Settings panes
