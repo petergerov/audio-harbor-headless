@@ -10,6 +10,7 @@ import type {
   ScanProgress,
   SettingsSnapshot,
 } from '../api/types';
+import type { LiveStatus } from '../api/liveUpdates';
 
 export type Tab = 'library' | 'collections' | 'now' | 'settings';
 export type SettingsPane = 'sources' | 'output' | 'rack' | 'sharing' | 'about';
@@ -70,6 +71,8 @@ export interface AppState {
   scan: ScanProgress | null;
   /** The plugin rack, as the host pushes it. */
   rack: RackSnapshot | null;
+  /** Whether the host's push channel is up. */
+  connection: LiveStatus;
 }
 
 export const initialState: AppState = {
@@ -94,4 +97,5 @@ export const initialState: AppState = {
   settings: null,
   scan: null,
   rack: null,
+  connection: 'connecting',
 };

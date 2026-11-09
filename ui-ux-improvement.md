@@ -41,21 +41,26 @@ album landed at the top of the list.
   tapping the active Catalogue tab again pops to the top level (and scrolls to the top).
 - A reload keeps the current place (route lives in `history.state`).
 
-### 4. ⬜ Live connection after waking the iPhone
-`LiveUpdates` (`web/src/api/liveUpdates.ts`) reconnects only on `onclose`, after a fixed 2 s. Back from
-the background, the remote shows a stale track / position until the dead socket is noticed; after a
-reconnect the state is not reloaded, so missed messages stay missed.
+### 4. ✅ Live connection after waking the iPhone
+`LiveUpdates` (`web/src/api/liveUpdates.ts`) reconnected only on `onclose`, after a fixed 2 s. Back from
+the background, the remote showed a stale track / position until the dead socket was noticed.
 
-**Fix:** on `visibilitychange` → visible, reconnect immediately and call `playback.refresh()`; refresh
-after every reconnect; exponential backoff; a quiet "Connecting…" indicator instead of a silent freeze.
+**Fix:** the host sends every snapshot when a socket opens, so a fresh socket is a full resync.
+- Back from the background after more than 3 s (`visibilitychange`), on `online` and on a
+  back-forward-cache restore: drop the socket and open a new one at once. A short hide keeps the socket.
+- After a drop: backoff 0.5 / 1 / 2 / 3 / 5 s; no attempts while the page is hidden.
+- `AppState.connection`; a quiet "Connecting to Harbor…" pill at the top when the host is out of reach
+  for more than 1.2 s (`ui/components/connectionBanner.ts`).
 
 ## 🟠 Interaction
 
-### 5. ⬜ Volume slider floods the host
-`playerControls.ts` sends one HTTP request per `input` event — with `step=0.01` up to ~100 per swipe.
-Out-of-order answers make the slider jump back.
+### 5. ✅ Volume slider flooded the host
+`playerControls.ts` sent one HTTP request per `input` event — with `step=0.01` up to ~100 per swipe;
+out-of-order answers made the slider jump back.
 
-**Fix:** throttle (~80 ms), always send the latest value, drop answers older than the last request.
+**Fix:** `PlaybackService.setVolume` moves the store at once and sends one request at a time, always
+the latest level (≥ 60 ms apart). While it sends, and 0.7 s after, snapshots keep the local level, so
+nothing pulls the slider back. Measured: 101 slider events → 8 requests, the last one the final level.
 
 ### 6. ⬜ Tapping a track: no immediate feedback
 `PlaybackService.play()` awaits `play` and then `refresh` before the row is marked playing.

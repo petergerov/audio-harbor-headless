@@ -24,6 +24,7 @@ import { PlaybackService } from './services/playbackService';
 import { SettingsService } from './services/settingsService';
 import { initialState, type AppState } from './state/appState';
 import { Covers } from './ui/components/covers';
+import { mountConnectionBanner } from './ui/components/connectionBanner';
 import { PlayerBindings } from './ui/components/playerBindings';
 import { HeaderPlayer, MiniPlayer, NowBar } from './ui/components/playerChrome';
 import { BrowserHistory } from './ui/browserHistory';
@@ -89,6 +90,7 @@ const app = new App({
   shell,
 });
 bindEdgeSwipe(nav);
+mountConnectionBanner(store);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

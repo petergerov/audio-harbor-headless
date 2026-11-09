@@ -86,6 +86,13 @@ src/
   history when the previous entry is above. Tabs keep their place; tapping the active Catalogue tab
   goes to its top. Saved to the home screen on a phone, a swipe from the left edge goes back
   (`ui/edgeSwipe.ts`).
+- **Live connection**: the host sends every snapshot when a socket opens, so `LiveUpdates` resyncs by
+  reconnecting — at once when the page returns from the background (> 3 s), the network returns or
+  the page comes back from the back-forward cache; after a drop with backoff (0.5 … 5 s), not while
+  hidden. `AppState.connection` drives the "Connecting to Harbor…" pill
+  (`components/connectionBanner.ts`, after 1.2 s).
+- **Volume**: `PlaybackService.setVolume` moves the store at once and keeps one request in flight,
+  always the latest level; snapshots defer to the local level while it sends and shortly after.
 - **Deck queue**: shared paint/bind lives in `components/queueList.ts`. Desktop mounts
   `deckQueueRail`; phone opens `sheets/queueSheet.ts`.
 - **Offline shell**: `public/sw.js` caches the shell (stale-while-revalidate) — only in a secure

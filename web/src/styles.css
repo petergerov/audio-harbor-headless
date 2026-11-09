@@ -2333,6 +2333,47 @@ button.cell:disabled .value {
 }
 
 /* Toast */
+/* Host out of reach: a quiet pill at the top until the push channel is back */
+.connection-banner {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--safe-top) + 8px);
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 980px;
+  background: rgba(28, 28, 30, 0.94);
+  border: 0.5px solid var(--separator);
+  color: var(--secondary);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition: opacity 0.22s ease, transform 0.26s var(--ease-out);
+}
+
+.connection-banner.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: connection-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes connection-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 .ah-toast {
   position: fixed;
   left: 50%;

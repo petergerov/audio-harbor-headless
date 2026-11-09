@@ -83,6 +83,8 @@ export class App {
           void library.load().catch(() => {});
         }
       }
+    }, (connection) => {
+      if (this.deps.store.get().connection !== connection) this.deps.store.update({ connection });
     });
     try {
       await playback.refresh();
