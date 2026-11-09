@@ -269,7 +269,15 @@ svg {
 .screen {
   padding: calc(8px + var(--safe-top)) max(16px, env(safe-area-inset-right)) 24px
     max(16px, env(safe-area-inset-left));
+}
+
+/* Navigation swaps only the screen: deeper / another tab rises in, one level up fades in. */
+.screen.enter-forward {
   animation: fade-up 0.28s var(--ease-out);
+}
+
+.screen.enter-back {
+  animation: fade-in 0.2s ease;
 }
 
 .large-title {
@@ -777,6 +785,48 @@ svg {
 .chevron svg {
   width: 8px;
   height: 14px;
+}
+
+/* Placeholder rows while a level loads */
+.skeleton-list {
+  animation: fade-in 0.3s ease 0.12s both;
+}
+
+.row-wrap.skeleton .row {
+  pointer-events: none;
+}
+
+.skeleton-block,
+.skeleton-line {
+  background: linear-gradient(
+    90deg,
+    var(--fill) 0%,
+    var(--fill-strong) 50%,
+    var(--fill) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.row-icon.skeleton-block {
+  color: transparent;
+}
+
+.skeleton-line {
+  height: 12px;
+  width: 62%;
+  border-radius: 6px;
+}
+
+.skeleton-line.short {
+  width: 38%;
+  margin-top: 8px;
+  height: 10px;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
 }
 
 /* Empty states */

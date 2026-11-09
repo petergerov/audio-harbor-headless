@@ -68,24 +68,31 @@ export function sidebarHtml(state: AppState): string {
   `;
 }
 
-/** Wires tab bar, sidebar destinations, collections and the sidebar's `+`. */
-export function bindNavigation(root: ParentNode, nav: Navigation, createPlaylist: () => void): void {
-  root.querySelectorAll<HTMLElement>('[data-tab]').forEach((button) => {
-    button.addEventListener('click', () => {
+/**
+ * Wires tab bar, sidebar destinations, collections and the sidebar's `+` — one listener on the
+ * frame, so the sidebar and tab bar can be replaced without binding again.
+ */
+export function bindNavigation(frame: HTMLElement, nav: Navigation, createPlaylist: () => void): void {
+  frame.addEventListener('click', (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLElement>(
+      '.tab-bar [data-tab], .sidebar [data-nav], .sidebar [data-new-playlist]'
+    );
+    if (!button) return;
+    if (button.dataset.tab) {
       haptic('light');
       void nav.goTo(button.dataset.tab as Tab);
-    });
+      return;
+    }
+    if (button.hasAttribute('data-new-playlist')) {
+      createPlaylist();
+      return;
+    }
+    const target = button.dataset.nav!;
+    const id = button.dataset.id ?? '';
+    if (target === 'playlist' || target === 'label') {
+      void nav.openCollection(target, id, button.dataset.name ?? id);
+    } else {
+      void nav.goTo(target as Tab);
+    }
   });
-  root.querySelectorAll<HTMLElement>('[data-nav]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const target = button.dataset.nav!;
-      const id = button.dataset.id ?? '';
-      if (target === 'playlist' || target === 'label') {
-        void nav.openCollection(target, id, button.dataset.name ?? id);
-      } else {
-        void nav.goTo(target as Tab);
-      }
-    });
-  });
-  root.querySelector('[data-new-playlist]')?.addEventListener('click', () => createPlaylist());
 }

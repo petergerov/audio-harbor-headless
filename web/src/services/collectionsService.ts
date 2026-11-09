@@ -1,6 +1,7 @@
 import type { CollectionsApi } from '../api/collectionsApi';
 import type { CollectionKind, Selection } from '../api/types';
 import type { Store } from '../core/store';
+import { errorMessage } from '../core/errors';
 import type { AppState, CollectionsState } from '../state/appState';
 
 /** Playlists and labels: the lists, the open one, and changes to them. */
@@ -24,12 +25,22 @@ export class CollectionsService {
   async loadOpen(): Promise<void> {
     const open = this.store.get().collections.open;
     if (!open) {
-      this.patch({ items: [] });
+      this.patch({ items: [], loading: false, error: null });
       return;
     }
-    const { name, tracks } =
-      open.kind === 'playlist' ? await this.api.playlistTracks(open.id) : await this.api.labelTracks(open.id);
-    this.patch({ open: { ...open, title: name }, items: tracks });
+    const still = () => {
+      const now = this.store.get().collections.open;
+      return now?.kind === open.kind && now.id === open.id;
+    };
+    try {
+      const { name, tracks } =
+        open.kind === 'playlist' ? await this.api.playlistTracks(open.id) : await this.api.labelTracks(open.id);
+      // Another one was opened meanwhile: its own load fills the screen.
+      if (still()) this.patch({ open: { ...open, title: name }, items: tracks, loading: false, error: null });
+    } catch (err) {
+      if (still()) this.patch({ loading: false, error: errorMessage(err, 'Could not load it') });
+      throw err;
+    }
   }
 
   createPlaylist(name: string): Promise<{ id: string; name: string }> {

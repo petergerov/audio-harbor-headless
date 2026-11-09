@@ -3,6 +3,7 @@ import type { BrowseItem, PlayContext, Selection, Track } from '../../api/types'
 import { haptic } from '../../core/device';
 import { errorMessage } from '../../core/errors';
 import { songs } from '../../core/format';
+import { escapeHtml } from '../../core/html';
 import type { LibraryState, OpenCollection } from '../../state/appState';
 import { isCurrentTrack, nowPlayingPath } from '../../state/selectors';
 import { mediaRow, type RowModel } from '../components/mediaRow';
@@ -186,6 +187,31 @@ function playContextFor(cataloguePath: string, scope: ListScope): PlayContext {
     return { cataloguePath, playlistId: library.playlist.id };
   }
   return { cataloguePath };
+}
+
+/** Grey rows where the items will be, while they are on their way. */
+export function paintPlaceholders(list: HTMLElement, rows = 8): void {
+  const row = `
+    <div class="row-wrap skeleton" aria-hidden="true">
+      <div class="row has-icon">
+        <div class="row-icon skeleton-block"></div>
+        <div class="row-text">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+        </div>
+      </div>
+    </div>`;
+  list.innerHTML = `<div class="skeleton-list" role="status" aria-label="Loading">${row.repeat(rows)}</div>`;
+}
+
+/** Why the list is empty after a failed load, and a way to try again. */
+export function paintLoadError(list: HTMLElement, message: string, retry: () => void): void {
+  list.innerHTML = `
+    <div class="empty">
+      <strong>Could Not Load</strong>${escapeHtml(message)}
+      <div><button type="button" class="btn-text" data-retry>Try Again</button></div>
+    </div>`;
+  list.querySelector('[data-retry]')?.addEventListener('click', retry);
 }
 
 /** Fills `list` with a row per item it can show. */

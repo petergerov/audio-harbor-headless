@@ -6,7 +6,7 @@ import type { OpenCollection } from '../../state/appState';
 import { mediaRow } from '../components/mediaRow';
 import { icons } from '../icons';
 import { showToast } from '../overlay';
-import { paintMediaList } from './mediaList';
+import { paintLoadError, paintMediaList, paintPlaceholders } from './mediaList';
 import type { View, ViewHost } from './view';
 
 /** Playlists and labels: the overview, or the one that is open. */
@@ -20,18 +20,28 @@ export class CollectionsView implements View {
     this.unsubscribe = null;
   }
 
-  async render(root: HTMLElement, host: ViewHost): Promise<void> {
+  /**
+   * Paints what the store holds at once — the navigator loads the open one's tracks — and
+   * repaints when they arrive or change behind the screen (a drive or share came or went).
+   */
+  render(root: HTMLElement, host: ViewHost): void {
     this.dispose();
-    await this.ctx.collections.refresh();
-    if (this.ctx.store.get().collections.open) {
-      await this.ctx.collections.loadOpen();
-      const open = this.ctx.store.get().collections.open;
-      if (open) {
-        this.renderDetail(root, host, open);
-        return;
-      }
-    }
-    this.renderOverview(root, host);
+    this.paint(root, host);
+    this.unsubscribe = this.ctx.store.subscribe((state, previous) => {
+      const now = state.collections;
+      const before = previous.collections;
+      if (!root.isConnected || state.tab !== 'collections') return;
+      const changed = now.open
+        ? now.open !== before.open || now.items !== before.items || now.loading !== before.loading || now.error !== before.error
+        : now.open !== before.open || now.playlists !== before.playlists || now.labels !== before.labels;
+      if (changed) this.paint(root, host);
+    });
+  }
+
+  private paint(root: HTMLElement, host: ViewHost): void {
+    const open = this.ctx.store.get().collections.open;
+    if (open) this.renderDetail(root, host, open);
+    else this.renderOverview(root, host);
   }
 
   private renderOverview(root: HTMLElement, host: ViewHost): void {
@@ -90,7 +100,7 @@ export class CollectionsView implements View {
   }
 
   private renderDetail(root: HTMLElement, host: ViewHost, open: OpenCollection): void {
-    const items = this.ctx.store.get().collections.items;
+    const { items, loading, error } = this.ctx.store.get().collections;
     const count = items.length;
     const cover = items.find((t) => t.artworkHash)?.artworkHash ?? null;
     const isPlaylist = open.kind === 'playlist';
@@ -107,7 +117,7 @@ export class CollectionsView implements View {
         <div class="collection-hero-text">
           <p class="collection-kind">${isPlaylist ? 'Playlist' : 'Label'}</p>
           <h1 class="collection-title">${escapeHtml(open.title)}</h1>
-          <p class="collection-meta">${count === 0 ? 'No songs' : songs(count)}</p>
+          <p class="collection-meta">${count === 0 ? (loading ? '&nbsp;' : 'No songs') : songs(count)}</p>
           <div class="collection-actions ${isPlaylist ? '' : 'single'}">
             <button type="button" class="pill-btn primary" data-play-all ${count ? '' : 'disabled'}>${icons.playSm}<span>Play</span></button>
             ${
@@ -128,19 +138,14 @@ export class CollectionsView implements View {
     root.querySelector('[data-play-all]')?.addEventListener('click', () => {
       void this.ctx.actions.play(isPlaylist ? { playlistId: open.id } : { label: open.id });
     });
-    root.querySelector('[data-add-music]')?.addEventListener('click', async () => {
-      await this.ctx.nav.goTo('library');
+    root.querySelector('[data-add-music]')?.addEventListener('click', () => {
+      void this.ctx.nav.goTo('library');
       showToast('Pick music in Catalogue, then use Add');
     });
     this.ctx.covers.hydrate(root);
     const list = required(root, '[data-list]');
-    paintMediaList(list, items, { kind: 'collection', collection: open }, this.ctx);
-    // Reloaded behind the screen (a drive or share came or went): the list repaints.
-    this.unsubscribe = this.ctx.store.subscribe((state, previous) => {
-      const now = state.collections;
-      if (now.items === previous.collections.items || !list.isConnected) return;
-      if (now.open?.kind !== open.kind || now.open.id !== open.id) return;
-      paintMediaList(list, now.items, { kind: 'collection', collection: open }, this.ctx);
-    });
+    if (!count && loading) paintPlaceholders(list);
+    else if (!count && error) paintLoadError(list, error, () => void this.ctx.nav.refresh());
+    else paintMediaList(list, items, { kind: 'collection', collection: open }, this.ctx);
   }
 }

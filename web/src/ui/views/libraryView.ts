@@ -4,7 +4,7 @@ import { escapeAttr, escapeHtml, required } from '../../core/html';
 import type { LibraryState } from '../../state/appState';
 import { icons } from '../icons';
 import { CATALOGUE_SCOPES } from './catalogueScopes';
-import { paintMediaList } from './mediaList';
+import { paintLoadError, paintMediaList, paintPlaceholders } from './mediaList';
 import type { View, ViewHost } from './view';
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -94,11 +94,16 @@ export class LibraryView implements View {
         debounce = window.setTimeout(() => void this.ctx.nav.search(search.value), SEARCH_DEBOUNCE_MS);
       });
     }
-    this.paintList(list);
-    // Items loaded behind the screen — a search, a scan that ended, a drive or share that came
-    // or went — repaint the list; the header and search field stay.
+    this.paintList(root, list);
+    // Items loaded behind the screen — the level arriving, a search, a scan that ended, a drive or
+    // share that came or went — repaint the list; the header and search field stay.
     this.unsubscribe = this.ctx.store.subscribe((state, previous) => {
-      if (state.library.items !== previous.library.items && list.isConnected) this.paintList(list);
+      const now = state.library;
+      const before = previous.library;
+      if (!list.isConnected) return;
+      if (now.items !== before.items || now.loading !== before.loading || now.error !== before.error) {
+        this.paintList(root, list);
+      }
     });
   }
 
@@ -123,8 +128,18 @@ export class LibraryView implements View {
       </div>`;
   }
 
-  private paintList(list: HTMLElement): void {
+  private paintList(root: HTMLElement, list: HTMLElement): void {
     const library = this.ctx.store.get().library;
+    const playAll = root.querySelector<HTMLButtonElement>('[data-play-all]');
+    if (playAll) playAll.disabled = !library.items.length;
+    if (!library.items.length && library.loading) {
+      paintPlaceholders(list);
+      return;
+    }
+    if (!library.items.length && library.error) {
+      paintLoadError(list, library.error, () => void this.ctx.nav.refresh());
+      return;
+    }
     paintMediaList(list, library.items, { kind: 'library', library }, this.ctx);
   }
 }

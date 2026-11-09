@@ -35,6 +35,8 @@ export interface AppDeps {
   collections: CollectionsService;
   settings: SettingsService;
   bindings: PlayerBindings;
+  /** Puts the screens back where a reload left them. */
+  nav: { restore(): void };
   shell: Shell;
 }
 
@@ -51,7 +53,7 @@ export class App {
       deps.bindings.paintPosition(position, deps.clock.scrubbing, durationSecs(deps.store.get()))
     );
     window.addEventListener('resize', () => {
-      if (this.ready && !deps.shell.fits()) deps.shell.render();
+      if (this.ready && !deps.shell.fits()) deps.shell.updateChrome();
     });
   }
 
@@ -61,6 +63,7 @@ export class App {
       this.showPairing();
       return;
     }
+    this.deps.nav.restore();
     live.connect((message) => {
       if (message.type === 'nowPlaying') playback.receive(message.payload);
       else if (message.type === 'queue') playback.receiveQueue(message.payload);
@@ -75,7 +78,10 @@ export class App {
         const finished = Boolean(this.deps.store.get().scan?.scanning) && !message.payload.scanning;
         this.deps.store.update({ scan: message.payload });
         // New tracks show up without a reload.
-        if (finished && this.ready) void library.load().catch(() => {});
+        if (finished && this.ready) {
+          library.invalidate();
+          void library.load().catch(() => {});
+        }
       }
     });
     try {
@@ -93,14 +99,17 @@ export class App {
     await collections.refresh();
     await Promise.all([
       library.load().catch((err) => showToast(errorMessage(err, 'Could not load the library'), { error: true })),
+      // A reload inside a label: its tracks (the screen says when they cannot load).
+      this.deps.store.get().collections.open ? collections.loadOpen().catch(() => {}) : null,
       settings.refresh().catch((err) => showToast(errorMessage(err, 'Could not load settings'), { error: true })),
     ]);
     this.ready = true;
-    shell.render();
+    shell.render('forward');
   }
 
   private sourcesChanged(): void {
     const { library, collections } = this.deps;
+    library.invalidate();
     void library.load().catch(() => {});
     if (this.deps.store.get().collections.open) void collections.loadOpen().catch(() => {});
   }
@@ -119,17 +128,14 @@ export class App {
   }
 
   /**
-   * Player chrome appearing or going → new layout; another track → chrome and the track parts
-   * of the screen repaint; otherwise only the live bindings move.
+   * Player chrome appearing or going → it comes or goes, the screen stays; another track → chrome
+   * and the track parts of the screen repaint; otherwise only the live bindings move.
    */
   private playbackChanged(state: AppState, previous: AppState): void {
     this.announceError(state);
     if (!this.ready) return;
     const { shell, bindings } = this.deps;
-    if (!shell.fits()) {
-      shell.render();
-      return;
-    }
+    if (!shell.fits()) shell.updateChrome();
     if (currentTrack(state)?.id !== currentTrack(previous)?.id) shell.trackChanged();
     bindings.sync(state);
   }

@@ -33,6 +33,10 @@ export interface LibraryState {
   playlist: { id: string; name: string } | null;
   query: string;
   items: BrowseItem[];
+  /** The items are on their way and none are known yet: the list shows placeholders. */
+  loading: boolean;
+  /** Why the items could not be loaded, while none show. */
+  error: string | null;
 }
 
 export interface OpenCollection {
@@ -47,6 +51,10 @@ export interface CollectionsState {
   labels: LabelSummary[];
   open: OpenCollection | null;
   items: BrowseItem[];
+  /** The open one's tracks are on their way. */
+  loading: boolean;
+  /** Why the open one's tracks could not be loaded. */
+  error: string | null;
 }
 
 export interface AppState {
@@ -76,8 +84,10 @@ export const initialState: AppState = {
     playlist: null,
     query: '',
     items: [],
+    loading: false,
+    error: null,
   },
-  collections: { playlists: [], labels: [], open: null, items: [] },
+  collections: { playlists: [], labels: [], open: null, items: [], loading: false, error: null },
   settingsPane: 'sources',
   nowPlaying: null,
   queue: null,

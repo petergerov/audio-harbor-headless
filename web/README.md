@@ -70,9 +70,22 @@ src/
 - **Live player state** (title, play/pause, position, volume, badge, error, playing row) follows the
   markup contract in `components/playerBindings.ts` (`PlayerMarkup`). Any element carrying it stays
   current without re-rendering its view.
-- **Rendering**: navigation renders the shell. Playback changes do the least that is needed: chrome
-  appearing or going → new layout; another track → chrome and `onTrackChange`; anything else → bindings.
-  Lists therefore keep their scroll position while tracks change.
+- **Rendering**: the shell builds its frame once (again only when the window crosses the desktop
+  breakpoint). Navigation swaps the view inside `#main` (`enter-forward` / `enter-back` animate it);
+  sidebar and tab bar are replaced only when their markup changes. Playback changes do the least that
+  is needed: chrome appearing or going → the mini player / now bar is added or removed, the view stays;
+  another track → chrome and `onTrackChange`; anything else → bindings. Lists therefore keep their
+  scroll position while tracks change.
+- **Navigation and history**: `Navigator` renders the destination at once and loads behind it.
+  `LibraryService` keeps browsed levels and searches in memory (shown instantly, revalidated); until
+  items arrive `library.loading` shows placeholder rows, a failed load `library.error` with *Try
+  Again* (`collections.loading` / `error` likewise for an open label). Every move is a history entry
+  (`state/route.ts` holds the route; `ui/browserHistory.ts` is the `HistoryPort`): drill-ins and tab
+  switches push, segmented controls, search and settings panes replace. Entries keep their scroll
+  position; back / forward and a reload restore the route. In-app back links step back through
+  history when the previous entry is above. Tabs keep their place; tapping the active Catalogue tab
+  goes to its top. Saved to the home screen on a phone, a swipe from the left edge goes back
+  (`ui/edgeSwipe.ts`).
 - **Deck queue**: shared paint/bind lives in `components/queueList.ts`. Desktop mounts
   `deckQueueRail`; phone opens `sheets/queueSheet.ts`.
 - **Offline shell**: `public/sw.js` caches the shell (stale-while-revalidate) — only in a secure

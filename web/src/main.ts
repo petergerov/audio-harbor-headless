@@ -26,6 +26,8 @@ import { initialState, type AppState } from './state/appState';
 import { Covers } from './ui/components/covers';
 import { PlayerBindings } from './ui/components/playerBindings';
 import { HeaderPlayer, MiniPlayer, NowBar } from './ui/components/playerChrome';
+import { BrowserHistory } from './ui/browserHistory';
+import { bindEdgeSwipe } from './ui/edgeSwipe';
 import { SheetActions } from './ui/sheets/itemActions';
 import { Shell } from './ui/shell';
 import { VIEWS } from './ui/views/registry';
@@ -46,7 +48,9 @@ const covers = new Covers(new HttpArtworkApi(tokens));
 
 // The navigator renders through the shell, which needs the navigator: bound late.
 let shell: Shell | null = null;
-const nav = new Navigator(store, library, collections, () => shell?.render());
+const nav = new Navigator(store, library, collections, new BrowserHistory(), (transition) =>
+  shell?.render(transition)
+);
 const actions = new SheetActions({ store, collections, nav, playback });
 
 const ctx: AppContext = {
@@ -81,8 +85,10 @@ const app = new App({
   collections,
   settings: hostSettings,
   bindings,
+  nav,
   shell,
 });
+bindEdgeSwipe(nav);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
