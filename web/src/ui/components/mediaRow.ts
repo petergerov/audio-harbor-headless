@@ -1,5 +1,4 @@
 import { haptic } from '../../core/device';
-import { initial } from '../../core/format';
 import { escapeAttr, escapeHtml } from '../../core/html';
 import { icons } from '../icons';
 import type { Covers } from './covers';
@@ -13,11 +12,12 @@ export interface RowModel {
   subtitle: string;
   /** Opens a level deeper (album, artist, folder, collection). */
   chevron: boolean;
+  /** A cover in place of the kind's tile (albums; the queue's tracks). */
   artworkHash?: string | null;
-  /** Small square cover (album rows). */
-  thumb?: boolean;
-  /** The track that plays now. */
+  /** The track loaded now. */
   playing?: boolean;
+  /** …and paused. */
+  paused?: boolean;
   /** On a folder, drive or share that is not connected: greyed out, not playable. */
   unavailable?: boolean;
 }
@@ -41,17 +41,37 @@ const LONG_PRESS_SLOP_PX = 10;
 /** Android fires `contextmenu` after a long press too: the second within this long is dropped. */
 const MENU_DEBOUNCE_MS = 800;
 
-export const PLAYING_GLYPH = `<span class="playing-glyph" aria-label="Now playing">${icons.speaker}</span>`;
+/** The tile each kind of row shows without a cover — as in the iOS remote. */
+const TILES: Record<RowKind, string> = {
+  album: icons.tileSpeaker,
+  artist: icons.tilePerson,
+  folder: icons.tileFolder,
+  track: icons.tileNote,
+  playlist: icons.tileList,
+  label: icons.tileTag,
+};
+
+/** A track row's end: play (not loaded), the speaker (playing) or a quiet speaker (paused). */
+export type TrackMark = 'idle' | 'playing' | 'paused';
+
+export function trackTrail(mark: TrackMark): string {
+  if (mark === 'playing') return `<span class="playing-glyph" aria-label="Now playing">${icons.speaker}</span>`;
+  if (mark === 'paused') return `<span class="playing-glyph" aria-label="Paused">${icons.speakerOff}</span>`;
+  return `<span class="play-glyph" aria-hidden="true">${icons.trailPlay}</span>`;
+}
 
 function rowHtml(row: RowModel, covers: Covers): string {
-  const thumb = row.thumb ? ' thumb' : '';
   const img = covers.img(row.artworkHash);
   const icon = img
-    ? `<div class="row-icon ${row.kind}${thumb} has-art">${img}</div>`
-    : `<div class="row-icon ${row.kind}${thumb}">${escapeHtml(initial(row.title))}</div>`;
+    ? `<div class="row-icon ${row.kind} has-art">${img}</div>`
+    : `<div class="row-icon ${row.kind}">${TILES[row.kind]}</div>`;
   let trail = `<span class="row-trail"></span>`;
-  if (row.playing) trail = `<span class="row-trail playing">${PLAYING_GLYPH}</span>`;
-  else if (row.chevron) trail = `<span class="row-trail chevron">${icons.chevron}</span>`;
+  if (row.kind === 'track') {
+    const mark: TrackMark = row.playing ? (row.paused ? 'paused' : 'playing') : 'idle';
+    trail = `<span class="row-trail track${row.playing ? ' playing' : ''}" data-mark="${mark}">${trackTrail(mark)}</span>`;
+  } else if (row.chevron) {
+    trail = `<span class="row-trail chevron">${icons.chevron}</span>`;
+  }
   return `${icon}<div class="row-text"><div class="row-title">${escapeHtml(row.title)}</div><div class="row-sub">${escapeHtml(row.subtitle)}</div></div>${trail}`;
 }
 

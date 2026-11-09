@@ -518,7 +518,7 @@ svg {
 }
 
 .row-wrap + .row-wrap::before {
-  left: 68px;
+  left: 72px;
 }
 
 .row-wrap {
@@ -553,38 +553,24 @@ svg {
 }
 
 .row-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+  /* The iOS remote's tile: faceplate lift, the kind's glyph in dark aluminium. */
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
   display: grid;
   place-items: center;
-  color: #fff;
+  color: var(--aluminum-dark);
   font-size: 18px;
   font-weight: 600;
   flex-shrink: 0;
-  background: linear-gradient(160deg, #8e8e93, #636366);
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  background: var(--faceplate-lift);
 }
 
-.row-icon.album {
-  background: linear-gradient(160deg, #ff9f0a, #ff453a);
+.row-icon > svg {
+  width: 18px;
+  height: 18px;
 }
-.row-icon.artist {
-  border-radius: 50%;
-  background: linear-gradient(160deg, #bf5af2, #5e5ce6);
-}
-.row-icon.folder {
-  background: linear-gradient(160deg, #64d2ff, #0a84ff);
-}
-.row-icon.track {
-  background: linear-gradient(160deg, #30d158, #64d2ff);
-}
-.row-icon.playlist {
-  background: linear-gradient(160deg, #ffd60a, #ff9f0a);
-}
-.row-icon.label {
-  background: linear-gradient(160deg, #ff375f, #bf5af2);
-}
+
 .row-icon.create {
   background: var(--fill);
   color: var(--tint);
@@ -598,18 +584,6 @@ svg {
   padding: 0;
   background: var(--fill-strong);
   color: transparent;
-}
-
-/* Very small album cover thumbs in list view */
-.row-icon.thumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.row-wrap:has(.row-icon.thumb) + .row-wrap::before {
-  left: 56px;
 }
 
 .drill-sub {
@@ -656,6 +630,13 @@ svg {
   place-items: center;
   min-width: 20px;
   color: var(--tertiary);
+}
+
+/* A track not loaded: a small amber play mark, as in the iOS remote */
+.play-glyph {
+  display: grid;
+  place-items: center;
+  color: var(--tint);
 }
 
 .row-trail.playing,
@@ -2967,13 +2948,13 @@ body.overlay-open .ah-toast {
 }
 
 .app-shell.wide .row-icon {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   font-size: 16px;
 }
 
 .app-shell.wide .row-wrap + .row-wrap::before {
-  left: 64px;
+  left: 68px;
 }
 
 .app-shell.wide .row-title {

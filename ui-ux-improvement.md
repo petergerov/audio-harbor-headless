@@ -190,3 +190,13 @@ there is text: it empties the field, keeps the focus and shows the scope's top l
 the mounted directories). The browser's own clear button is hidden. Enter searches at once and puts
 the keyboard away.
 
+### 18. ✅ Catalogue icons as in the iOS remote
+Rows showed the title's initial on a coloured gradient (and a cover on every track).
+
+**Fix** (as `RemoteControllerView.iconTile` in the iOS remote): a 44 px tile in the faceplate lift
+colour with the kind's glyph in dark aluminium — folder, note (track), person (artist), list
+(playlist), speaker (album without a cover), tag (label); albums show their cover. Track rows end in
+an amber ▶, the loaded track in the speaker (with waves while playing, without when paused). The
+glyphs are drawn after Apple's SF Symbols, not taken from them (their licence covers Apple-platform
+apps only). The queue keeps its covers.
+

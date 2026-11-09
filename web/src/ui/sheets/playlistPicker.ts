@@ -1,8 +1,8 @@
 import type { Selection } from '../../api/types';
 import { haptic } from '../../core/device';
 import { errorMessage } from '../../core/errors';
-import { initial } from '../../core/format';
 import { escapeAttr, escapeHtml } from '../../core/html';
+import { icons } from '../icons';
 import { openNameDialog, openPanel, showToast } from '../overlay';
 import type { SheetDeps } from './sheetDeps';
 
@@ -14,7 +14,7 @@ export async function openPlaylistPicker(selection: Selection, deps: SheetDeps):
     .map(
       (p) => `
       <button type="button" class="picker-row" data-id="${escapeAttr(p.id)}">
-        <span class="row-icon playlist">${escapeHtml(initial(p.name, 'P'))}</span>
+        <span class="row-icon playlist">${icons.tileList}</span>
         <span class="picker-text"><strong>${escapeHtml(p.name)}</strong></span>
         <span class="picker-add">Add</span>
       </button>`

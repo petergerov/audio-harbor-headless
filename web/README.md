@@ -67,6 +67,9 @@ src/
 - **New tab or settings pane**: add the class and one entry in `views/registry.ts` or `SettingsView`'s
   `PANES`; the shell does not change.
 - **New list row type**: add a presenter to `PRESENTERS` in `views/mediaList.ts` (first match wins).
+  Rows show the kind's tile (`TILES` in `components/mediaRow.ts`, glyphs `icons.tile*` after the iOS
+  remote) or a cover when the row model has `artworkHash`; track rows end in ▶ / speaker, kept live
+  by `PlayerBindings.markTrackRows`.
   Lists paint through `paintRows` (`components/mediaRow.ts`): one parse for all rows and one set of
   listeners per list, rows off screen skip layout (`content-visibility`). A presenter's `open`
   returns a promise when it starts a track; the row shows it is loading until it settles. Rows with

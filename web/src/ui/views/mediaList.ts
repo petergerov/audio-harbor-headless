@@ -5,7 +5,7 @@ import { errorMessage } from '../../core/errors';
 import { songs } from '../../core/format';
 import { escapeHtml } from '../../core/html';
 import type { LibraryState, OpenCollection } from '../../state/appState';
-import { isCurrentTrack, nowPlayingPath } from '../../state/selectors';
+import { isCurrentTrack, isPlaying, nowPlayingPath } from '../../state/selectors';
 import { paintRows, type RowEntry, type RowModel } from '../components/mediaRow';
 import { showToast } from '../overlay';
 
@@ -55,7 +55,6 @@ const albumEntry: Presenter = (item, scope, ctx) => {
       subtitle: withOffline(count ? `${album.artist} · ${songs(count)}` : album.artist, offline),
       chevron: true,
       artworkHash: item.artworkHash,
-      thumb: true,
       unavailable: offline,
     },
     selection: { albumId: album.id, title: album.title },
@@ -102,7 +101,6 @@ const albumSearchHit: Presenter = (item, scope, ctx) => {
       subtitle: withOffline(album.artist, offline),
       chevron: true,
       artworkHash: item.artworkHash,
-      thumb: true,
       unavailable: offline,
     },
     selection: { albumId: album.id, title: album.title },
@@ -139,8 +137,9 @@ const trackEntry: Presenter = (item, scope, ctx) => {
       title: item.name || track.title || 'Track',
       subtitle: withOffline(labels ? `${artist} · ${labels}` : artist, offline),
       chevron: false,
-      artworkHash: track.artworkHash,
+      // As in the iOS remote: a track shows the note tile, its album the cover.
       playing: path === nowPlayingPath(ctx.store.get()),
+      paused: !isPlaying(ctx.store.get()),
       unavailable: offline,
     },
     selection: { cataloguePath: path, title: track.title ?? item.name ?? 'Track' },

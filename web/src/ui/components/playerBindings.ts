@@ -5,7 +5,7 @@ import type { AppState } from '../../state/appState';
 import { currentTrack, durationSecs, isPlaying, nowPlayingPath, playbackError } from '../../state/selectors';
 import { icons } from '../icons';
 import { syncDeckStage } from './deckStage';
-import { PLAYING_GLYPH } from './mediaRow';
+import { trackTrail, type TrackMark } from './mediaRow';
 
 export const REPEAT_LABELS: Record<RepeatMode, string> = {
   off: 'Repeat off',
@@ -108,7 +108,7 @@ export class PlayerBindings {
     this.each(PlayerMarkup.volumePct, (el) => {
       el.textContent = volume == null ? '—' : volumePercent(volume);
     });
-    this.markTrackRows(nowPlayingPath(state));
+    this.markTrackRows(nowPlayingPath(state), playing);
   }
 
   /** Scrubbers, position labels and deck dolly (each tick while playing); untouched while the user drags. */
@@ -133,21 +133,19 @@ export class PlayerBindings {
     syncDeckStage(this.root, rig.classList.contains('is-playing'), loadDeckStyle(), total > 0 ? position / total : 0);
   }
 
-  /** Highlights the playing track in any list on screen. */
-  markTrackRows(path: string | null): void {
+  /** Marks the loaded track in any list on screen; every track row's end shows play, playing or paused. */
+  markTrackRows(path: string | null, playing: boolean): void {
     this.each(PlayerMarkup.trackRow, (wrap) => {
       const on = Boolean(path && wrap.dataset.path === path);
       wrap.classList.toggle('playing', on);
       wrap.querySelector('.row')?.classList.toggle('playing', on);
-      const trail = wrap.querySelector('.row-trail');
+      const trail = wrap.querySelector<HTMLElement>('.row-trail.track');
       if (!trail) return;
-      if (on) {
-        trail.innerHTML = PLAYING_GLYPH;
-        trail.classList.add('playing');
-      } else if (trail.classList.contains('playing')) {
-        trail.innerHTML = '';
-        trail.classList.remove('playing');
-      }
+      const mark: TrackMark = on ? (playing ? 'playing' : 'paused') : 'idle';
+      if (trail.dataset.mark === mark) return;
+      trail.dataset.mark = mark;
+      trail.innerHTML = trackTrail(mark);
+      trail.classList.toggle('playing', on);
     });
   }
 
