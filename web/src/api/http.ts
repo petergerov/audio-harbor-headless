@@ -28,6 +28,14 @@ export class ApiError extends Error {
   }
 }
 
+/** No answer at all: the host is off, restarting, or the network is gone. */
+export class HostUnreachableError extends Error {
+  constructor() {
+    super('Harbor cannot be reached');
+    this.name = 'HostUnreachableError';
+  }
+}
+
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /** JSON over fetch, authorised with the pairing token. */
@@ -59,11 +67,17 @@ export class HttpClient {
     const token = this.tokens.get();
     if (token) headers.Authorization = `Bearer ${token}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const res = await fetch(path, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    let res: Response;
+    try {
+      res = await fetch(path, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      // One message for every failed action, however the browser words it.
+      throw new HostUnreachableError();
+    }
     if (!res.ok) throw new ApiError(await errorText(res), res.status);
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;

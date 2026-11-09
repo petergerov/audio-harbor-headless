@@ -144,10 +144,21 @@ Tested: build A cached → host restarted with build B → pill on the open page
 prunes A's script; plain reload after an update loads the new build; reload with the host down shows
 the cached shell, then the app once the host returns.
 
-### 14. ⬜ Error toasts pile up
-With the host gone, every action fails and toasts stack up. The "Connecting…" pill (4) now says it
-once; actions could stay quiet (or disabled) while `AppState.connection` is not `open`.
+### 14. ✅ Error toasts piled up
+With the host gone, every action failed and toasts stacked up, each in the browser's own words.
 
-### 15. ⬜ Labels and Settings still wait for the network
-The label detail renders from the store at once and refreshes behind (done with 2), but Settings panes
-still fetch before they paint. Same pattern: paint from the store / a skeleton, fill in.
+**Fix:** a request that gets no answer at all throws `HostUnreachableError` ("Harbor cannot be
+reached"); the same toast again only stays longer instead of stacking; while the "Connecting…" pill
+shows (`body.host-offline`), failure toasts stay quiet and the player controls dim.
+
+Measured: 5 quick taps on *Next* with the host gone → 1 toast; with the pill showing → none.
+
+### 15. ✅ Settings waited for the network
+Sources, Output and About fetched before they painted anything.
+
+**Fix:** Sources and Output show what they showed last at once and refresh behind it (Sources paints
+again only when the answer differs, so a field being typed into stays); About paints from the
+settings the host pushes. A pane with nothing to show after 120 ms gets placeholder rows.
+
+Tested with a slow host (600 ms): placeholders at 250 ms, then the pane; every later visit to
+Sources, Output and About paints in the same moment as the tap.

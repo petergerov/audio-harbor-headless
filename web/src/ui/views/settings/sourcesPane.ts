@@ -49,6 +49,14 @@ function driveSubtitle(drive: Drive): string {
   return [drive.mountPoint, facts].filter(Boolean).join(' · ');
 }
 
+interface SourcesSnapshot {
+  mounts: Mount[];
+  drives: DriveList;
+}
+
+/** The folders and drives as last seen: the pane shows them at once when opened again. */
+let lastSources: SourcesSnapshot | null = null;
+
 /** The music folders on the host: list, add, remove, rescan — and drives to set up for them. */
 export class SourcesPane implements Pane {
   private unsubscribe: (() => void) | null = null;
@@ -61,16 +69,35 @@ export class SourcesPane implements Pane {
     private readonly store: Store<AppState>
   ) {}
 
+  /**
+   * The folders and drives as last seen at once, then the host's answer — painted again only when
+   * it differs, so a field being typed into stays.
+   */
   async render(root: HTMLElement): Promise<void> {
+    const shown = lastSources;
+    if (shown) this.paint(root, shown);
+    let fresh: SourcesSnapshot;
+    try {
+      const [mounts, drives] = await Promise.all([
+        this.settings.mounts(),
+        this.settings.drives().catch((): DriveList => ({ supported: false, reason: null, drives: [] })),
+        this.settings
+          .scanProgress()
+          .then((scan) => this.store.update({ scan }))
+          .catch(() => {}),
+      ]);
+      fresh = { mounts, drives };
+    } catch (err) {
+      if (shown) return; // What was seen last stays.
+      throw err;
+    }
+    lastSources = fresh;
+    if (!root.isConnected) return;
+    if (!shown || JSON.stringify(shown) !== JSON.stringify(fresh)) this.paint(root, fresh);
+  }
+
+  private paint(root: HTMLElement, { mounts, drives }: SourcesSnapshot): void {
     this.dispose();
-    const [mounts, drives] = await Promise.all([
-      this.settings.mounts(),
-      this.settings.drives().catch((): DriveList => ({ supported: false, reason: null, drives: [] })),
-      this.settings
-        .scanProgress()
-        .then((scan) => this.store.update({ scan }))
-        .catch(() => {}),
-    ]);
     const showDrives = drives.supported || Boolean(drives.reason);
     // Something to scan: a library folder, or a drive / share that is set up.
     const showUpdate = mounts.length > 0 || drives.drives.some((d) => d.name);

@@ -113,6 +113,9 @@ function statusCells(output: OutputStatus): string {
     }`;
 }
 
+/** The output as last seen: the pane shows it at once when opened again. */
+let lastOutput: OutputStatus | null = null;
+
 /** Device, mode, network stream and DSD; status; apply. */
 export class OutputPane implements Pane {
   private refresh: number | undefined;
@@ -121,8 +124,11 @@ export class OutputPane implements Pane {
 
   async render(root: HTMLElement): Promise<void> {
     this.dispose();
-    // Asks the host to search for network players now; new ones show up within seconds.
-    let output = await this.settings.discoverOutput();
+    // Asks the host to search for network players now; new ones show up within seconds (the
+    // refresh below). Seen before: that shows at once, the search runs behind it.
+    const discovering = this.settings.discoverOutput().then((found) => (lastOutput = found));
+    if (lastOutput) discovering.catch(() => undefined);
+    let output = lastOutput ?? (await discovering);
 
     root.innerHTML = `
       <p class="group-label">Playback Destination</p>
@@ -246,6 +252,7 @@ export class OutputPane implements Pane {
       }
       try {
         output = await this.settings.output();
+        lastOutput = output;
       } catch {
         return;
       }

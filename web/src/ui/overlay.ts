@@ -318,10 +318,24 @@ export function openConfirmDialog(opts: {
   });
 }
 
+/** The toast on screen, its text and when it goes. */
+let toastShown: { el: HTMLElement; message: string; timer: number } | null = null;
+
+/**
+ * A short note at the bottom. Failures stay quiet while the host is out of reach (the
+ * "Connecting…" pill says so once); the same note again only stays longer, it does not stack.
+ */
 export function showToast(
   message: string,
   opts?: { error?: boolean; undo?: () => void | Promise<void> }
 ): void {
+  if (opts?.error && document.body.classList.contains('host-offline')) return;
+  const duration = opts?.undo ? 5000 : 2600;
+  if (toastShown && toastShown.message === message && !opts?.undo && toastShown.el.isConnected) {
+    window.clearTimeout(toastShown.timer);
+    toastShown.timer = hideToastLater(toastShown.el, duration);
+    return;
+  }
   document.getElementById('ah-toast')?.remove();
   const el = document.createElement('div');
   el.id = 'ah-toast';
@@ -338,8 +352,12 @@ export function showToast(
     await opts?.undo?.();
   });
   requestAnimationFrame(() => el.classList.add('show'));
-  window.setTimeout(() => {
+  toastShown = { el, message, timer: hideToastLater(el, duration) };
+}
+
+function hideToastLater(el: HTMLElement, ms: number): number {
+  return window.setTimeout(() => {
     el.classList.remove('show');
     window.setTimeout(() => el.remove(), 280);
-  }, opts?.undo ? 5000 : 2600);
+  }, ms);
 }

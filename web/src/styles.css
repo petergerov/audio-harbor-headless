@@ -863,6 +863,16 @@ svg {
   to { background-position: -100% 0; }
 }
 
+.settings-skeleton .group-label .skeleton-line {
+  display: block;
+  width: 80px;
+}
+
+.settings-skeleton .cell .skeleton-line {
+  display: block;
+  margin: 4px 0;
+}
+
 /* Empty states */
 .empty {
   text-align: center;
@@ -2435,6 +2445,16 @@ button.cell:disabled .value {
 .connection-banner.show {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+/* The host out of reach: its controls look it */
+body.host-offline .mini-actions,
+body.host-offline .transport,
+body.host-offline .now-bar-transport,
+body.host-offline .now-bar-scrub,
+body.host-offline .scrub {
+  opacity: 0.45;
+  transition: opacity 0.3s ease;
 }
 
 .connection-dot {

@@ -17,13 +17,18 @@ export function mountConnectionBanner(store: Store<AppState>): void {
   document.body.appendChild(banner);
 
   let timer: number | undefined;
+  // `host-offline` on body: failure toasts stay quiet, the player controls dim.
+  const show = (on: boolean) => {
+    banner.classList.toggle('show', on);
+    document.body.classList.toggle('host-offline', on);
+  };
   const apply = (connection: AppState['connection']) => {
     window.clearTimeout(timer);
     if (connection === 'open') {
-      banner.classList.remove('show');
+      show(false);
       return;
     }
-    timer = window.setTimeout(() => banner.classList.add('show'), SHOW_AFTER_MS);
+    timer = window.setTimeout(() => show(true), SHOW_AFTER_MS);
   };
   apply(store.get().connection);
   store.subscribe((state, previous) => {

@@ -23,6 +23,17 @@ const PANES: Record<SettingsPane, { label: string; create(ctx: AppContext): Pane
   about: { label: 'About', create: (ctx) => new AboutPane(ctx.store, ctx.hostSettings, ctx.settings) },
 };
 
+/** How long a pane may take before placeholders show. */
+const PLACEHOLDER_AFTER_MS = 120;
+
+const PLACEHOLDER = `
+  <div class="skeleton-list settings-skeleton" role="status" aria-label="Loading">
+    <p class="group-label"><span class="skeleton-line short"></span></p>
+    <div class="group">
+      ${'<div class="cell"><span class="skeleton-line"></span></div>'.repeat(3)}
+    </div>
+  </div>`;
+
 export class SettingsView implements View {
   private pane: Pane | null = null;
 
@@ -47,7 +58,16 @@ export class SettingsView implements View {
       button.addEventListener('click', () => this.ctx.nav.setSettingsPane(button.dataset.pane as SettingsPane));
     });
     this.pane = PANES[current].create(this.ctx);
-    await this.pane.render(required(root, '[data-settings-body]'));
+    const body = required(root, '[data-settings-body]');
+    // A pane still waiting for the host after a moment: placeholders, not an empty screen.
+    const placeholders = window.setTimeout(() => {
+      if (!body.childElementCount) body.innerHTML = PLACEHOLDER;
+    }, PLACEHOLDER_AFTER_MS);
+    try {
+      await this.pane.render(body);
+    } finally {
+      window.clearTimeout(placeholders);
+    }
   }
 
   dispose(): void {

@@ -160,7 +160,10 @@ export class AboutPane implements Pane {
   ) {}
 
   async render(root: HTMLElement): Promise<void> {
-    await this.settings.refresh().catch(() => undefined);
+    // The host pushes its settings over the live channel: those show at once; only without them
+    // (not connected yet) the pane asks first.
+    if (this.store.get().settings?.about) void this.settings.refresh().catch(() => undefined);
+    else await this.settings.refresh().catch(() => undefined);
     const about = this.store.get().settings?.about;
     if (!about) {
       root.innerHTML = `<div class="empty compact"><strong>Not Available</strong>The host did not answer.</div>`;

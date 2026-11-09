@@ -101,6 +101,10 @@ src/
 - **Position**: `PlaybackClock` counts from the last reported position and its timestamp (idle while
   hidden); snapshots the remote makes itself do not move it back. Per tick only changed values are
   written to the DOM.
+- **Failures**: no answer at all is `HostUnreachableError`; `showToast` does not stack the same note
+  and stays quiet for failures while `body.host-offline` (the Connecting pill) is set.
+- **Settings panes** paint what they can at once — Sources and Output from what they last showed,
+  About from the pushed settings — and `SettingsView` shows placeholders after 120 ms otherwise.
 - **Volume**: `PlaybackService.setVolume` moves the store at once and keeps one request in flight,
   always the latest level; snapshots defer to the local level while it sends and shortly after.
 - **Deck queue**: shared paint/bind lives in `components/queueList.ts`. Desktop mounts
