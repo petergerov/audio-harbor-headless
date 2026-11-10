@@ -1,5 +1,7 @@
 # Audio Harbor Headless — 7 things most players can't do
 
+*[Deutsch](top7.de.md)*
+
 ## 1. Your own studio plugins, played from the phone
 
 EQ, room correction, a limiter: Audio Harbor runs the plugins you already own (CLAP, VST3, AU on the Mac, LV2 on Linux) on a box with no screen, and you turn their knobs on your iPhone. Five good plugins are included for free, and the EQs have proper panels you can drag on. One key switches all the plugins off and on again with no gap, so you can hear the difference straight away (A/B). If a plugin crashes, the music doesn't stop. It keeps playing without the effect and the rack comes back on its own.
