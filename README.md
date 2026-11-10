@@ -2,7 +2,7 @@
 
 GUI-less audiophile media host for **macOS**, **Linux**, and **Windows**. Control everything from an iPhone (web remote / Bonjour). Plays to UPnP / DLNA network players like to a DAC, and also acts as a DLNA music server. Runs the plugins you already have — CLAP and VST3, AU on the Mac, LV2 on Linux / Raspberry Pi — in a rack you steer from the phone.
 
-**Why Audio Harbor:** [top7.md](top7.md) — seven things most players can't do ([Deutsch](top7.de.md)).
+**Why Audio Harbor:** [top10.md](top10.md) — ten things most players can't do ([Deutsch](top10.de.md)).
 
 **Product page:** [docs/index.html](docs/index.html), with screenshots of the remote on desktop and phone — same brand design as [Audio Harbor](https://github.com/petergerov/audio-harbor/tree/main/docs).
 
