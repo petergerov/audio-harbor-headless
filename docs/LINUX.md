@@ -27,7 +27,7 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 
 ### Which package
 
-There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.2.2 has all but Windows**: `.deb` and `.tar.gz` for `arm64` and `amd64`, `.pkg` and `.tar.gz` for Apple Silicon and Intel Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
+There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.2.3 has** `.deb` and `.tar.gz` for `arm64` (Raspberry Pi) and `.pkg` and `.tar.gz` for Apple Silicon Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
 
 ```bash
 dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name
@@ -51,8 +51,8 @@ A package for the wrong CPU fails in apt with `Depends: libc6:amd64 (>= 2.32) bu
 The `.deb` by hand (here `arm64`; on a PC `amd64`), then the first checks (`audioharbor` = the service user, see [Dedicated service user](#dedicated-service-user)):
 
 ```bash
-cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.2.2/audio-harbor-headless_1.2.2_arm64.deb
-sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.2.2_arm64.deb
+cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.2.3/audio-harbor-headless_1.2.3_arm64.deb
+sudo HARBOR_USER=audioharbor apt install ./audio-harbor-headless_1.2.3_arm64.deb
 
 sudo systemctl status audioharbor@audioharbor                    # running?
 journalctl -u audioharbor@audioharbor -b --no-pager | tail -40   # URL and QR code
@@ -96,7 +96,7 @@ If the service already runs for another user, switch it: `sudo systemctl disable
 Without the script — download the `.deb` from the [release page](https://github.com/petergerov/audio-harbor-headless/releases) and:
 
 ```bash
-sudo apt install ./audio-harbor-headless_1.2.2_arm64.deb
+sudo apt install ./audio-harbor-headless_1.2.3_arm64.deb
 ```
 
 ### Requirements
@@ -132,7 +132,8 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 | `/usr/lib/systemd/system/audioharbor@.service` | service template, one instance per user |
 | `/usr/libexec/audio-harbor-headless/harbor-drive` | root helper that sets up drives in `/etc/fstab` (see [Music on a USB drive](#music-on-a-usb-drive)) |
 | `/usr/libexec/audio-harbor-headless/harbor-update` | root helper that installs a newer release (see [Update from the remote](#update-from-the-remote)) |
-| `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run these two helpers, and nothing else, as root |
+| `/usr/libexec/audio-harbor-headless/harbor-power` | root helper that shuts the host down or restarts it, and turns the Raspberry Pi power button on or off (see [Shut down and restart](#shut-down-and-restart)) |
+| `/etc/sudoers.d/audio-harbor-headless` | lets the group `harbor-drives` run these three helpers, and nothing else, as root |
 | `/etc/audio-harbor-headless/<name>.cred` | login of an SMB share set up from the remote (root only), created then |
 | `/opt/audio-harbor-headless/engine/build/Release/harbor-fx` | the plugin rack's process (CLAP, VST3, LV2 through `liblilv-0-0`), started by the engine when the rack holds plugins |
 | `/opt/audio-harbor-headless/plugins/` | shipped plugins: `clap/lsp-plugins.clap` (LSP Plugins, no UI), `presets/lsp/` (LSP's own presets) and `LICENSES/` |
@@ -140,7 +141,7 @@ journalctl -u audioharbor@pi -b --no-pager | tail -40
 
 ## The service
 
-`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra groups `audio` and `harbor-drives` (`SupplementaryGroups=`), so it can open ALSA devices, set up drives and install updates without changing the user account. It waits for `network-online.target` and `remote-fs.target` (network shares, see below) and restarts 5 s after a crash.
+`audioharbor@<user>` runs `start.sh serve` as `<user>` with the extra groups `audio` and `harbor-drives` (`SupplementaryGroups=`), so it can open ALSA devices, set up drives, install updates and shut the host down without changing the user account. It waits for `network-online.target` and `remote-fs.target` (network shares, see below) and restarts 5 s after a crash.
 
 Because it runs as a normal user, everything stays where a manual start puts it: `audioharbor pair` and `audioharbor rescan` in a terminal work on the same data, and folders the user can read are readable for the host.
 
@@ -349,7 +350,7 @@ Share the music from a Pi to the others with Samba (`sudo apt install samba`), r
 
 From the remote (below), or run the installer again, or `sudo apt install ./<new>.deb`. Running instances restart with the new version; a disabled service stays disabled.
 
-A release rebuilt under the same version number (e.g. 1.2.2 again): apt sees the version as installed, so tell it to install anyway. With the installer — it downloads to `/tmp` itself:
+A release rebuilt under the same version number (e.g. 1.2.3 again): apt sees the version as installed, so tell it to install anyway. With the installer — it downloads to `/tmp` itself:
 
 ```bash
 curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/download/install-linux.sh | sudo HARBOR_REINSTALL=1 bash
@@ -358,12 +359,12 @@ curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/d
 Or by hand with `--reinstall`. Download again first — an old file is the previous build — and into `/tmp`, not your home folder: apt reads packages as user `_apt`, who cannot enter a home directory with mode 700 (Raspberry Pi OS Bookworm, Debian 12+) and then ends with `Notice: Download is performed unsandboxed as root …` (harmless, see [Troubleshooting](#troubleshooting)):
 
 ```bash
-cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.2.2/audio-harbor-headless_1.2.2_arm64.deb
-sudo apt install --reinstall ./audio-harbor-headless_1.2.2_arm64.deb
+cd /tmp && curl -fLO https://github.com/petergerov/audio-harbor-headless/releases/download/v1.2.3/audio-harbor-headless_1.2.3_arm64.deb
+sudo apt install --reinstall ./audio-harbor-headless_1.2.3_arm64.deb
 rm -f ~/audio-harbor-headless_*.deb   # an older copy in the home folder, if any
 ```
 
-A file already in the home folder: `mv ~/audio-harbor-headless_1.2.2_arm64.deb /tmp/` and install `/tmp/audio-harbor-headless_1.2.2_arm64.deb`.
+A file already in the home folder: `mv ~/audio-harbor-headless_1.2.3_arm64.deb /tmp/` and install `/tmp/audio-harbor-headless_1.2.3_arm64.deb`.
 
 An update keeps config, library and pairing (`~/.audio-harbor-headless`): paired devices stay paired. A host that had paired devices before the code became optional keeps **Require Pairing Code** on; a new install starts without a code.
 
@@ -380,7 +381,7 @@ Then in the remote:
 
 - Settings → Output lists each output once — compare with `aplay -l`. A DAC picked with an older version (as `plughw:…`, `sysdefault:…`, `front:…` and the like) stays picked: it is mapped to its `hw:CARD=…` entry.
 - Settings → Sources has Library → Update Library on top.
-- Settings → About shows the version, Software Update and the host's CPU, memory and disks.
+- Settings → About shows the version, Software Update and the host's CPU, memory and disks, and has Restart Host and Shut Down Host (see [Shut down and restart](#shut-down-and-restart)).
 
 ### Update from the remote
 
@@ -401,6 +402,47 @@ journalctl -u audio-harbor-update --no-pager | tail -30
 
 A failure shows under Software Update (e.g. `could not look up v1.0.3 on GitHub`); **Install** tries again. A release rebuilt under the same version number is not offered — use the installer with `HARBOR_REINSTALL=1` above.
 
+## Shut down and restart
+
+A Raspberry Pi has no off switch: pulling the plug while it writes can damage the SD card. Settings → About → **Power**:
+
+- **Shut Down Host** → **Shut Down**: playback pauses, the host shuts down 2 s later (`systemctl poweroff`). Unplug once the green LED has stopped blinking. To start it again: plug it back in, or press the power button (below).
+- **Restart Host** → **Restart**: the same with `systemctl reboot`. The remote connects again when the host is back, after about a minute.
+
+Like Software Update, this works for the `.deb` run as the `audioharbor@` service, from 1.2.3 on: the remote calls `harbor-power poweroff|reboot` through sudo, which starts it as its own unit `audio-harbor-power`. On a Mac, Power is not shown; on Linux started by hand, About says why it is not offered.
+
+### Power button
+
+A push button that shuts the Pi down cleanly and starts it again, without the remote:
+
+| Board | Button |
+|---|---|
+| Raspberry Pi 5, 500, CM5 | built in (on the board; on the 500, a key; on a CM5, the carrier board's). Nothing to set up — About shows *Power Button: Built In*. |
+| Raspberry Pi 3, 4, 400, Zero 2 W, CM3/CM4 | a push button between **GPIO3 (pin 5)** and **GND (pin 6)** — next to each other, the third pair from pin 1 (`pinout` shows the header). Then turn on About → Power → **Power Button on GPIO3** and restart once. |
+
+With the switch on, the helper adds this block at the end of `config.txt` (`/boot/firmware/config.txt`, older systems `/boot/config.txt`); off removes it again:
+
+```ini
+# >>> audio-harbor-headless power button
+[all]
+dtoverlay=gpio-shutdown
+# <<< audio-harbor-headless power button
+```
+
+- Pressed while the Pi runs: it shuts down cleanly (the kernel overlay `gpio-shutdown` sends the power key, systemd shuts down).
+- Pressed while it is halted: the Pi starts again — the Pi 3/4 boot firmware does that on GPIO3 by itself, with or without the overlay.
+- It works after the next restart; until then About says *Takes effect after the next restart.*
+
+**When it is not offered:** GPIO3 is also the clock line (SCL) of I2C. With `dtparam=i2c_arm=on` in `config.txt`, or a device on I2C bus 1 (most DAC HATs, HiFiBerry, IQaudIO and the like, have their codec there), the switch is refused and About says why: a button on that pin would disturb the DAC. Use a USB DAC, or set up `gpio-shutdown` on another pin by hand (`dtoverlay=gpio-shutdown,gpio_pin=17` — shutdown only; starting again works only from GPIO3). A `gpio-shutdown` line put in `config.txt` by hand is left alone; About then shows *Power Button: On* without the switch.
+
+From a terminal:
+
+```bash
+sudo /usr/libexec/audio-harbor-headless/harbor-power button       # state=, board=, pending=, note=
+sudo /usr/libexec/audio-harbor-headless/harbor-power button on    # then: sudo reboot
+sudo poweroff                                                     # shut down by hand
+```
+
 ## Remove
 
 ```bash
@@ -414,7 +456,7 @@ Stops and disables every `audioharbor@…` instance and removes `/opt/audio-harb
 For distributions without apt, or to run it without installing:
 
 ```bash
-curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.2.2-linux-arm64.tar.gz
+curl -LO https://github.com/petergerov/audio-harbor-headless/releases/latest/download/audio-harbor-headless-1.2.3-linux-arm64.tar.gz
 tar -xzf audio-harbor-headless-*-linux-arm64.tar.gz
 cd audio-harbor-headless-*
 sudo apt install -y libasound2   # ALSA runtime
@@ -443,6 +485,8 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 | Software Update: *Installing updates works when Harbor runs as the audioharbor@ service* | Harbor was started by hand, not as the service — or the service still runs from before the update that brought the helper: `sudo systemctl restart audioharbor@<user>`. |
 | Software Update: *… has no package for arm64 yet* | the release was built without your CPU (see [Which package](#which-package)); wait for one that has it. |
 | Software Update failed | the reason is under Software Update; the whole run: `journalctl -u audio-harbor-update`. A held apt lock (another `apt` running) is waited for up to 5 min. |
+| About → Power: *Shut Down and Restart work when Harbor runs as the audioharbor@ service* | Harbor was started by hand — or the service still runs from before the update that brought `harbor-power`: `sudo systemctl restart audioharbor@<user>`. |
+| Power button does nothing | restarted since turning it on? `grep -A2 'power button' /boot/firmware/config.txt`; the button must connect pin 5 and pin 6 (`pinout` shows the header). After a shutdown, wait until the green LED is off before pressing it to start again. |
 | Remote stays at *Restarting Harbor…* | `systemctl status audioharbor@<user>` — the service did not come back; `journalctl -u audioharbor@<user> -b`. Reload the page once it runs. |
 | `Depends: libc6:amd64 … but it is not installable` | the package is for another CPU — `dpkg --print-architecture`, see [Which package](#which-package). |
 | Tracks of a share do not play | share not mounted: `ls /mnt/nas`, `systemctl status mnt-nas.automount`, `journalctl -b \| grep -i cifs`. |
@@ -459,12 +503,12 @@ Needs a Linux host with `dpkg-deb`; builds for the host CPU. Output: `dist/packa
 `create-deb.sh`:
 
 - unpacks the prebuilt archive into `/opt/audio-harbor-headless`, drops `install.sh`, `create-package.sh` and `start.cmd`,
-- adds the `audioharbor` symlink, the service template, the root helpers `harbor-drive` and `harbor-update` with their sudoers file, and the maintainer scripts from `packaging/linux/debian/`,
+- adds the `audioharbor` symlink, the service template, the root helpers `harbor-drive`, `harbor-update` and `harbor-power` with their sudoers file, and the maintainer scripts from `packaging/linux/debian/`,
 - reads the highest `GLIBC_x.y` symbol of `harbor_engine.node` and the bundled Node with `objdump` and puts it into `Depends: libc6 (>= x.y)`.
 
 Maintainer scripts:
 
-- `postinst` — creates the system group `harbor-drives` (drive and update helpers through sudo). Fresh install: `systemctl enable --now audioharbor@<user>`, user from `HARBOR_USER`, else `SUDO_USER`, else the user with UID 1000. Upgrade: `try-restart` of running instances. Skips systemd when it is not running.
+- `postinst` — creates the system group `harbor-drives` (drive, update and power helpers through sudo). Fresh install: `systemctl enable --now audioharbor@<user>`, user from `HARBOR_USER`, else `SUDO_USER`, else the user with UID 1000. Upgrade: `try-restart` of running instances. Skips systemd when it is not running.
 - `prerm` — on removal: stop all instances and remove their `*.wants` links.
 
 ### Release workflow
@@ -481,10 +525,10 @@ The run dialog has a checkbox per platform; job `plan` turns the ticked ones int
 | `linux_x64` | `_amd64.deb` + `.tar.gz` | on |
 | `windows_x64` | `.zip` + `.tar.gz` — experimental, packaging on `windows-2022` had rsync issues | off |
 
-At least one must be ticked. From the command line: `gh workflow run release-packages.yml --ref main -f tag=v1.2.2 -f macos_x64=false -f windows_x64=true`; only the Raspberry Pi:
+At least one must be ticked. From the command line: `gh workflow run release-packages.yml --ref main -f tag=v1.2.3 -f macos_x64=false -f windows_x64=true`; only the Raspberry Pi:
 
 ```bash
-gh workflow run release-packages.yml --ref main -f tag=v1.2.2 \
+gh workflow run release-packages.yml --ref main -f tag=v1.2.3 \
   -f macos_arm64=false -f macos_x64=false -f linux_x64=false -f linux_arm64=true
 ```
 
@@ -493,9 +537,9 @@ In the run, the unticked group shows as skipped — named `matrix.platform`, as 
 Rebuilding a release under the same tag: delete the release, move the tag to the new commit and run the workflow again:
 
 ```bash
-gh release delete v1.2.2 -y
-git tag -f -a v1.2.2 -m "Audio Harbor Headless 1.2.2" && git push -f origin v1.2.2
-gh workflow run release-packages.yml --ref main -f tag=v1.2.2   # add -f <platform>=false|true to choose
+gh release delete v1.2.3 -y
+git tag -f -a v1.2.3 -m "Audio Harbor Headless 1.2.3" && git push -f origin v1.2.3
+gh workflow run release-packages.yml --ref main -f tag=v1.2.3   # add -f <platform>=false|true to choose
 ```
 
 Hosts that have this version installed need `HARBOR_REINSTALL=1` or `apt install --reinstall` (see [Update](#update)); a new version number avoids that.

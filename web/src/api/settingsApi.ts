@@ -3,6 +3,7 @@ import type {
   DriveList,
   FolderListing,
   Mount,
+  PowerStatus,
   ScanProgress,
   SystemStatus,
   UpdateStatus,
@@ -47,6 +48,12 @@ export interface SettingsApi {
   update(check?: boolean): Promise<UpdateStatus>;
   /** Starts installing `tag`; the host restarts with it. */
   installUpdate(tag: string): Promise<UpdateStatus>;
+  /** Whether the host can be shut down from here, and the Pi's power button. */
+  power(): Promise<PowerStatus>;
+  /** Shuts the host down or restarts it, in 2 s. */
+  powerAction(action: 'poweroff' | 'reboot'): Promise<void>;
+  /** The power button on GPIO3 (Pi 3/4) on or off; works after the next restart. */
+  setPowerButton(on: boolean): Promise<PowerStatus>;
   /** Remotes must pair with the PIN first (off: anyone on the network connects). */
   pairingRequired(): Promise<boolean>;
   /** On: this device stays connected, every other one needs the PIN again. */
@@ -151,6 +158,18 @@ export class HttpSettingsApi implements SettingsApi {
 
   installUpdate(tag: string): Promise<UpdateStatus> {
     return this.http.post('/api/v1/update', { version: tag });
+  }
+
+  power(): Promise<PowerStatus> {
+    return this.http.get('/api/v1/power');
+  }
+
+  async powerAction(action: 'poweroff' | 'reboot'): Promise<void> {
+    await this.http.post('/api/v1/power', { action });
+  }
+
+  setPowerButton(on: boolean): Promise<PowerStatus> {
+    return this.http.put('/api/v1/power/button', { on });
   }
 
   async pairingRequired(): Promise<boolean> {

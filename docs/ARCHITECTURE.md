@@ -108,6 +108,7 @@ host/src/
   drives.ts          USB drives and SMB shares for the library (Linux package, through harbor-drive)
   system.ts          CPU, memory and disk space for Settings → About
   update.ts          Software Update: latest GitHub release, install through harbor-update
+  hostPower.ts       Shut Down / Restart Host and the Pi power button, through harbor-power
   resolution.ts      the rate / bits part of the path badge, and its " · FX"
   rack.ts            the plugin rack: rack.json, plugin scan, chain to harbor-fx, state, meters
   rackPresets.ts     rack presets: save, load (fresh ids), summaries
@@ -115,7 +116,7 @@ host/src/
   config.ts, paths.ts, pairing.ts, power.ts, net.ts, types.ts
 web/src/             web remote (see web/README.md)
 docs/                product page and its screenshots, this document
-packaging/linux/     .deb: systemd unit, sudoers, root helpers harbor-drive and harbor-update
+packaging/linux/     .deb: systemd unit, sudoers, root helpers harbor-drive, harbor-update, harbor-power
 packaging/build-plugins.sh   builds the shipped plugins (LSP, CLAP without UI) for Linux and macOS
 plugins/             (built, not in git) plugins the packages ship: clap/lsp-plugins.clap, presets/lsp/<plugin id>/, LICENSES/
 packaging/macos/     signed .pkg and the menu bar app
@@ -160,6 +161,8 @@ On the Linux package the service also has, outside that folder:
 | `/etc/fstab` entries under `/mnt/harbor/<name>` | USB drives and SMB shares set up from the remote, mounted read-only | `harbor-drive` (root, through sudo) |
 | `/etc/audio-harbor-headless/<name>.cred` | an SMB share's credentials, root only | `harbor-drive` |
 | `/run/audio-harbor-headless/update` | Software Update progress: `state=`, `version=`, `message=`, `at=` | `harbor-update` |
+| `config.txt` block `# >>> audio-harbor-headless power button` … `# <<<` | `dtoverlay=gpio-shutdown`: the power button on GPIO3 of a Pi 3/4 | `harbor-power` |
+| `/run/audio-harbor-headless/power-button-pending` | the power button changed since boot (works after the restart) | `harbor-power` |
 
 ## Engine
 
@@ -240,6 +243,7 @@ player ◀── FxStage.read() ◀── ring ◀── worker ─────�
 | `drives.ts` | Lists disks (`lsblk`) and Harbor's fstab entries, and sets up, ejects or removes a USB drive or SMB share through the root helper `harbor-drive` (`sudo -n`, group `harbor-drives`; the SMB password goes on stdin). Only on Linux with the package's helper; elsewhere the remote hides it. |
 | `system.ts` | CPU model, cores and load, memory (and what Harbor uses), free space on the disks that hold Harbor's data and the library — Settings → About. |
 | `update.ts` | Software Update: asks GitHub for the latest release (cached an hour), compares versions, and on the `.deb` starts `harbor-update install <tag>`. The helper runs as a transient systemd unit, so the service restart during `apt install` does not stop it; it takes only this repo's releases, checks the `.sha256`, package name, architecture and that the version is newer. The remote follows the status file and reloads when the host comes back with the new version. |
+| `hostPower.ts` | Settings → About → Power on the `.deb`: `harbor-power poweroff\|reboot` through sudo, which runs `systemctl` 2 s later as the transient unit `audio-harbor-power`, so the answer reaches the remote first (playback pauses before). On a Raspberry Pi, `harbor-power button [on\|off]` reports and switches `dtoverlay=gpio-shutdown` in `config.txt`: built in on a Pi 5, refused while I2C uses GPIO3 (a DAC HAT). `GET`/`POST /api/v1/power`, `PUT /api/v1/power/button`. |
 | `rack.ts` | The plugin rack — see [Plugin rack](#plugin-rack). |
 | `config.ts` | Loads `config.toml`, normalizes every value, writes it back on change. |
 | `power.ts` | `KeepAwake`: `caffeinate` (macOS) or `systemd-inhibit` (Linux) while a network player streams. |

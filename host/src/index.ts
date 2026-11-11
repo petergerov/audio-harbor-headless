@@ -9,6 +9,7 @@ import { Catalogue } from './library/catalogue.js';
 import { SourceOrigins } from './library/origins.js';
 import { SourceMonitor } from './library/sources.js';
 import { lanBaseUrl } from './net.js';
+import { HostPower } from './hostPower.js';
 import { hostPackagePath } from './paths.js';
 import { PlaybackService } from './playback/service.js';
 import { KeepAwake } from './power.js';
@@ -126,6 +127,7 @@ async function main(): Promise<void> {
     settings,
     sharing,
     updates,
+    power: new HostPower(),
     remoteUrl: () => remoteUrl,
     rack,
     access,

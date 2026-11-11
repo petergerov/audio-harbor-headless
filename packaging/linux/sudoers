@@ -1,4 +1,4 @@
 # Audio Harbor Headless: the service (group harbor-drives, given by audioharbor@.service)
-# may set up drives in /etc/fstab and install a newer release from the web remote.
-# The helpers check their arguments.
-%harbor-drives ALL=(root) NOPASSWD: /usr/libexec/audio-harbor-headless/harbor-drive, /usr/libexec/audio-harbor-headless/harbor-update
+# may set up drives in /etc/fstab, install a newer release, and shut the host down or restart
+# it from the web remote. The helpers check their arguments.
+%harbor-drives ALL=(root) NOPASSWD: /usr/libexec/audio-harbor-headless/harbor-drive, /usr/libexec/audio-harbor-headless/harbor-update, /usr/libexec/audio-harbor-headless/harbor-power

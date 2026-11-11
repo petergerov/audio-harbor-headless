@@ -254,6 +254,22 @@ export interface UpdateStatus {
   message: string | null;
 }
 
+/**
+ * Shut down / restart from the remote, and the power button on GPIO3 of a Raspberry Pi 3/4:
+ * builtin — a Pi 5 has its own; external — set in config.txt by hand; blocked — GPIO3 is used
+ * for I2C (a DAC HAT); unsupported — no Raspberry Pi.
+ */
+export interface PowerStatus {
+  canPowerOff: boolean;
+  note: string | null;
+  button: {
+    state: 'off' | 'on' | 'builtin' | 'external' | 'blocked' | 'unsupported';
+    board: string;
+    restartPending: boolean;
+    note: string | null;
+  } | null;
+}
+
 /** Where the host's library scan is (pushed as `scan`); `lastScan` stays after it ends. */
 export interface ScanProgress {
   scanning: boolean;

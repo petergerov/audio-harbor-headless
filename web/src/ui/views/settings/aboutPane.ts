@@ -1,6 +1,6 @@
 import type { SettingsApi } from '../../../api/settingsApi';
 import { reloadRemote } from '../../reloadRemote';
-import type { SystemStatus, UpdateStatus } from '../../../api/types';
+import type { PowerStatus, SystemStatus, UpdateStatus } from '../../../api/types';
 import { errorMessage } from '../../../core/errors';
 import { escapeHtml, required } from '../../../core/html';
 import type { Store } from '../../../core/store';
@@ -149,6 +149,52 @@ function updateNote(s: UpdateStatus): string {
   return `Checked ${new Date(s.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} on GitHub.`;
 }
 
+/** Restart, Shut Down, and the power button row where the host is a Raspberry Pi. */
+function powerHtml(s: PowerStatus): string {
+  if (!s.canPowerOff) return '';
+  const b = s.button;
+  let button = '';
+  if (b?.state === 'on' || b?.state === 'off') {
+    button = `
+      <label class="cell">
+        <span>Power Button on GPIO3</span>
+        <input type="checkbox" role="switch" class="switch" data-power-button ${b.state === 'on' ? 'checked' : ''} />
+      </label>`;
+  } else if (b?.state === 'builtin' || b?.state === 'external') {
+    button = `<div class="cell"><span>Power Button</span><span class="value">${b.state === 'builtin' ? 'Built In' : 'On'}</span></div>`;
+  } else if (b?.state === 'blocked') {
+    button = `<div class="cell"><span>Power Button on GPIO3</span><span class="value">Not Available</span></div>`;
+  }
+  return `
+    ${button}
+    <button type="button" class="cell cell-action" data-power-reboot>Restart Host</button>
+    <button type="button" class="cell cell-action danger" data-power-off>Shut Down Host</button>`;
+}
+
+/** What the power button does, or why there is none; why Power is not offered here. */
+function powerNote(s: PowerStatus): string {
+  if (!s.canPowerOff) return s.note ?? '';
+  const b = s.button;
+  const pending = b?.restartPending ? ' Takes effect after the next restart.' : '';
+  switch (b?.state) {
+    case 'on':
+    case 'off':
+      return (
+        'A push button between GPIO3 (pin 5) and GND (pin 6): pressed while the Pi runs, it shuts down cleanly; ' +
+        'pressed when it is off, it starts again.' +
+        pending
+      );
+    case 'builtin':
+      return "The Pi's own power button shuts it down cleanly, and starts it again when pressed once more.";
+    case 'external':
+      return `Set up in config.txt by hand (dtoverlay=gpio-shutdown).${pending}`;
+    case 'blocked':
+      return `The power button would need GPIO3, but ${b.note ?? 'it is in use'}.${pending}`;
+    default:
+      return '';
+  }
+}
+
 /** What the host says about itself: app, version, updates, tagline, license — and the PIN for another device. */
 export class AboutPane implements Pane {
   private timer: number | null = null;
@@ -198,6 +244,11 @@ export class AboutPane implements Pane {
       <p class="group-label">Software Update</p>
       <div class="group" data-update><div class="cell"><span class="row-sub">Checking…</span></div></div>
       <p class="footer-note" data-update-note hidden></p>
+      <div data-power-section hidden>
+        <p class="group-label">Power</p>
+        <div class="group" data-power></div>
+        <p class="footer-note" data-power-note hidden></p>
+      </div>
       <p class="group-label">License</p>
       <div class="group">
         <div class="cell"><span>${escapeHtml(about.licenseHeadline)}</span></div>
@@ -220,6 +271,7 @@ export class AboutPane implements Pane {
     this.timer = window.setInterval(() => void paint(), SYSTEM_REFRESH_MS);
 
     this.renderUpdate(root);
+    this.renderPower(root);
 
     const pinValue = required(root, '[data-pin]');
     const show = (pin: string) => {
@@ -281,6 +333,60 @@ export class AboutPane implements Pane {
         onConfirm: () => apply(true),
       });
     });
+  }
+
+  /** Shut Down and Restart, and on a Raspberry Pi 3/4 the power button on GPIO3. */
+  private renderPower(root: HTMLElement): void {
+    const section = required(root, '[data-power-section]');
+    const group = required(root, '[data-power]');
+    const note = required(root, '[data-power-note]');
+    const paint = (s: PowerStatus) => {
+      section.hidden = !s.canPowerOff && !s.note;
+      group.innerHTML = powerHtml(s);
+      note.textContent = powerNote(s);
+      note.hidden = !note.textContent;
+      group.querySelector('[data-power-reboot]')?.addEventListener('click', () =>
+        openConfirmDialog({
+          title: 'Restart the host?',
+          message: 'Playback stops. The remote connects again when the host is back, after about a minute.',
+          confirmLabel: 'Restart',
+          onConfirm: async () => {
+            await this.api.powerAction('reboot');
+            showToast('Restarting…');
+          },
+        })
+      );
+      group.querySelector('[data-power-off]')?.addEventListener('click', () =>
+        openConfirmDialog({
+          title: 'Shut down the host?',
+          message:
+            'Playback stops and the remote loses the host. Unplug the power only once the green LED has stopped blinking. To start it again, plug it back in' +
+            (s.button?.state === 'on' || s.button?.state === 'builtin' || s.button?.state === 'external'
+              ? ' or press the power button.'
+              : '.'),
+          confirmLabel: 'Shut Down',
+          onConfirm: async () => {
+            await this.api.powerAction('poweroff');
+            showToast('Shutting down…');
+          },
+        })
+      );
+      const toggle = group.querySelector<HTMLInputElement>('[data-power-button]');
+      toggle?.addEventListener('change', async () => {
+        toggle.disabled = true;
+        try {
+          paint(await this.api.setPowerButton(toggle.checked));
+        } catch (err) {
+          showToast(errorMessage(err, 'Could not change it'), { error: true });
+          toggle.checked = !toggle.checked;
+          toggle.disabled = false;
+        }
+      });
+    };
+    void this.api
+      .power()
+      .then(paint)
+      .catch(() => undefined);
   }
 
   private renderUpdate(root: HTMLElement): void {

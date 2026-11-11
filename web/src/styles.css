@@ -999,6 +999,10 @@ button.cell:active {
   font-weight: 600;
 }
 
+.cell-action.danger {
+  color: var(--danger);
+}
+
 a.cell {
   text-decoration: none;
 }

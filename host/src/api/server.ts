@@ -23,6 +23,7 @@ import { Catalogue } from '../library/catalogue.js';
 import { SourceUnavailableError, type SourceMonitor } from '../library/sources.js';
 import { splitShare, type SourceOrigin, type SourceOrigins } from '../library/origins.js';
 import type { AccessPolicy } from '../access.js';
+import { PowerError, type HostPower } from '../hostPower.js';
 import { isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { dataDir, webDistPath } from '../paths.js';
@@ -57,6 +58,8 @@ export interface AppContext {
   sharing: Sharing;
   /** The latest release, and installing it (Settings → About). */
   updates: Updater;
+  /** Shut down / restart the host, and the Raspberry Pi's power button (Settings → About). */
+  power: HostPower;
   /** The URL the remotes should open (mDNS name or LAN IP); null until known. */
   remoteUrl?: () => string | null;
   /** The plugin rack. */
@@ -441,6 +444,35 @@ export async function buildServer(ctx: AppContext) {
       return status;
     } catch (err) {
       if (err instanceof UpdateError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
+  });
+
+  // Shut down or restart the host (Linux package, through the root helper harbor-power), and
+  // the power button on GPIO3 of a Raspberry Pi 3/4.
+  app.get('/api/v1/power', async () => ctx.power.status());
+
+  app.post<{ Body: { action?: string } }>('/api/v1/power', async (req, reply) => {
+    const action = req.body?.action;
+    if (action !== 'poweroff' && action !== 'reboot') return reply.code(400).send({ error: 'Unknown action' });
+    try {
+      // Quiet first: the DAC or network player is not cut off mid-note.
+      await ctx.playback.transport({ type: 'pause' }).catch(() => undefined);
+      await ctx.power.act(action);
+      req.log.info({ action }, 'Host power');
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof PowerError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
+  });
+
+  app.put<{ Body: { on?: boolean } }>('/api/v1/power/button', async (req, reply) => {
+    if (typeof req.body?.on !== 'boolean') return reply.code(400).send({ error: 'on: true or false' });
+    try {
+      return await ctx.power.setButton(req.body.on);
+    } catch (err) {
+      if (err instanceof PowerError) return reply.code(400).send({ error: err.message });
       throw err;
     }
   });

@@ -1,0 +1,159 @@
+#!/bin/bash
+# Root helper for the web remote: shuts the host down or restarts it, and on a Raspberry Pi 3/4
+# turns the power button on GPIO3 on or off.
+# The service runs it through sudo (/etc/sudoers.d/audio-harbor-headless, group harbor-drives).
+#
+#   harbor-power poweroff | reboot   in 2 s, as its own unit (audio-harbor-power) — the remote
+#                                    gets its answer before the service stops
+#   harbor-power button              prints the power button: state=, board=, pending=, note=
+#   harbor-power button on | off     dtoverlay=gpio-shutdown in config.txt; works after a restart
+#
+# The button: a push button between GPIO3 (pin 5) and GND (pin 6). Pressed while the Pi runs,
+# it shuts down cleanly; pressed while it is halted, it starts it again. A Pi 5 has a power
+# button of its own and needs none. GPIO3 is also I2C SCL: with I2C on (a DAC HAT) it is refused.
+# Errors go to stderr, one line.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 022
+
+UNIT=audio-harbor-power
+STATUS_DIR=/run/audio-harbor-headless
+# Under /run: gone after the restart that makes a change take effect.
+PENDING="$STATUS_DIR/power-button-pending"
+BEGIN="# >>> audio-harbor-headless power button"
+END="# <<< audio-harbor-headless power button"
+
+die() { echo "$*" >&2; exit 1; }
+
+[[ "$(id -u)" -eq 0 ]] || die "harbor-power must run as root"
+
+cmd_power() {
+  local action="$1"
+  [[ -d /run/systemd/system ]] || die "systemd is not running"
+  # Asked twice: the first one is already on its way.
+  systemctl is-active --quiet "$UNIT.timer" && return 0
+  systemd-run --quiet --collect --unit="$UNIT" --on-active=2 \
+    --description="Audio Harbor Headless: $action" systemctl "$action" \
+    || die "could not start the $action"
+}
+
+board() {
+  { tr -d '\0' </proc/device-tree/model; } 2>/dev/null || true
+}
+
+# pi5: has its own button; pi: GPIO3 can wake it; none: no Raspberry Pi.
+board_kind() {
+  local model
+  model="$(board)"
+  case "$model" in
+    # "Raspberry Pi 5 Model B", "Raspberry Pi 500", "Raspberry Pi Compute Module 5"
+    "Raspberry Pi 5"* | "Raspberry Pi Compute Module 5"*) echo pi5 ;;
+    "Raspberry Pi"*) echo pi ;;
+    *) echo none ;;
+  esac
+}
+
+config_file() {
+  if [[ -f /boot/firmware/config.txt ]]; then
+    echo /boot/firmware/config.txt
+  elif [[ -f /boot/config.txt ]]; then
+    echo /boot/config.txt
+  fi
+}
+
+# Lines that count, without comments and without our block.
+config_lines() {
+  sed "/^$BEGIN\$/,/^$END\$/d" "$1" | sed 's/#.*//' | tr -d ' \t\r'
+}
+
+ours() { grep -qxF "$BEGIN" "$1"; }
+
+# Something besides us set up gpio-shutdown: left alone, shown as on.
+external() { config_lines "$1" | grep -q '^dtoverlay=gpio-shutdown'; }
+
+# Why GPIO3 is not free, or nothing: I2C turned on, or chips on I2C bus 1 (a DAC HAT).
+i2c_busy() {
+  if config_lines "$1" | grep -Eq '^dtparam=(.*,)?(i2c_arm|i2c1|i2c)(=on)?(,|$)'; then
+    echo "I2C is turned on in config.txt (dtparam=i2c_arm=on) and uses GPIO3"
+  elif compgen -G '/sys/bus/i2c/devices/1-*' >/dev/null; then
+    echo "a device on I2C (a DAC HAT?) uses GPIO3"
+  fi
+}
+
+button_status() {
+  local kind file state note="" pending=0
+  kind="$(board_kind)"
+  file="$(config_file)"
+  [[ -f "$PENDING" ]] && pending=1
+  if [[ "$kind" == pi5 ]]; then
+    state=builtin
+  elif [[ "$kind" == none ]]; then
+    state=unsupported
+    note="not a Raspberry Pi"
+  elif [[ -z "$file" ]]; then
+    state=unsupported
+    note="no config.txt in /boot/firmware or /boot"
+  elif external "$file"; then
+    state=external
+    note="dtoverlay=gpio-shutdown is set in $file"
+  elif ours "$file"; then
+    state=on
+  else
+    note="$(i2c_busy "$file")"
+    state=off
+    [[ -n "$note" ]] && state=blocked
+  fi
+  printf 'state=%s\nboard=%s\npending=%s\nnote=%s\n' "$state" "$(board)" "$pending" "$note"
+}
+
+mark_pending() {
+  mkdir -p "$STATUS_DIR"
+  chmod 755 "$STATUS_DIR"
+  # A second change undoes the first: nothing to restart for.
+  if [[ -f "$PENDING" ]]; then rm -f "$PENDING"; else : >"$PENDING"; fi
+}
+
+# The new config.txt next to the old one, then moved over it: never half written.
+write_config() {
+  local file="$1" tmp="$1.harbor-tmp"
+  cat >"$tmp"
+  chmod --reference="$file" "$tmp" 2>/dev/null || chmod 755 "$tmp"
+  sync "$tmp" 2>/dev/null || true
+  mv "$tmp" "$file"
+  sync
+}
+
+button_set() {
+  local want="$1" kind file why
+  kind="$(board_kind)"
+  [[ "$kind" == pi5 ]] && die "a Raspberry Pi 5 has a power button of its own"
+  [[ "$kind" == pi ]] || die "the power button needs a Raspberry Pi"
+  file="$(config_file)"
+  [[ -n "$file" ]] || die "no config.txt in /boot/firmware or /boot"
+  external "$file" && die "dtoverlay=gpio-shutdown is set in $file by hand — change it there"
+
+  if [[ "$want" == on ]]; then
+    ours "$file" && return 0
+    why="$(i2c_busy "$file")"
+    [[ -z "$why" ]] || die "GPIO3 is not free: $why"
+    # [all]: config.txt may end inside a [pi4] or [cm4] section.
+    { cat "$file"; [[ -z "$(tail -c1 "$file")" ]] || echo
+      printf '%s\n[all]\ndtoverlay=gpio-shutdown\n%s\n' "$BEGIN" "$END"; } | write_config "$file"
+  else
+    ours "$file" || return 0
+    sed "/^$BEGIN\$/,/^$END\$/d" "$file" | write_config "$file"
+  fi
+  mark_pending
+}
+
+case "${1:-}" in
+  poweroff | reboot) cmd_power "$1" ;;
+  button)
+    case "${2:-}" in
+      "") button_status ;;
+      on | off) button_set "$2" ;;
+      *) die "usage: harbor-power button [on|off]" ;;
+    esac
+    ;;
+  *) die "usage: harbor-power poweroff|reboot|button [on|off]" ;;
+esac
