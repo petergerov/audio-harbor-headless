@@ -339,17 +339,26 @@ svg {
 .segmented {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  /* Never narrower than its label (Settings has six); spare room is shared out evenly. */
+  grid-auto-columns: minmax(max-content, 1fr);
   gap: 2px;
   padding: 2px;
   background: var(--fill);
   border-radius: 9px;
   margin-bottom: 18px;
+  /* A screen too narrow for all labels scrolls the control sideways instead of cutting them off. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.segmented::-webkit-scrollbar {
+  display: none;
 }
 
 .segmented button {
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 6px;
   border-radius: 7px;
   font-size: 13px;
   font-weight: 600;
@@ -2941,7 +2950,9 @@ body.overlay-open .ah-toast {
 }
 
 .app-shell.wide .segmented {
-  max-width: 360px;
+  width: max-content;
+  min-width: min(360px, 100%);
+  max-width: 100%;
 }
 
 .app-shell.wide .search-wrap {
