@@ -20,7 +20,7 @@ const PANES: Record<SettingsPane, { label: string; create(ctx: AppContext): Pane
   sources: { label: 'Sources', create: (ctx) => new SourcesPane(ctx.settings, ctx.store) },
   output: { label: 'Output', create: (ctx) => new OutputPane(ctx.settings) },
   rack: { label: 'Rack', create: (ctx) => new RackPane(ctx.store, ctx.rack) },
-  record: { label: 'Record', create: (ctx) => new RecordingPane(ctx.recording) },
+  record: { label: 'Record', create: (ctx) => new RecordingPane(ctx.recording, ctx.settings) },
   sharing: { label: 'Sharing', create: (ctx) => new SharingPane(ctx.store, ctx.hostSettings) },
   about: { label: 'About', create: (ctx) => new AboutPane(ctx.store, ctx.hostSettings, ctx.settings) },
 };

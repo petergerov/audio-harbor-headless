@@ -113,8 +113,15 @@ async function freeBytes(dir: string): Promise<number | null> {
  */
 export class RecordingService extends EventEmitter {
   private state: RecordingState = 'idle';
-  private take: { name: string; startedAt: number; device: string; rate: number; rawPath: string; split: boolean } | null =
-    null;
+  private take: {
+    name: string;
+    startedAt: number;
+    device: string;
+    rate: number;
+    rawPath: string;
+    split: boolean;
+    folder: string;
+  } | null = null;
   private last: RecordingTake | null = null;
   private watch: NodeJS.Timeout | null = null;
   private free: number | null = null;
@@ -170,10 +177,24 @@ export class RecordingService extends EventEmitter {
   }
 
   /** Changes to the recording settings (not while a take runs). */
-  updateSettings(patch: Partial<RecordingConfig>): RecordingConfig {
+  async updateSettings(patch: Partial<RecordingConfig>): Promise<RecordingConfig> {
     const cfg = this.getConfig();
     const next = normalizeRecording({ ...cfg.recording, ...patch }, cfg.recording);
-    if (this.state !== 'idle' && (next.device !== cfg.recording.device || next.rate !== cfg.recording.rate)) {
+    if (next.folder && next.folder !== cfg.recording.folder) {
+      // A folder takes can be written to, made if it is not there yet.
+      const dir = path.resolve(expandHome(next.folder));
+      try {
+        await fs.promises.mkdir(dir, { recursive: true });
+        await fs.promises.access(dir, fs.constants.W_OK);
+      } catch {
+        throw new RecordingError(`Cannot write to ${dir}`);
+      }
+      next.folder = dir;
+    }
+    if (
+      this.state !== 'idle' &&
+      (next.device !== cfg.recording.device || next.rate !== cfg.recording.rate || next.folder !== cfg.recording.folder)
+    ) {
       throw new RecordingError('Not while recording');
     }
     this.persist({ ...cfg, recording: next });
@@ -218,6 +239,7 @@ export class RecordingService extends EventEmitter {
       rate,
       rawPath,
       split: (req.split ?? settings.split) === 'silence',
+      folder,
     };
     this.watch = setInterval(() => void this.check(), 2000);
     this.emit('change');
@@ -240,7 +262,7 @@ export class RecordingService extends EventEmitter {
     }
     this.state = 'finalizing';
     this.emit('change');
-    void this.finalize(take.rawPath, take.name, take.split, status).finally(() => {
+    void this.finalize(take.folder, take.rawPath, take.name, take.split, status).finally(() => {
       this.state = 'idle';
       this.take = null;
       this.emit('change');
@@ -269,7 +291,7 @@ export class RecordingService extends EventEmitter {
       this.state = 'finalizing';
       this.emit('change');
       try {
-        await this.finalize(path.join(takes, file), name, this.getConfig().recording.split === 'silence', null);
+        await this.finalize(this.folder(), path.join(takes, file), name, this.getConfig().recording.split === 'silence', null);
       } finally {
         this.state = 'idle';
         this.emit('change');
@@ -281,7 +303,7 @@ export class RecordingService extends EventEmitter {
   private async check(): Promise<void> {
     if (this.state !== 'recording') return;
     const st = engineRecordStatus();
-    this.free = await freeBytes(this.folder());
+    this.free = await freeBytes(this.take?.folder ?? this.folder());
     const full = this.free !== null && this.free < MIN_FREE_RUNNING;
     if (st?.failed || full) {
       console.warn(`Recording stopped: ${st?.error ?? 'disk nearly full'}`);
@@ -289,9 +311,14 @@ export class RecordingService extends EventEmitter {
     }
   }
 
-  private async finalize(rawPath: string, name: string, split: boolean, status: RecordStatus | null): Promise<void> {
+  private async finalize(
+    folder: string,
+    rawPath: string,
+    name: string,
+    split: boolean,
+    status: RecordStatus | null
+  ): Promise<void> {
     const settings = this.getConfig().recording;
-    const folder = this.folder();
     const outDir = path.join(folder, name);
     const date = name.slice(0, 10);
     const tags: Record<string, string> = {

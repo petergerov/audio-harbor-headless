@@ -12,6 +12,8 @@ import { openPanel, showToast } from '../overlay';
 export function openFolderPicker(opts: {
   api: SettingsApi;
   start?: string;
+  /** The confirm button; "Add" by default. */
+  confirmLabel?: string;
   onPick: (path: string) => Promise<void>;
 }): void {
   let current: FolderListing | null = null;
@@ -41,7 +43,7 @@ export function openFolderPicker(opts: {
       <p class="folder-path">${escapeHtml(current.path ?? 'Choose where your music is')}</p>
       <div class="group folder-group">
         ${up}
-        ${rows || `<div class="empty compact"><strong>No Folders</strong>${current.path ? 'Add this one, or go up.' : ''}</div>`}
+        ${rows || `<div class="empty compact"><strong>No Folders</strong>${current.path ? `${opts.confirmLabel ?? 'Add'} this one, or go up.` : ''}</div>`}
       </div>
     `;
     body.querySelector('[data-up]')?.addEventListener('click', () => void go(current?.parent ?? undefined));
@@ -64,7 +66,7 @@ export function openFolderPicker(opts: {
 
   openPanel({
     title: 'Choose Folder',
-    primaryLabel: 'Add',
+    primaryLabel: opts.confirmLabel ?? 'Add',
     bodyHtml: `<div data-folder-body></div>`,
     onPrimary: async () => {
       if (!current?.path) throw new Error('Open the folder with your music first');

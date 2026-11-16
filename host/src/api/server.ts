@@ -258,7 +258,7 @@ export async function buildServer(ctx: AppContext) {
   );
   app.put<{ Body: Record<string, unknown> }>('/api/v1/recording/settings', async (req, reply) =>
     recordingCall(reply, async () => {
-      ctx.recording.updateSettings((req.body ?? {}) as never);
+      await ctx.recording.updateSettings((req.body ?? {}) as never);
       return ctx.recording.snapshot();
     })
   );

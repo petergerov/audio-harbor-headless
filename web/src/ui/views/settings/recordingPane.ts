@@ -1,7 +1,9 @@
 import type { RecordingApi, RecordingInput, RecordingLive, RecordingSnapshot } from '../../../api/recordingApi';
+import type { SettingsApi } from '../../../api/settingsApi';
 import { errorMessage } from '../../../core/errors';
 import { escapeAttr, escapeHtml, required } from '../../../core/html';
 import { openConfirmDialog, showToast } from '../../overlay';
+import { openFolderPicker } from '../../sheets/folderPicker';
 import type { Pane } from '../settingsView';
 
 const FAST_MS = 250;
@@ -67,7 +69,10 @@ export class RecordingPane implements Pane {
   private inputs: RecordingInput[] = [];
   private busy = false;
 
-  constructor(private readonly api: RecordingApi) {}
+  constructor(
+    private readonly api: RecordingApi,
+    private readonly settings: SettingsApi
+  ) {}
 
   async render(root: HTMLElement): Promise<void> {
     this.dispose();
@@ -153,6 +158,15 @@ export class RecordingPane implements Pane {
           <label for="rec-rate">Sample Rate</label>
           <select id="rec-rate" ${locked ? 'disabled' : ''}>${rateOptions}</select>
         </div>
+        <button type="button" class="cell" data-folder ${locked ? 'disabled' : ''}>
+          <span style="flex-shrink:0">Save To</span>
+          <span class="value">${escapeHtml(snap.folder)}</span>
+        </button>
+        ${
+          s.folder && !locked
+            ? `<button type="button" class="cell cell-action" data-folder-default>Use Default Folder</button>`
+            : ''
+        }
         <label class="cell">
           <span>Split Tracks at Silence</span>
           <input type="checkbox" role="switch" class="switch" data-split ${s.split === 'silence' ? 'checked' : ''} ${locked ? 'disabled' : ''} />
@@ -167,7 +181,7 @@ export class RecordingPane implements Pane {
       <div class="group" data-live></div>
       <div class="group" data-actions></div>
       <div data-last></div>
-      <p class="footer-note">Takes go to ${escapeHtml(snap.folder)}${snap.freeBytes !== null ? ` · ${gigabytes(snap.freeBytes)} free` : ''}.</p>
+      <p class="footer-note">${snap.freeBytes !== null ? `${gigabytes(snap.freeBytes)} free where takes go. ` : ''}Default: Recordings in the first library folder. A folder inside a library folder shows up in the library; on the Pi best a USB drive, not the SD card.</p>
     `;
 
     const save = async (patch: Parameters<RecordingApi['updateSettings']>[0]) => {
@@ -188,6 +202,19 @@ export class RecordingPane implements Pane {
     required<HTMLSelectElement>(root, '#rec-rate').addEventListener('change', (e) =>
       void save({ rate: Number((e.target as HTMLSelectElement).value) })
     );
+    required(root, '[data-folder]').addEventListener('click', () =>
+      openFolderPicker({
+        api: this.settings,
+        confirmLabel: 'Use',
+        // From the folder above: the take folder may not exist before the first take.
+        start: snap.folder.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined,
+        onPick: async (folder) => {
+          await save({ folder });
+          showToast('Takes go to ' + folder);
+        },
+      })
+    );
+    root.querySelector('[data-folder-default]')?.addEventListener('click', () => void save({ folder: '' }));
     required<HTMLInputElement>(root, '[data-split]').addEventListener('change', (e) =>
       void save({ split: (e.target as HTMLInputElement).checked ? 'silence' : 'none' })
     );
