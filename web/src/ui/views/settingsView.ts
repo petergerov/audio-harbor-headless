@@ -2,6 +2,7 @@ import type { AppContext } from '../../app/context';
 import { required } from '../../core/html';
 import type { SettingsPane } from '../../state/appState';
 import { AboutPane } from './settings/aboutPane';
+import { bindInfoNotes } from './settings/infoNotes';
 import { OutputPane } from './settings/outputPane';
 import { RackPane } from './settings/rackPane';
 import { RecordingPane } from './settings/recordingPane';
@@ -41,6 +42,7 @@ const PLACEHOLDER = `
 
 export class SettingsView implements View {
   private pane: Pane | null = null;
+  private unbindInfo: (() => void) | null = null;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -67,6 +69,9 @@ export class SettingsView implements View {
     });
     this.pane = PANES[current].create(this.ctx);
     const body = required(root, '[data-settings-body]');
+    // Long explanations sit behind an info button at their section's label.
+    this.unbindInfo?.();
+    this.unbindInfo = bindInfoNotes(body);
     // A pane still waiting for the host after a moment: placeholders, not an empty screen.
     const placeholders = window.setTimeout(() => {
       if (!body.childElementCount) body.innerHTML = PLACEHOLDER;
@@ -79,6 +84,8 @@ export class SettingsView implements View {
   }
 
   dispose(): void {
+    this.unbindInfo?.();
+    this.unbindInfo = null;
     this.pane?.dispose?.();
     this.pane = null;
   }

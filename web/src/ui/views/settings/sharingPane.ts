@@ -1,5 +1,5 @@
 import { errorMessage } from '../../../core/errors';
-import { escapeHtml, required } from '../../../core/html';
+import { required } from '../../../core/html';
 import type { Store } from '../../../core/store';
 import type { HostSettings } from '../../../services/settingsService';
 import type { AppState } from '../../../state/appState';
@@ -27,6 +27,7 @@ export class SharingPane implements Pane {
         <div class="cell"><span>Streams Now</span><span class="value" data-streams></span></div>
       </div>
       <p class="footer-note" data-sharing-note></p>
+      <p class="footer-note">Players and apps on the network can browse the library and play the files themselves (DLNA).</p>
     `;
     const toggle = required<HTMLInputElement>(root, '[data-sharing]');
     const streams = required(root, '[data-streams]');
@@ -38,13 +39,8 @@ export class SharingPane implements Pane {
       toggle.disabled = busy;
       streams.textContent = String(sharing?.activeStreams ?? 0);
       const status = sharing?.statusText ?? (sharing ? '' : 'Loading…');
-      note.innerHTML = [
-        status,
-        'Players and apps on the network can browse the library and play the files themselves (DLNA).',
-      ]
-        .filter(Boolean)
-        .map((line) => escapeHtml(line))
-        .join('<br><br>');
+      note.textContent = status;
+      note.hidden = !status;
     };
     toggle.addEventListener('change', async () => {
       const want = toggle.checked;

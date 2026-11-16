@@ -6005,3 +6005,62 @@ button.path-crumb:hover,
 .row-wrap + .row-wrap.bare.playing::before {
   opacity: 1;
 }
+
+/* —— Settings: long explanations behind an info button at the section label —— */
+.footer-note.note-in-info {
+  display: none;
+}
+
+.group-label.has-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.info-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin: -8px -6px -8px 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--amber);
+  transition: background 0.12s ease, opacity 0.12s ease;
+}
+
+.info-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.info-btn:hover {
+  background: rgba(250, 184, 56, 0.12);
+}
+
+.info-btn:active {
+  opacity: 0.5;
+}
+
+.info-sheet {
+  padding: 4px 4px 12px;
+}
+
+.info-sheet p {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ivory-dim);
+  letter-spacing: 0;
+}
+
+.info-sheet p:last-child {
+  margin-bottom: 0;
+}
+
+.info-sheet code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ivory);
+}

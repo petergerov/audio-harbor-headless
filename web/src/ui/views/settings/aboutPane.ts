@@ -226,7 +226,7 @@ export class AboutPane implements Pane {
           <input type="checkbox" role="switch" class="switch" data-require-code />
         </label>
       </div>
-      <p class="footer-note" data-code-note></p>
+      <p class="footer-note" data-code-note data-explain></p>
       <div data-pin-section hidden>
         <p class="group-label">Pair Another Device</p>
         <div class="group">
