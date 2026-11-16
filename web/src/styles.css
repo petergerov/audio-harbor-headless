@@ -5873,3 +5873,18 @@ html.rec-drag-active body {
 .app-shell.wide #list .row-wrap + .row-wrap.bare::before {
   left: 4px;
 }
+
+/* Format on catalogue songs: quiet text, not a capsule (the Deck keeps its badge). */
+.row-badge {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--tertiary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.row.playing .row-badge {
+  color: color-mix(in srgb, var(--amber) 55%, var(--tertiary));
+}
