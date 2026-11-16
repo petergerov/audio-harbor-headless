@@ -5,7 +5,7 @@ import type { AppState } from '../../state/appState';
 import { currentTrack, durationSecs, isPlaying, nowPlayingPath, playbackError } from '../../state/selectors';
 import { icons } from '../icons';
 import { syncDeckStage } from './deckStage';
-import { trackTrail, type TrackMark } from './mediaRow';
+import { speakerGlyph, trackTrail, type TrackMark } from './mediaRow';
 
 export const REPEAT_LABELS: Record<RepeatMode, string> = {
   off: 'Repeat off',
@@ -144,6 +144,15 @@ export class PlayerBindings {
       const on = Boolean(path && wrap.dataset.path === path);
       wrap.classList.toggle('playing', on);
       wrap.querySelector('.row')?.classList.toggle('playing', on);
+      // A bare song: the speaker in front of its title (shown by CSS on the playing row).
+      const speaker = wrap.querySelector<HTMLElement>('[data-speaker]');
+      if (speaker) {
+        const glyph = on && !playing ? 'paused' : 'playing';
+        if (speaker.dataset.glyph !== glyph) {
+          speaker.dataset.glyph = glyph;
+          speaker.innerHTML = speakerGlyph(glyph === 'paused');
+        }
+      }
       const trail = wrap.querySelector<HTMLElement>('.row-trail.track');
       if (!trail) return;
       const mark: TrackMark = on ? (playing ? 'playing' : 'paused') : 'idle';

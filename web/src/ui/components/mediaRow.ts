@@ -28,6 +28,11 @@ export interface RowModel {
   number?: number;
   /** Quiet text at the end (a duration). */
   trailText?: string;
+  /**
+   * A song in the catalogue, as in the Mac app: no tile and no play mark — the speaker shows
+   * in front of the title only while it is the one loaded.
+   */
+  bare?: boolean;
 }
 
 /** One row: what it shows and what a tap, `···`, a long press or a right click do. */
@@ -70,7 +75,21 @@ export function trackTrail(mark: TrackMark): string {
   return `<span class="play-glyph" aria-hidden="true">${icons.trailPlay}</span>`;
 }
 
+/** The speaker in front of a bare song's title: sounding while it plays, quiet while paused. */
+export function speakerGlyph(paused: boolean): string {
+  return paused ? icons.speakerOff : icons.speaker;
+}
+
 function rowHtml(row: RowModel, covers: Covers): string {
+  if (row.bare) {
+    const speaker = `<span class="row-speaker" data-speaker aria-hidden="true">${speakerGlyph(Boolean(row.paused))}</span>`;
+    const badge = row.badge ? `<span class="row-badge">${escapeHtml(row.badge)}</span>` : '';
+    const meta = row.meta ? `<div class="row-meta">${escapeHtml(row.meta)}</div>` : '';
+    // The empty trail still carries the spinner while a song starts.
+    return `<div class="row-text"><div class="row-title">${speaker}${escapeHtml(row.title)}</div><div class="row-sub">${escapeHtml(
+      row.subtitle
+    )}</div>${meta}</div>${badge}<span class="row-trail"></span>`;
+  }
   let icon: string;
   if (row.number !== undefined) {
     // Queue: the position, or the speaker on the one playing.
@@ -101,13 +120,13 @@ function wrapHtml(entry: RowEntry, index: number, covers: Covers): string {
   const { row } = entry;
   const wrapClass = `row-wrap${row.unavailable ? ' unavailable' : ''}${row.playing ? ' playing' : ''}${
     entry.contextMenu ? ' has-menu' : ''
-  }${entry.onPlay ? ' has-play' : ''}${row.number !== undefined ? ' numbered' : ''}`;
+  }${entry.onPlay ? ' has-play' : ''}${row.number !== undefined ? ' numbered' : ''}${row.bare ? ' bare' : ''}`;
   const path = entry.path ? ` data-path="${escapeAttr(entry.path)}"` : '';
   // Folders and albums still open when not connected (the catalogue shows them); a track does not play.
   const disabled = row.unavailable && row.kind === 'track' ? ' aria-disabled="true"' : '';
   return (
     `<div class="${wrapClass}" data-row="${index}"${path}>` +
-    `<button type="button" class="row has-icon${row.playing ? ' playing' : ''}"${disabled}>${rowHtml(row, covers)}</button>` +
+    `<button type="button" class="row${row.bare ? ' bare' : ' has-icon'}${row.playing ? ' playing' : ''}"${disabled}>${rowHtml(row, covers)}</button>` +
     (entry.onPlay && !row.unavailable
       ? `<button type="button" class="row-play" aria-label="Play ${escapeAttr(row.title)}">${icons.trailPlay}</button>`
       : '') +

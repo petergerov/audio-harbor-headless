@@ -148,6 +148,7 @@ const trackEntry: Presenter = (item, scope, ctx) => {
       title: item.name || track.title || 'Track',
       subtitle: withOffline(labels ? `${detail} · ${labels}` : detail, offline),
       badge: formatBadge(track),
+      bare: true,
       chevron: false,
       // As in the iOS remote: a track shows the note tile, its album the cover.
       playing: path === nowPlayingPath(ctx.store.get()),

@@ -5819,3 +5819,57 @@ html.rec-drag-active body {
     gap: 6px;
   }
 }
+
+/* —— Songs in the catalogue (Mac TrackRow): no tile; the speaker before the title while loaded —— */
+.row.bare {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding-left: 16px;
+}
+
+.row.bare:not(:has(.row-badge)) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.row-wrap.bare + .row-wrap::before,
+.row-wrap + .row-wrap.bare::before {
+  left: 16px;
+}
+
+.row-speaker {
+  display: none;
+  vertical-align: -2px;
+  margin-right: 6px;
+  color: var(--amber);
+}
+
+.row-speaker svg {
+  width: 15px;
+  height: 15px;
+}
+
+.row-wrap.playing .row-speaker {
+  display: inline-grid;
+}
+
+.row.bare.playing .row-title {
+  color: var(--amber);
+}
+
+.app-shell:not(.wide) #list .row.bare {
+  padding-left: 0;
+}
+
+.app-shell:not(.wide) #list .row-wrap.bare + .row-wrap::before,
+.app-shell:not(.wide) #list .row-wrap + .row-wrap.bare::before {
+  left: 0;
+}
+
+.app-shell.wide #list .row.bare {
+  min-height: 62px;
+  padding-left: 4px;
+}
+
+.app-shell.wide #list .row-wrap.bare + .row-wrap::before,
+.app-shell.wide #list .row-wrap + .row-wrap.bare::before {
+  left: 4px;
+}
