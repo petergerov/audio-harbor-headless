@@ -5695,17 +5695,32 @@ html.rec-drag-active body {
   right: 18px;
 }
 
-/* —— Mac catalogue path bar: Up, where you are, Play —— */
+/* —— Catalogue path bar (Mac): Up | Home › folder › … › open folder, Play —— */
 .path-bar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-height: 60px;
-  padding: 10px 18px 10px 18px;
+  gap: 10px;
+  min-height: 50px;
+  padding: 8px 12px;
+  margin: 0 0 12px;
+  border-radius: 12px;
+  background: var(--faceplate);
+  border: 1px solid rgba(97, 89, 83, 0.55);
 }
 
 .path-bar[hidden] {
   display: none;
+}
+
+/* Desktop: the bar is the top of the list's panel. */
+.app-shell.wide .path-bar {
+  margin: 0;
+  padding: 10px 18px;
+  min-height: 56px;
+  border: 1px solid rgba(189, 181, 168, 0.22);
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  box-shadow: inset 0 -1px 0 rgba(97, 89, 83, 0.55);
 }
 
 .app-shell.wide .path-bar:not([hidden]) + #list.group {
@@ -5716,79 +5731,106 @@ html.rec-drag-active body {
   padding-top: 0;
 }
 
-.app-shell.wide .path-bar {
-  margin-top: 0;
-  border: 1px solid rgba(189, 181, 168, 0.22);
-  border-bottom: 0;
-  border-radius: 16px 16px 0 0;
-  background: var(--faceplate);
-  box-shadow: inset 0 -1px 0 rgba(97, 89, 83, 0.55);
-}
-
 .path-up {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--amber);
-  font-size: 15px;
-  font-weight: 600;
+  gap: 5px;
   flex-shrink: 0;
+  min-height: 32px;
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .path-up svg {
-  width: 9px;
-  height: 15px;
+  width: 8px;
+  height: 13px;
+}
+
+/* Up is a step back, the path a place: a hairline keeps them apart. */
+.path-rule {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  flex-shrink: 0;
+  background: rgba(97, 89, 83, 0.7);
 }
 
 .path-crumbs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow-x: auto;
   white-space: nowrap;
-  font-size: 15px;
+  scrollbar-width: none;
+}
+
+.path-crumbs::-webkit-scrollbar {
+  display: none;
+}
+
+.path-home {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 30px;
+  color: var(--amber);
+}
+
+.path-home svg {
+  width: 15px;
+  height: 15px;
 }
 
 .path-crumb {
+  flex-shrink: 0;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
   color: var(--amber);
+  font-size: 14px;
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 1;
-  min-width: 0;
+  white-space: nowrap;
+}
+
+button.path-crumb:hover,
+.path-home:hover,
+.path-up:hover {
+  filter: brightness(1.12);
 }
 
 .path-crumb.current {
-  color: var(--ivory-dim);
+  color: var(--ivory);
   font-weight: 400;
 }
 
+/* Home sits fixed next to Up; only the path behind it scrolls. */
+.path-home + .path-crumbs {
+  margin-left: -4px;
+}
+
 .path-sep {
-  color: var(--ivory-dim);
   display: inline-grid;
   flex-shrink: 0;
+  color: rgba(158, 148, 130, 0.7);
 }
 
 .path-sep svg {
-  width: 6px;
-  height: 10px;
+  width: 5px;
+  height: 9px;
 }
 
 .path-play {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
   flex-shrink: 0;
-  color: var(--amber);
-  font-size: 14px;
-  font-weight: 600;
+  display: inline-grid;
 }
 
 .path-play-key {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 8px;
@@ -5798,26 +5840,12 @@ html.rec-drag-active body {
 }
 
 .path-play-key svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .path-play:disabled {
   opacity: 0.4;
-}
-
-/* Small phones (iPhone SE / mini): style keys and tools stay on one line. */
-@media (max-width: 389px) {
-  .app-shell:not(.wide) .deck-style-bar .deck-pill {
-    min-width: 34px;
-    padding: 6px 7px;
-    letter-spacing: 0.04em;
-  }
-
-  .app-shell:not(.wide) .deck-style-bar,
-  .app-shell:not(.wide) .deck-toolbar-slot {
-    gap: 6px;
-  }
 }
 
 /* —— Songs in the catalogue (Mac TrackRow): no tile; the speaker before the title while loaded —— */
@@ -5887,4 +5915,11 @@ html.rec-drag-active body {
 
 .row.playing .row-badge {
   color: color-mix(in srgb, var(--amber) 55%, var(--tertiary));
+}
+
+/* Phone: a long path scrolls; a soft edge shows there is more of it to the left. */
+.app-shell:not(.wide) .path-crumbs {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px);
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px);
+  padding-left: 8px;
 }

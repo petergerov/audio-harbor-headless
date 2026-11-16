@@ -29,6 +29,10 @@ export interface Navigation {
   openAlbum(album: AlbumRef, inScope?: LibraryScope): Promise<void>;
   openArtist(name: string): Promise<void>;
   openFolder(path: string): Promise<void>;
+  /** Straight to a folder on the path above the open one (0 = its library folder). */
+  openFolderAt(depth: number): Promise<void>;
+  /** The scope's top level (all library folders, all albums …), from any depth. */
+  libraryHome(): Promise<void>;
   /** Filters the library; the caller repaints its list (the search field keeps focus). */
   search(query: string): Promise<void>;
   setSettingsPane(pane: SettingsPane): void;
@@ -195,6 +199,25 @@ export class Navigator implements Navigation {
         },
       };
     });
+  }
+
+  async openFolderAt(depth: number): Promise<void> {
+    const library = this.store.get().library;
+    if (!library.folderPath) return;
+    const path = [...library.folderStack, library.folderPath];
+    if (depth < 0 || depth >= path.length - 1) return;
+    await this.move(
+      (s) => ({
+        library: { ...s.library, folderStack: path.slice(0, depth), folderPath: path[depth]!, query: '' },
+      }),
+      'push',
+      'back'
+    );
+  }
+
+  async libraryHome(): Promise<void> {
+    if (libraryDepth(routeOf(this.store.get())) === 0) return;
+    await this.move((s) => ({ library: { ...withoutDrill(s.library), query: '' } }), 'push', 'back');
   }
 
   /**

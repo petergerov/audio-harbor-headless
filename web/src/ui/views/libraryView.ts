@@ -2,7 +2,6 @@ import type { AppContext } from '../../app/context';
 import type { LibraryScope, PlayContext } from '../../api/types';
 import { escapeAttr, escapeHtml, required } from '../../core/html';
 import type { LibraryState } from '../../state/appState';
-import { isDesktopUi } from '../../core/device';
 import { icons } from '../icons';
 import { CATALOGUE_SCOPES } from './catalogueScopes';
 import { paintLoadError, paintMediaList, paintPlaceholders } from './mediaList';
@@ -13,7 +12,6 @@ const SEARCH_DEBOUNCE_MS = 250;
 /** Where the library is browsed into: title, back link and what Play queues. */
 interface Drill {
   title: string;
-  back: string;
   play: PlayContext;
   subtitle?: string;
 }
@@ -27,25 +25,22 @@ function drillOf(library: LibraryState): Drill | null {
   if (library.scope === 'folders' && library.folderPath) {
     return {
       title: library.folderPath.split(/[/\\]/).filter(Boolean).pop() ?? 'Dirs',
-      back: '‹ Dirs',
       play: { folder: library.folderPath },
     };
   }
   if (library.scope === 'albums' && library.album) {
     return {
       title: library.album.title,
-      back: '‹ Albums',
       play: { albumId: library.album.id },
       subtitle: library.album.artist,
     };
   }
   if (library.scope === 'artists' && library.artist) {
-    return { title: library.artist, back: '‹ Artists', play: { artist: library.artist } };
+    return { title: library.artist, play: { artist: library.artist } };
   }
   if (library.scope === 'playlists' && library.playlist) {
     return {
       title: library.playlist.name,
-      back: '‹ Lists',
       play: { playlistId: library.playlist.id },
     };
   }
@@ -151,72 +146,74 @@ export class LibraryView implements View {
     this.unsubscribe = null;
   }
 
-  /** Back link, title and Play all inside an album, artist, folder or list; the large title at a top level. */
+  /**
+   * The screen's title stays on every level; where you are shows in the path bar under the search
+   * (both layouts), as in the Mac catalogue.
+   */
   private paintHead(head: HTMLElement, host: ViewHost): void {
     const library = this.ctx.store.get().library;
     const drill = drillOf(library);
     const pathBar = head.parentElement?.querySelector<HTMLElement>('[data-pathbar]') ?? null;
-    if (pathBar) pathBar.hidden = true;
-    // Desktop (the Mac catalogue): the screen keeps its title; where you are shows in a path bar
-    // at the top of the list, with Up and Play.
-    if (drill && isDesktopUi() && pathBar) {
-      this.paintPathBar(pathBar, library, drill);
+    if (pathBar) {
+      if (drill) this.paintPathBar(pathBar, library, drill);
+      else {
+        pathBar.hidden = true;
+        pathBar.innerHTML = '';
+      }
     }
-    if (!drill || (isDesktopUi() && pathBar)) {
-      // "Albums — 263 files indexed.", as the Mac catalogue says it.
-      const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
-      const files = this.ctx.store.get().scan?.lastScan?.scanned;
-      head.innerHTML = `
-        <div class="page-header">
-          <div class="page-title-block">
-            <h1 class="large-title">Catalogue</h1>
-            <p class="page-sub">${escapeHtml(scope.long)}${files ? ` — ${files} files indexed.` : ''}</p>
-          </div>
-          ${host.headerPlayerSlot()}
-        </div>`;
-      return;
-    }
+    // "Albums — 263 files indexed.", as the Mac catalogue says it.
+    const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
+    const files = this.ctx.store.get().scan?.lastScan?.scanned;
     head.innerHTML = `
-      <div class="nav-row">
-        <button type="button" class="nav-link" data-back>${drill.back}</button>
-        <button type="button" class="nav-link accent" data-play-all ${library.items.length ? '' : 'disabled'}>Play all</button>
-      </div>
       <div class="page-header">
-        <h3 class="drill-title">${escapeHtml(drill.title)}</h3>
+        <div class="page-title-block">
+          <h1 class="large-title">Catalogue</h1>
+          <p class="page-sub">${escapeHtml(scope.long)}${files ? ` — ${files} files indexed.` : ''}</p>
+        </div>
         ${host.headerPlayerSlot()}
-      </div>
-      ${drill.subtitle ? `<p class="drill-sub">${escapeHtml(drill.subtitle)}</p>` : ''}`;
-    head.querySelector('[data-back]')?.addEventListener('click', () => void this.ctx.nav.back());
-    head.querySelector('[data-play-all]')?.addEventListener('click', () => void this.ctx.actions.play(drill.play));
+      </div>`;
   }
 
+  /**
+   * The Mac catalogue's path bar: Up (a step back), a hairline, Home (the scope's top: all
+   * library folders, all albums …), then the path — every folder above the open one is a link
+   * there, the open one is plain. Play all at the end.
+   */
   private paintPathBar(bar: HTMLElement, library: LibraryState, drill: Drill): void {
     const name = (p: string) => p.split(/[/\\]/).filter(Boolean).pop() ?? p;
-    let crumbs: string[];
-    if (library.scope === 'folders' && library.folderPath) {
-      crumbs = [...library.folderStack, library.folderPath].map(name);
-    } else {
-      const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
-      crumbs = [scope.long, drill.subtitle ? `${drill.title} · ${drill.subtitle}` : drill.title];
-    }
+    const crumbs: Array<{ label: string; depth?: number }> =
+      library.scope === 'folders' && library.folderPath
+        ? [...library.folderStack, library.folderPath].map((p, depth) => ({ label: name(p), depth }))
+        : [{ label: drill.subtitle ? `${drill.title} · ${drill.subtitle}` : drill.title }];
     const last = crumbs.length - 1;
+    const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
+    const homeLabel = library.scope === 'folders' ? 'All library folders' : `All ${scope.long.toLowerCase()}`;
+    const sep = `<span class="path-sep" aria-hidden="true">${icons.chevron}</span>`;
     bar.hidden = false;
     bar.innerHTML = `
       <button type="button" class="path-up" data-back>${icons.chevronLeft}<span>Up</span></button>
+      <span class="path-rule" aria-hidden="true"></span>
+      <button type="button" class="path-home" data-home aria-label="${escapeAttr(homeLabel)}" title="${escapeAttr(homeLabel)}">${icons.home}</button>
       <nav class="path-crumbs" aria-label="Where">
         ${crumbs
-          .map(
-            (c, i) =>
-              `${i ? `<span class="path-sep" aria-hidden="true">${icons.chevron}</span>` : ''}<span class="path-crumb${
-                i === last ? ' current' : ''
-              }">${escapeHtml(c)}</span>`
+          .map((c, i) =>
+            i === last
+              ? `${sep}<span class="path-crumb current" aria-current="location">${escapeHtml(c.label)}</span>`
+              : `${sep}<button type="button" class="path-crumb" data-depth="${c.depth}">${escapeHtml(c.label)}</button>`
           )
           .join('')}
       </nav>
-      <button type="button" class="path-play" data-play-all ${library.items.length ? '' : 'disabled'}>
-        <span class="path-play-key">${icons.trailPlay}</span><span>Play all</span>
+      <button type="button" class="path-play" data-play-all aria-label="Play all" title="Play all" ${library.items.length ? '' : 'disabled'}>
+        <span class="path-play-key">${icons.trailPlay}</span>
       </button>`;
+    // The open folder in view at the end of a long path.
+    const crumbsEl = bar.querySelector<HTMLElement>('.path-crumbs');
+    if (crumbsEl) crumbsEl.scrollLeft = crumbsEl.scrollWidth;
     bar.querySelector('[data-back]')?.addEventListener('click', () => void this.ctx.nav.back());
+    bar.querySelector('[data-home]')?.addEventListener('click', () => void this.ctx.nav.libraryHome());
+    bar.querySelectorAll<HTMLElement>('[data-depth]').forEach((crumb) =>
+      crumb.addEventListener('click', () => void this.ctx.nav.openFolderAt(Number(crumb.dataset.depth)))
+    );
     bar.querySelector('[data-play-all]')?.addEventListener('click', () => void this.ctx.actions.play(drill.play));
   }
 
