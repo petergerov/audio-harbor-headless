@@ -1817,6 +1817,8 @@ button.cell:disabled .value {
 
 .queue-list {
   display: grid;
+  /* Rows keep their height at the top; a short queue does not stretch them over the rail. */
+  align-content: start;
 }
 
 /* —— Mini player (mobile) —— */
