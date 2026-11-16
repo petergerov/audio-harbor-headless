@@ -211,6 +211,7 @@ if [[ "$MODE" == "prebuilt" ]]; then
   stage_tree \
     '.git/' \
     'dist/packages/' \
+    'dist/release/' \
     '.idea/' \
     '.DS_Store' \
     '*.sqlite' \
