@@ -6064,3 +6064,7 @@ button.path-crumb:hover,
   font-size: 13px;
   color: var(--ivory);
 }
+
+.info-btn[hidden] {
+  display: none;
+}

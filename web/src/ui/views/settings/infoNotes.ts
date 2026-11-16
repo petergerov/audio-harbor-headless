@@ -29,7 +29,7 @@ function notesOf(label: HTMLElement): HTMLElement[] {
   const out: HTMLElement[] = [];
   let el = label.nextElementSibling;
   while (el && !el.classList.contains('group-label')) {
-    if (el.classList.contains('note-in-info')) out.push(el as HTMLElement);
+    if (el.classList.contains('note-in-info') && (el.textContent ?? '').trim()) out.push(el as HTMLElement);
     el = el.nextElementSibling;
   }
   return out;
@@ -59,6 +59,12 @@ function collapse(body: HTMLElement): void {
       `<button type="button" class="info-btn" aria-label="${escapeAttr(`About ${name}`)}" title="About ${escapeAttr(name)}">${icons.info}</button>`
     );
   });
+  // A section whose explanation is empty right now (a pane fills it later) shows no button.
+  body.querySelectorAll<HTMLElement>('.group-label.has-info').forEach((label) => {
+    const button = label.querySelector<HTMLElement>('.info-btn');
+    const empty = notesOf(label).length === 0;
+    if (button && button.hidden !== empty) button.hidden = empty;
+  });
 }
 
 /**
@@ -69,7 +75,7 @@ function collapse(body: HTMLElement): void {
 export function bindInfoNotes(body: HTMLElement): () => void {
   collapse(body);
   const observer = new MutationObserver(() => collapse(body));
-  observer.observe(body, { childList: true, subtree: true });
+  observer.observe(body, { childList: true, subtree: true, characterData: true });
   const onClick = (event: Event) => {
     const button = (event.target as Element | null)?.closest<HTMLElement>('.info-btn');
     const label = button?.closest<HTMLElement>('.group-label');

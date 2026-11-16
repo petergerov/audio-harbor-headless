@@ -80,21 +80,29 @@ function dsdNote({ stream, dsd, formats }: NetworkChoice): string {
     : `${lists}: DFF and SACD go to it untouched; DSF plays as ${PCM_88}.`;
 }
 
-/** What to know about a network pick: offline, discovery trouble, what gets sent. */
-function outputNote(output: OutputStatus, deviceUid: string, choice: NetworkChoice): string {
-  if (!isNetworkUid(deviceUid)) return '';
-  const notes: string[] = [];
+/**
+ * What to know about a network pick: `warnings` (offline, discovery trouble) stay on the page;
+ * `explain` (what gets sent) sits behind the section's info button.
+ */
+function outputNote(
+  output: OutputStatus,
+  deviceUid: string,
+  choice: NetworkChoice
+): { warnings: string; explain: string } {
+  if (!isNetworkUid(deviceUid)) return { warnings: '', explain: '' };
+  const warnings: string[] = [];
   if (deviceUid === output.selectedUid && !output.selectedAvailable) {
-    notes.push(
+    warnings.push(
       `${output.selectedName ?? 'This player'} is not on the network right now — it comes back by itself when it is on.`
     );
   }
-  if (output.discoveryError) notes.push(`Searching for network players failed: ${output.discoveryError}.`);
-  notes.push(
-    'The player gets the file untouched when it takes the format, else WAV. Exclusive and DoP under Mode are for DACs on this host.'
-  );
-  notes.push(dsdNote(choice));
-  return notes.map((n) => escapeHtml(n)).join('<br><br>');
+  if (output.discoveryError) warnings.push(`Searching for network players failed: ${output.discoveryError}.`);
+  const explain = [
+    'The player gets the file untouched when it takes the format, else WAV. Exclusive and DoP under Mode are for DACs on this host.',
+    dsdNote(choice),
+  ];
+  const html = (lines: string[]) => lines.map((n) => escapeHtml(n)).join('<br><br>');
+  return { warnings: html(warnings), explain: html(explain) };
 }
 
 /** A fixed choice in a select. */
@@ -162,6 +170,7 @@ export class OutputPane implements Pane {
         </div>
       </div>
       <p class="footer-note" data-note></p>
+      <p class="footer-note" data-note-explain data-explain></p>
       <p class="group-label">DSD as PCM</p>
       <div class="group">
         <div class="cell">
@@ -190,6 +199,7 @@ export class OutputPane implements Pane {
     const streamCell = required(root, '[data-stream-cell]');
     const dsdCell = required(root, '[data-dsd-cell]');
     const note = required(root, '[data-note]');
+    const noteExplain = required(root, '[data-note-explain]');
     const status = required(root, '[data-status]');
 
     /** What each network player lists, as it answered. */
@@ -205,12 +215,14 @@ export class OutputPane implements Pane {
       dsdCell.hidden = !toNetwork;
       // Wi‑Fi makes every DSD track 44.1 kHz PCM.
       dsd.disabled = stream.value === 'wifi';
-      note.innerHTML = outputNote(output, device.value, {
+      const { warnings, explain } = outputNote(output, device.value, {
         stream: stream.value as NetworkStream,
         dsd: dsd.value as NetworkDsd,
         formats: formats.get(device.value),
       });
-      note.hidden = !note.innerHTML;
+      note.innerHTML = warnings;
+      note.hidden = !warnings;
+      noteExplain.innerHTML = explain;
     };
 
     const loadFormats = async (uid: string) => {
