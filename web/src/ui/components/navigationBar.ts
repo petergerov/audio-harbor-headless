@@ -14,10 +14,10 @@ interface Destination {
 
 /** Primary surfaces — the iOS remote's three, and Recordings after Catalogue when recording is on. */
 const DESTINATIONS: Destination[] = [
-  { tab: 'now', short: 'Deck', long: 'Deck', icon: icons.navDeck },
-  { tab: 'library', short: 'Catalogue', long: 'Catalogue', icon: icons.navCatalogue },
+  { tab: 'now', short: 'Deck', long: 'Deck', icon: icons.macHifi },
+  { tab: 'library', short: 'Catalogue', long: 'Catalogue', icon: icons.macStack },
   { tab: 'recordings', short: 'Record', long: 'Recordings', icon: icons.navRecord },
-  { tab: 'settings', short: 'Settings', long: 'Settings', icon: icons.settings },
+  { tab: 'settings', short: 'Settings', long: 'Settings', icon: icons.macGear },
 ];
 
 const destination = (tab: Tab) => DESTINATIONS.find((d) => d.tab === tab)!;

@@ -5923,3 +5923,85 @@ button.path-crumb:hover,
   mask-image: linear-gradient(90deg, transparent 0, #000 14px);
   padding-left: 8px;
 }
+
+/* —— Mac catalogue glyphs —— */
+/* A folder: a small amber folder, no tile, no "Folder" line. */
+.row-glyph {
+  width: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--amber);
+}
+
+.row-glyph svg {
+  width: 19px;
+  height: 19px;
+}
+
+.row-wrap.unavailable .row-glyph {
+  color: var(--ivory-dim);
+  opacity: 0.6;
+}
+
+.row-sub:empty {
+  display: none;
+}
+
+.app-shell.wide #list .row:has(.row-glyph) {
+  min-height: 54px;
+  gap: 12px;
+}
+
+/* An album without a cover: the disc, quiet; artists, lists and labels: their glyph in amber. */
+.row-icon.album:not(.has-art) {
+  color: rgba(158, 148, 130, 0.7);
+}
+
+.row-icon.album:not(.has-art) svg {
+  width: 40%;
+  height: 40%;
+}
+
+.row-icon.artist,
+.row-icon.playlist,
+.row-icon.label {
+  color: var(--amber);
+}
+
+.row-icon.artist svg,
+.row-icon.playlist svg,
+.row-icon.label svg {
+  width: 36%;
+  height: 36%;
+}
+
+/* The song playing: amber title and the speaker in front — the row itself stays as it is. */
+.row-wrap.bare.playing,
+.row-wrap.bare.pending .row {
+  background: none;
+  box-shadow: none;
+}
+
+.row.bare.playing .row-sub {
+  color: var(--ivory-dim);
+}
+
+.row.bare.playing .row-badge {
+  color: var(--tertiary);
+}
+
+.row-speaker svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Sidebar glyphs a touch larger, as the Mac's. */
+.side-nav .side-row svg {
+  width: 18px;
+  height: 18px;
+}
+
+.row-wrap.bare.playing + .row-wrap::before,
+.row-wrap + .row-wrap.bare.playing::before {
+  opacity: 1;
+}

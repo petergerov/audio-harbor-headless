@@ -58,12 +58,12 @@ const MENU_DEBOUNCE_MS = 800;
 
 /** The tile each kind of row shows without a cover — as in the iOS remote. */
 const TILES: Record<RowKind, string> = {
-  album: icons.tileSpeaker,
-  artist: icons.tilePerson,
-  folder: icons.tileFolder,
+  album: icons.macDisc,
+  artist: icons.macArtist,
+  folder: icons.macFolder,
   track: icons.tileNote,
-  playlist: icons.tileList,
-  label: icons.tileTag,
+  playlist: icons.macList,
+  label: icons.macTag,
 };
 
 /** A track row's end: play (not loaded), the speaker (playing) or a quiet speaker (paused). */
@@ -77,7 +77,7 @@ export function trackTrail(mark: TrackMark): string {
 
 /** The speaker in front of a bare song's title: sounding while it plays, quiet while paused. */
 export function speakerGlyph(paused: boolean): string {
-  return paused ? icons.speakerOff : icons.speaker;
+  return paused ? icons.macSpeakerPaused : icons.macSpeaker;
 }
 
 function rowHtml(row: RowModel, covers: Covers): string {
@@ -100,7 +100,9 @@ function rowHtml(row: RowModel, covers: Covers): string {
     const img = covers.img(row.artworkHash);
     icon = img
       ? `<div class="row-icon ${row.kind} has-art">${img}</div>`
-      : `<div class="row-icon ${row.kind}">${TILES[row.kind]}</div>`;
+      : row.kind === 'folder'
+        ? `<div class="row-glyph folder">${TILES.folder}</div>`
+        : `<div class="row-icon ${row.kind}">${TILES[row.kind]}</div>`;
   }
   let trail = `<span class="row-trail"></span>`;
   if (row.trailText !== undefined) {

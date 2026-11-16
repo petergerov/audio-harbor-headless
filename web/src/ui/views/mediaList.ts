@@ -121,7 +121,7 @@ const folderEntry: Presenter = (item, _scope, ctx) => {
   const offline = item.available === false;
   return {
     // Still opens: what the catalogue knows of it shows, greyed out.
-    row: { kind: 'folder', title: name, subtitle: offline ? NOT_CONNECTED : 'Folder', chevron: true, unavailable: offline },
+    row: { kind: 'folder', title: name, subtitle: offline ? NOT_CONNECTED : '', chevron: true, unavailable: offline },
     selection: { folder: path, title: name },
     open: () => void ctx.nav.openFolder(path),
     play: offline ? undefined : { folder: path },
