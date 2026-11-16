@@ -193,4 +193,22 @@ export interface HarborConfig {
     /** Remotes must pair with the PIN first. Off: anyone on the local network can connect. */
     require_pairing: boolean;
   };
+  recording: RecordingConfig;
+}
+
+/** Recording from a digital input (S/PDIF), bit-perfect. */
+export interface RecordingConfig {
+  enabled: boolean;
+  /** ALSA capture device (hw:CARD=…,DEV=…); "" = the first one found. */
+  device: string;
+  /** The input's sample rate: the capture runs at exactly this rate, nothing resamples. */
+  rate: number;
+  /** Where takes go; "" = "Recordings" in the first library folder (else ~/Music/Recordings). */
+  folder: string;
+  /** Split PCM into tracks at silence. */
+  split: 'none' | 'silence';
+  silence_db: number;
+  silence_seconds: number;
+  /** Keep the raw 32-bit WAV of each take next to the files. */
+  keep_raw: boolean;
 }

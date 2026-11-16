@@ -64,6 +64,19 @@ if(NOT MSVC)
   set_source_files_properties(${ALAC_SOURCES} PROPERTIES COMPILE_OPTIONS "-fwrapv")
 endif()
 
+# Recording from a digital input (S/PDIF): capture, analysis, FLAC / DSF writers. ALSA on Linux.
+set(RECORD_SOURCES
+  src/record/AlsaCapture.cpp
+  src/record/DsfWriter.cpp
+  src/record/FileCapture.cpp
+  src/record/Finalize.cpp
+  src/record/FlacEncoder.cpp
+  src/record/Md5.cpp
+  src/record/RawWav.cpp
+  src/record/Recorder.cpp
+  src/record/StreamAnalyzer.cpp
+)
+
 set(ENGINE_SOURCES
   ${ALAC_SOURCES}
   src/AlacReader.cpp
@@ -78,6 +91,7 @@ set(ENGINE_SOURCES
   src/FxClient.cpp
   src/FxStage.cpp
   src/AHDSTDecoder.c
+  ${RECORD_SOURCES}
   napi/binding.cpp
 )
 
@@ -251,4 +265,16 @@ elseif(UNIX)
 endif()
 if(MSVC)
   target_compile_definitions(feed-test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# The recording path against known input (not shipped): build/record-test <scratch dir>
+add_executable(record-test test/RecordTest.cpp ${RECORD_SOURCES})
+target_include_directories(record-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set_target_properties(record-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+if(UNIX AND NOT APPLE)
+  find_package(Threads REQUIRED)
+  target_link_libraries(record-test PRIVATE ALSA::ALSA Threads::Threads)
+endif()
+if(MSVC)
+  target_compile_definitions(record-test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES)
 endif()

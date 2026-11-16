@@ -198,6 +198,17 @@ Inserts on the local output, steered from the remote — the plugins you already
 - **Kept** in `~/.audio-harbor-headless/rack.json`: the plugins, their order, switches, pinned knobs, every setting and the presets.
 - **API**: `GET /api/v1/rack`, `PUT /api/v1/rack/bypass`, `GET /api/v1/rack/plugins[?rescan=1]`, `POST /api/v1/rack/inserts`, `DELETE /api/v1/rack/inserts/:id`, `POST …/:id/move`, `PUT …/:id/bypass`, `GET …/:id/params`, `PUT …/:id/params/:param`, `PUT …/:id/pinned`, `GET/PUT …/:id/state`, `POST …/:id/reset`, `GET …/:id/presets`, `POST …/:id/presets/load` (`{preset}`), `POST …/:id/editor/open`, `POST …/:id/editor/close`, `GET /api/v1/rack/meters`, presets under `/api/v1/rack/presets` (`POST` save, `POST …/:id/load`, `PUT …/:id/save`, `PUT …/:id` rename, `DELETE`); the WebSocket pushes `rack`.
 
+### Recording (S/PDIF in)
+
+Records the digital input **bit-perfect, in the format the source sends** — on Linux with an S/PDIF input such as the **HiFiBerry Digi+ I/O** on a Raspberry Pi (`dtoverlay=hifiberry-digi`). Plan and background: [pi-recording.md](pi-recording.md).
+
+- **Remote**: Settings → Record. Turn Recording on, pick the input and the **rate the source sends** (the input cannot tell it; nothing resamples, a wrong rate fails), then Record. While it runs: time, meters, what comes in (`44.1 kHz · 16 bit`, `DSD64 via DoP`, `Dolby / DTS bitstream`, `No signal`) and whether samples were lost.
+- **Files**: FLAC at the bit depth really used (a CD source → 16-bit, else 24-bit), **DSD sent as DoP → native DSF**, Dolby / DTS → raw IEC 61937 (`.spdif`, not played by the library). A new file wherever the content changes; optionally at silence (`split = "silence"`). Into `<folder>/<date time> (<format>)/Track NN.flac`, tagged, and the library picks them up. The FLAC encoder is Harbor's own (no libFLAC); its MD5 lets `flac -t` prove every sample.
+- **Safe**: the input goes to a raw 32-bit WAV first (8 s buffer to the disk, header updated every 5 s); a take cut off by a crash or power cut is finished at the next start. Stops by itself with the disk nearly full; won't start with less than 2 GB free.
+- **Config** `[recording]`: `enabled`, `device`, `rate`, `folder`, `split`, `silence_db`, `silence_seconds`, `keep_raw`.
+- **API**: `GET /api/v1/recording` (state, live meters, last take), `GET /api/v1/recording/inputs`, `POST /api/v1/recording/start` (`{device?, rate?, split?}`), `POST /api/v1/recording/stop` (`{discard?}`), `PUT /api/v1/recording/settings`.
+- **Test** without the HAT: `HARBOR_RECORD_TEST_INPUT=/path/file.wav` offers that WAV as a live input; `npm run test:record -w @harbor/engine` checks FLAC, DSF and bitstream output sample by sample.
+
 ### Network players (UPnP / DLNA)
 
 A UPnP / DLNA renderer on the home network — a streamer, an amp such as a Devialet Expert, some TVs and soundbars — is an output like a DAC. The host stays the player with library and queue; the renderer pulls the audio over HTTP. Same behaviour as [Audio Harbor](https://github.com/petergerov/audio-harbor/blob/main/docs/UPNP.md).

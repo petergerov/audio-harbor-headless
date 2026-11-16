@@ -9,6 +9,11 @@ import type {
   NetStreamInfo,
   NetStreamOptions,
   OutputMode,
+  RecordFinalizeOptions,
+  RecordFinalizeResult,
+  RecordInput,
+  RecordStartOptions,
+  RecordStatus,
 } from '@harbor/engine';
 import { localPathLabel } from '../resolution.js';
 import type { AudioBackend, OutputDevice, OutputStatus } from '../types.js';
@@ -40,6 +45,12 @@ type NativeEngine = {
   fxRequest?(json: string): Promise<string>;
   fxSetBypass?(bypassed: boolean): void;
   fxTouch?(): void;
+  recordInputs?(): RecordInput[];
+  recordStart?(options: RecordStartOptions): void;
+  recordStop?(): RecordStatus;
+  recordStatus?(): RecordStatus;
+  recordFinalize?(options: RecordFinalizeOptions): Promise<RecordFinalizeResult>;
+  recordFinalizeProgress?(): number | null;
 };
 
 let native: NativeEngine | null = null;
@@ -243,4 +254,39 @@ export function buildOutputStatus(
       .map((s) => s.trim())
       .filter(Boolean),
   };
+}
+
+// --- Recording from a digital input ---
+
+/** The engine can record (built with the recorder). Inputs exist only on Linux (ALSA). */
+export function engineCanRecord(): boolean {
+  return typeof loadNative()?.recordStart === 'function';
+}
+
+export function engineRecordInputs(): RecordInput[] {
+  return loadNative()?.recordInputs?.() ?? [];
+}
+
+export function engineRecordStart(options: RecordStartOptions): void {
+  const eng = loadNative();
+  if (!eng?.recordStart) throw new Error(loadError ?? 'This engine cannot record');
+  eng.recordStart(options);
+}
+
+export function engineRecordStop(): RecordStatus | null {
+  return loadNative()?.recordStop?.() ?? null;
+}
+
+export function engineRecordStatus(): RecordStatus | null {
+  return loadNative()?.recordStatus?.() ?? null;
+}
+
+export async function engineRecordFinalize(options: RecordFinalizeOptions): Promise<RecordFinalizeResult> {
+  const eng = loadNative();
+  if (!eng?.recordFinalize) throw new Error(loadError ?? 'This engine cannot record');
+  return eng.recordFinalize(options);
+}
+
+export function engineRecordFinalizeProgress(): number | null {
+  return loadNative()?.recordFinalizeProgress?.() ?? null;
 }

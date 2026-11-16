@@ -13,7 +13,7 @@ import type {
 import type { LiveStatus } from '../api/liveUpdates';
 
 export type Tab = 'library' | 'collections' | 'now' | 'settings';
-export type SettingsPane = 'sources' | 'output' | 'rack' | 'sharing' | 'about';
+export type SettingsPane = 'sources' | 'output' | 'rack' | 'record' | 'sharing' | 'about';
 
 export interface AlbumRef {
   id: string;

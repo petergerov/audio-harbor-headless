@@ -14,6 +14,7 @@ import { hostPackagePath } from './paths.js';
 import { PlaybackService } from './playback/service.js';
 import { KeepAwake } from './power.js';
 import { Rack } from './rack.js';
+import { RecordingService } from './recording/service.js';
 import { startBonjourRemote } from './remote/bonjour.js';
 import { RemoteRack } from './remote/rack.js';
 import { Mdns } from './remote/mdns.js';
@@ -113,6 +114,10 @@ async function main(): Promise<void> {
     version: hostVersion() || 'unknown',
   });
 
+  // Recording from the digital input; a take a crash left behind is finished in the background.
+  const recording = new RecordingService(getConfig, persist, () => catalogue.scanRoots(cfg.library.roots));
+  void recording.recover().catch((err) => console.warn('Recording recovery failed:', err));
+
   const updates = new Updater(hostVersion() || '0.0.0');
   const access = new AccessPolicy(getConfig, persist);
   if (configLacked('remote.require_pairing')) access.adoptExistingInstall();
@@ -131,6 +136,7 @@ async function main(): Promise<void> {
     remoteUrl: () => remoteUrl,
     rack,
     access,
+    recording,
   });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
@@ -145,6 +151,7 @@ async function main(): Promise<void> {
   }
   // Plugin settings go to rack.json before the process ends.
   const shutdown = () => {
+    recording.shutdown();
     setTimeout(() => process.exit(0), 1500).unref();
     void Promise.allSettled([rack.flush(), mdns?.close()]).then(() => process.exit(0));
   };

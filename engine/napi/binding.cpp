@@ -1,4 +1,5 @@
 #include <napi.h>
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -9,6 +10,9 @@
 #include "AHDSTDecoder.h"
 #include "FrameSource.h"
 #include "FxFrameSource.h"
+#include "record/CaptureSource.h"
+#include "record/Finalize.h"
+#include "record/Recorder.h"
 
 namespace {
 
@@ -460,6 +464,172 @@ Napi::Value NetStreamClose(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// --- Recording from a digital input ---
+
+std::string stringField(const Napi::Object& o, const char* key, const std::string& fallback = "") {
+  return o.Has(key) && o.Get(key).IsString() ? o.Get(key).As<Napi::String>().Utf8Value() : fallback;
+}
+
+double numberField(const Napi::Object& o, const char* key, double fallback) {
+  return o.Has(key) && o.Get(key).IsNumber() ? o.Get(key).As<Napi::Number>().DoubleValue() : fallback;
+}
+
+Napi::Object recorderStatusToJs(Napi::Env env, const RecorderStatus& st) {
+  auto o = Napi::Object::New(env);
+  o.Set("active", st.active);
+  o.Set("device", st.device);
+  o.Set("rate", double(st.rate));
+  o.Set("channels", double(st.channels));
+  o.Set("deviceBits", double(st.deviceBits));
+  o.Set("frames", double(st.frames));
+  o.Set("seconds", st.rate ? double(st.frames) / double(st.rate) : 0.0);
+  o.Set("overruns", double(st.overruns));
+  o.Set("dropped", double(st.dropped));
+  o.Set("signal", st.signal);
+  o.Set("content", st.content);
+  o.Set("bits", double(st.bits));
+  o.Set("silent", st.silent);
+  auto peaks = Napi::Array::New(env, size_t(std::max(0, std::min(st.channels, 8))));
+  for (int c = 0; c < st.channels && c < 8; ++c) peaks.Set(uint32_t(c), double(st.peaks[c]));
+  o.Set("peaks", peaks);
+  if (st.error.empty()) o.Set("error", env.Null());
+  else o.Set("error", st.error);
+  o.Set("failed", st.failed);
+  return o;
+}
+
+Napi::Value RecordInputs(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  const auto inputs = listCaptureDevices();
+  auto arr = Napi::Array::New(env, inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    auto o = Napi::Object::New(env);
+    o.Set("id", inputs[i].id);
+    o.Set("name", inputs[i].name);
+    arr.Set(uint32_t(i), o);
+  }
+  return arr;
+}
+
+Napi::Value RecordStart(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() < 1 || !info[0].IsObject()) {
+    Napi::TypeError::New(env, "options required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto o = info[0].As<Napi::Object>();
+  RecorderStartOptions options;
+  options.device = stringField(o, "device");
+  options.rate = uint32_t(numberField(o, "rate", 44100));
+  options.channels = int(numberField(o, "channels", 2));
+  options.rawPath = stringField(o, "rawPath");
+  options.silenceDb = numberField(o, "silenceDb", -70);
+  if (options.device.empty() || options.rawPath.empty()) {
+    Napi::TypeError::New(env, "device and rawPath required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  std::string error;
+  if (!recorderStart(options, error)) {
+    Napi::Error::New(env, error.empty() ? "Recording could not start" : error).ThrowAsJavaScriptException();
+  }
+  return env.Undefined();
+}
+
+Napi::Value RecordStop(const Napi::CallbackInfo& info) {
+  return recorderStatusToJs(info.Env(), recorderStop());
+}
+
+Napi::Value RecordStatus(const Napi::CallbackInfo& info) {
+  return recorderStatusToJs(info.Env(), recorderStatus());
+}
+
+std::atomic<double> g_finalizeProgress { -1.0 };
+
+/** Finishes a raw take into FLAC / DSF / .spdif on the libuv pool. */
+class RecordFinalizeWorker : public Napi::AsyncWorker {
+public:
+  RecordFinalizeWorker(Napi::Env env, FinalizeOptions options)
+    : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)), options_(std::move(options)) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    std::string error;
+    if (!finalizeTake(options_, result_, error, &g_finalizeProgress)) {
+      SetError(error.empty() ? "Recording could not be finished" : error);
+    }
+    g_finalizeProgress.store(-1.0);
+  }
+
+  void OnOK() override {
+    auto env = Env();
+    auto o = Napi::Object::New(env);
+    auto files = Napi::Array::New(env, result_.files.size());
+    for (size_t i = 0; i < result_.files.size(); ++i) {
+      const FinalizedFile& f = result_.files[i];
+      auto fo = Napi::Object::New(env);
+      fo.Set("path", f.path);
+      fo.Set("kind", f.kind);
+      fo.Set("sampleRate", double(f.sampleRate));
+      fo.Set("bits", double(f.bits));
+      fo.Set("frames", double(f.frames));
+      fo.Set("seconds", f.seconds);
+      files.Set(uint32_t(i), fo);
+    }
+    o.Set("files", files);
+    o.Set("skippedFrames", double(result_.skippedFrames));
+    o.Set("totalFrames", double(result_.totalFrames));
+    deferred_.Resolve(o);
+  }
+
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+private:
+  Napi::Promise::Deferred deferred_;
+  FinalizeOptions options_;
+  FinalizeResult result_;
+};
+
+Napi::Value RecordFinalize(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() < 1 || !info[0].IsObject()) {
+    Napi::TypeError::New(env, "options required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto o = info[0].As<Napi::Object>();
+  FinalizeOptions options;
+  options.rawPath = stringField(o, "rawPath");
+  options.outDir = stringField(o, "outDir");
+  options.split = o.Has("split") && o.Get("split").ToBoolean().Value();
+  options.silenceDb = numberField(o, "silenceDb", -70);
+  options.silenceSeconds = numberField(o, "silenceSeconds", 2);
+  options.titleBase = stringField(o, "titleBase", "Track");
+  if (o.Has("tags") && o.Get("tags").IsObject()) {
+    auto tags = o.Get("tags").As<Napi::Object>();
+    auto keys = tags.GetPropertyNames();
+    for (uint32_t i = 0; i < keys.Length(); ++i) {
+      const std::string key = keys.Get(i).ToString().Utf8Value();
+      const Napi::Value value = tags.Get(key);
+      if (value.IsString() || value.IsNumber()) options.tags.emplace_back(key, value.ToString().Utf8Value());
+    }
+  }
+  if (options.rawPath.empty() || options.outDir.empty()) {
+    Napi::TypeError::New(env, "rawPath and outDir required").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  g_finalizeProgress.store(0.0);
+  auto* worker = new RecordFinalizeWorker(env, std::move(options));
+  auto promise = worker->Promise();
+  worker->Queue();
+  return promise;
+}
+
+/** 0…1 while a take is being finished; null otherwise. */
+Napi::Value RecordFinalizeProgress(const Napi::CallbackInfo& info) {
+  const double p = g_finalizeProgress.load();
+  return p < 0 ? info.Env().Null() : Napi::Number::New(info.Env(), p);
+}
+
 Napi::Value SetEventListener(const Napi::CallbackInfo& info) {
   auto env = info.Env();
   if (!info[0].IsFunction()) {
@@ -509,6 +679,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("fxSetBypass", Napi::Function::New(env, FxSetBypass));
   exports.Set("fxSetBinary", Napi::Function::New(env, FxSetBinary));
   exports.Set("fxTouch", Napi::Function::New(env, FxTouch));
+  exports.Set("recordInputs", Napi::Function::New(env, RecordInputs));
+  exports.Set("recordStart", Napi::Function::New(env, RecordStart));
+  exports.Set("recordStop", Napi::Function::New(env, RecordStop));
+  exports.Set("recordStatus", Napi::Function::New(env, RecordStatus));
+  exports.Set("recordFinalize", Napi::Function::New(env, RecordFinalize));
+  exports.Set("recordFinalizeProgress", Napi::Function::New(env, RecordFinalizeProgress));
   return exports;
 }
 

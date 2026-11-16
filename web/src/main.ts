@@ -13,6 +13,7 @@ import { HttpLibraryApi } from './api/libraryApi';
 import { LiveUpdates } from './api/liveUpdates';
 import { HttpPlaybackApi } from './api/playbackApi';
 import { HttpRackApi } from './api/rackApi';
+import { HttpRecordingApi } from './api/recordingApi';
 import { HttpSettingsApi } from './api/settingsApi';
 import { required } from './core/html';
 import { Store } from './core/store';
@@ -63,6 +64,7 @@ const ctx: AppContext = {
   collections,
   settings: settingsApi,
   rack: new HttpRackApi(http),
+  recording: new HttpRecordingApi(http),
   hostSettings,
   covers,
   bindings,

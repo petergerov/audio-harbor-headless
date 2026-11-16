@@ -1,6 +1,8 @@
 # Recording on the Raspberry Pi (S/PDIF in)
 
-Plan for recording a digital source on the Pi **bit-perfect, in the format it arrives in**, using a **HiFiBerry Digi+ I/O** HAT as the S/PDIF input. Status: idea / plan, nothing built yet.
+Plan for recording a digital source on the Pi **bit-perfect, in the format it arrives in**, using a **HiFiBerry Digi+ I/O** HAT as the S/PDIF input.
+
+**Status (2026-11-16, branch `feature/pi-recording`):** steps 3–6 built and tested — capture, raw take, FLAC / DSF / IEC 61937 output, split at silence, crash recovery, API and the Record pane in the remote. Tested on macOS with a WAV as simulated input and on Linux arm64 (Docker, ALSA `null` device); **not yet on the Pi with the HAT** (step 1). Rate is set by hand (option 1 below); automatic detection (step 2) is still open. Usage: README → Recording.
 
 ## Goal
 

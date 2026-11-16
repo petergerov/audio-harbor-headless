@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import TOML from '@iarna/toml';
-import type { AudioBackend, HarborConfig, NetworkDsdMode, NetworkStreamQuality, OutputMode } from './types.js';
+import type {
+  AudioBackend,
+  HarborConfig,
+  NetworkDsdMode,
+  NetworkStreamQuality,
+  OutputMode,
+  RecordingConfig,
+} from './types.js';
 import { configPath, exampleConfigPath } from './paths.js';
 
 const DEFAULTS: HarborConfig = {
@@ -33,7 +40,40 @@ const DEFAULTS: HarborConfig = {
     bonjour_port: 8788,
     require_pairing: false,
   },
+  recording: {
+    enabled: false,
+    device: '',
+    rate: 44100,
+    folder: '',
+    split: 'none',
+    silence_db: -70,
+    silence_seconds: 2,
+    keep_raw: false,
+  },
 };
+
+/** Rates an S/PDIF input carries. */
+export const RECORDING_RATES = [32000, 44100, 48000, 88200, 96000, 176400, 192000] as const;
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+export function normalizeRecording(value: unknown, base: RecordingConfig = DEFAULTS.recording): RecordingConfig {
+  const r = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const rate = Number(r.rate ?? base.rate);
+  return {
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : base.enabled,
+    device: typeof r.device === 'string' ? r.device.trim() : base.device,
+    rate: (RECORDING_RATES as readonly number[]).includes(rate) ? rate : base.rate,
+    folder: typeof r.folder === 'string' ? r.folder.trim() : base.folder,
+    split: r.split === 'silence' || r.split === 'none' ? r.split : base.split,
+    silence_db: clampNumber(r.silence_db ?? base.silence_db, -120, -20, base.silence_db),
+    silence_seconds: clampNumber(r.silence_seconds ?? base.silence_seconds, 0.5, 30, base.silence_seconds),
+    keep_raw: typeof r.keep_raw === 'boolean' ? r.keep_raw : base.keep_raw,
+  };
+}
 
 function normalizeMode(mode: unknown): OutputMode {
   if (mode === 'exclusive' || mode === 'dop' || mode === 'shared') return mode;
@@ -148,6 +188,7 @@ export function loadConfig(): HarborConfig {
       bonjour_port: Number(remote.bonjour_port ?? DEFAULTS.remote.bonjour_port),
       require_pairing: Boolean(remote.require_pairing ?? DEFAULTS.remote.require_pairing),
     },
+    recording: normalizeRecording(parsed.recording),
   };
 }
 
@@ -166,6 +207,7 @@ export function saveConfig(cfg: HarborConfig): void {
     network: cfg.network,
     sharing: cfg.sharing,
     remote: cfg.remote,
+    recording: { ...cfg.recording },
   });
   fs.writeFileSync(configPath(), body);
 }

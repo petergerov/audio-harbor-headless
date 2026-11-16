@@ -70,6 +70,75 @@ export interface NetStreamOptions {
   fx?: boolean;
 }
 
+/** A capture device (ALSA hw: on Linux). */
+export interface RecordInput {
+  id: string;
+  name: string;
+}
+
+export interface RecordStartOptions {
+  /** hw:CARD=…,DEV=…; or file:<wav> / filefast:<wav> to feed a WAV in as if it were live. */
+  device: string;
+  /** Must be the input's rate: nothing resamples, a wrong rate fails. */
+  rate: number;
+  channels?: number;
+  /** The raw take: 32-bit WAV, left-justified, exactly as captured. */
+  rawPath: string;
+  /** Threshold for the live "silent" flag. */
+  silenceDb?: number;
+}
+
+export interface RecordStatus {
+  active: boolean;
+  device: string;
+  rate: number;
+  channels: number;
+  deviceBits: number;
+  frames: number;
+  seconds: number;
+  /** Input buffer overruns / frames lost to a slow disk. Both 0: the take is bit-perfect. */
+  overruns: number;
+  dropped: number;
+  /** Data came in during the last second. */
+  signal: boolean;
+  content: 'pcm' | 'dop' | 'bitstream';
+  /** Bits the PCM used in the last second: 0 (digital silence), 16, 24 or 32. */
+  bits: number;
+  silent: boolean;
+  /** Peak per channel since the last status, 0…1. */
+  peaks: number[];
+  error: string | null;
+  /** The take stopped by itself (disk full). */
+  failed: boolean;
+}
+
+export interface RecordFinalizeOptions {
+  rawPath: string;
+  outDir: string;
+  split?: boolean;
+  silenceDb?: number;
+  silenceSeconds?: number;
+  /** Vorbis comments for each FLAC (TITLE and TRACKNUMBER are added per file). */
+  tags?: Record<string, string>;
+  /** File and title stem: "<titleBase> 01.flac". */
+  titleBase?: string;
+}
+
+export interface RecordedFile {
+  path: string;
+  kind: 'flac' | 'dsf' | 'spdif' | 'wav';
+  sampleRate: number;
+  bits: number;
+  frames: number;
+  seconds: number;
+}
+
+export interface RecordFinalizeResult {
+  files: RecordedFile[];
+  skippedFrames: number;
+  totalFrames: number;
+}
+
 export interface HarborEngine {
   version(): string;
   listDevices(): EngineDevice[];
@@ -103,6 +172,17 @@ export interface HarborEngine {
   fxTouch(): void;
   /** harbor-fx path; null = next to harbor_engine.node (or $HARBOR_FX). */
   fxSetBinary(path: string | null): void;
+  /** Capture devices (none outside Linux). */
+  recordInputs(): RecordInput[];
+  /** Throws when the input cannot run at exactly this rate. */
+  recordStart(options: RecordStartOptions): void;
+  /** Stops and closes the raw take; its final status. */
+  recordStop(): RecordStatus;
+  recordStatus(): RecordStatus;
+  /** Raw take → FLAC / DSF / .spdif, on the libuv pool. */
+  recordFinalize(options: RecordFinalizeOptions): Promise<RecordFinalizeResult>;
+  /** 0…1 while finishing; null otherwise. */
+  recordFinalizeProgress(): number | null;
 }
 
 declare const engine: HarborEngine;

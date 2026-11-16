@@ -28,6 +28,7 @@ import { isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } fro
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { dataDir, webDistPath } from '../paths.js';
 import { RackError, type Rack } from '../rack.js';
+import { RecordingError, type RecordingService } from '../recording/service.js';
 import type { RemoteSettings } from '../remote/settings.js';
 import { systemStatus } from '../system.js';
 import type { BrowseScope, HarborConfig, OutputMode, QueueSource, Track } from '../types.js';
@@ -66,6 +67,8 @@ export interface AppContext {
   rack: Rack;
   /** Who may connect: anyone on the network, or paired devices only. */
   access: AccessPolicy;
+  /** Recording from the digital input. */
+  recording: RecordingService;
 }
 
 /** The pairing token a request carries: `Authorization: Bearer …` or `?token=`. */
@@ -225,6 +228,39 @@ export async function buildServer(ctx: AppContext) {
       rackCall(reply, () =>
         ctx.rack.setPinned(req.params.id, Array.isArray(req.body?.params) ? req.body.params : [])
       )
+  );
+
+  // Recording from the digital input (S/PDIF HAT): bit-perfect takes into the library.
+  const recordingCall = async <T>(reply: FastifyReply, fn: () => Promise<T> | T) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof RecordingError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
+  };
+  // Polled while the record view is open (meters) — kept out of the request log.
+  app.get('/api/v1/recording', { logLevel: 'warn' }, async () => ctx.recording.snapshot());
+  app.get('/api/v1/recording/inputs', async () => ({ inputs: ctx.recording.inputs() }));
+  app.post<{ Body: { device?: string; rate?: number; split?: 'none' | 'silence' } }>(
+    '/api/v1/recording/start',
+    async (req, reply) =>
+      recordingCall(reply, () =>
+        ctx.recording.start({
+          device: typeof req.body?.device === 'string' ? req.body.device : undefined,
+          rate: req.body?.rate === undefined ? undefined : Number(req.body.rate),
+          split: req.body?.split === 'silence' || req.body?.split === 'none' ? req.body.split : undefined,
+        })
+      )
+  );
+  app.post<{ Body: { discard?: boolean } }>('/api/v1/recording/stop', async (req, reply) =>
+    recordingCall(reply, () => ctx.recording.stop(Boolean(req.body?.discard)))
+  );
+  app.put<{ Body: Record<string, unknown> }>('/api/v1/recording/settings', async (req, reply) =>
+    recordingCall(reply, async () => {
+      ctx.recording.updateSettings((req.body ?? {}) as never);
+      return ctx.recording.snapshot();
+    })
   );
 
   app.get('/api/v1/now-playing', async () => ctx.playback.snapshot());

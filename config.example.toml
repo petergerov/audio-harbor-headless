@@ -45,3 +45,19 @@ bonjour_port = 8788
 # false: remotes on the local network connect without a code. true: they pair with the PIN
 # first (Settings → About → Require Pairing Code).
 require_pairing = false
+
+# Recording from a digital input (S/PDIF), bit-perfect — Linux, e.g. a Raspberry Pi with the
+# HiFiBerry Digi+ I/O (dtoverlay=hifiberry-digi). Settings → Record in the remote. See pi-recording.md.
+[recording]
+enabled = false
+# ALSA capture device; "" = the first one found
+device = ""
+# The rate the source sends: the input cannot tell it, and nothing resamples
+rate = 44100
+# "" = "Recordings" in the first library folder (else ~/Music/Recordings)
+folder = ""
+split = "none"           # none | silence
+silence_db = -70
+silence_seconds = 2
+# keep the raw 32-bit WAV of each take in <folder>/.takes
+keep_raw = false

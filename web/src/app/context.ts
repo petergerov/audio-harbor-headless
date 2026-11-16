@@ -1,4 +1,5 @@
 import type { RackApi } from '../api/rackApi';
+import type { RecordingApi } from '../api/recordingApi';
 import type { SettingsApi } from '../api/settingsApi';
 import type { Store } from '../core/store';
 import type { CollectionsService } from '../services/collectionsService';
@@ -21,6 +22,8 @@ export interface AppContext {
   settings: SettingsApi;
   /** The host's plugin rack; its snapshot lives in the store. */
   rack: RackApi;
+  /** Recording from the host's digital input. */
+  recording: RecordingApi;
   /** The Settings snapshot the iOS app shares (sharing, scanning, about), kept in the store. */
   hostSettings: HostSettings;
   covers: Covers;
