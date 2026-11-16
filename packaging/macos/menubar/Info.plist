@@ -26,6 +26,9 @@
   <!-- The server it starts finds network players and announces itself via Bonjour -->
   <key>NSLocalNetworkUsageDescription</key>
   <string>Audio Harbor finds network players and lets your iPhone connect to it on the local network.</string>
+  <!-- The server it starts records the digital input of an audio interface (Settings → Record) -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Audio Harbor records the digital input of your audio interface (Settings → Record in the remote).</string>
   <key>NSBonjourServices</key>
   <array>
     <string>_audioharbor._tcp</string>

@@ -27,7 +27,8 @@ public:
 
 /**
  * "file:<path.wav>" plays a WAV in as if it came in live (tests, demos); "filefast:<path>" does it
- * without waiting. Anything else is an ALSA device (Linux), e.g. hw:CARD=sndrpihifiberry,DEV=0.
+ * without waiting. Anything else is an ALSA device on Linux (hw:CARD=sndrpihifiberry,DEV=0) or a
+ * Core Audio device UID on macOS.
  */
 std::unique_ptr<CaptureSource> makeCaptureSource(const std::string& device);
 
@@ -36,10 +37,16 @@ struct CaptureDeviceInfo {
   std::string name; // card and device name
 };
 
-/** Capture devices of the system (ALSA hw: devices on Linux; none elsewhere). */
+/** Capture devices of the system (ALSA hw: devices on Linux, Core Audio stereo inputs on macOS). */
 std::vector<CaptureDeviceInfo> listCaptureDevices();
 
 std::unique_ptr<CaptureSource> makeFileCapture(const std::string& path, bool realtime);
 #if defined(__linux__)
 std::unique_ptr<CaptureSource> makeAlsaCapture(const std::string& device);
+#elif defined(__APPLE__)
+/** A Core Audio input by its device UID. */
+std::unique_ptr<CaptureSource> makeMacCapture(const std::string& device);
 #endif
+
+/** May this process read audio inputs: 1 yes, 0 not asked yet, -1 no (macOS privacy); 1 elsewhere. */
+int captureAccess();

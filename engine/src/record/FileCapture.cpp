@@ -74,11 +74,20 @@ std::unique_ptr<CaptureSource> makeCaptureSource(const std::string& device) {
   if (device.rfind("filefast:", 0) == 0) return makeFileCapture(device.substr(9), false);
 #if defined(__linux__)
   return makeAlsaCapture(device);
+#elif defined(__APPLE__)
+  return makeMacCapture(device);
 #else
   return nullptr;
 #endif
 }
 
-#if !defined(__linux__)
+#if defined(__APPLE__)
+int macAudioInputAccess();
+int captureAccess() { return macAudioInputAccess(); }
+#else
+int captureAccess() { return 1; }
+#endif
+
+#if !defined(__linux__) && !defined(__APPLE__)
 std::vector<CaptureDeviceInfo> listCaptureDevices() { return {}; }
 #endif

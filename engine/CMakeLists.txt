@@ -96,7 +96,12 @@ set(ENGINE_SOURCES
 )
 
 if(APPLE)
-  list(APPEND ENGINE_SOURCES src/MacPlayer.cpp)
+  list(APPEND RECORD_SOURCES src/record/MacCapture.cpp src/record/MacPermission.mm)
+  set_source_files_properties(src/record/MacPermission.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+endif()
+
+if(APPLE)
+  list(APPEND ENGINE_SOURCES src/MacPlayer.cpp src/record/MacCapture.cpp src/record/MacPermission.mm)
 elseif(WIN32)
   list(APPEND ENGINE_SOURCES src/WinPlayer.cpp)
 elseif(UNIX AND NOT APPLE)
@@ -126,6 +131,7 @@ if(APPLE)
     "-framework Cocoa"
     "-framework Accelerate"
     "-framework IOKit"
+    "-framework AVFoundation"
   )
 elseif(WIN32)
   target_link_libraries(${PROJECT_NAME} PRIVATE ole32 uuid avrt)
@@ -274,6 +280,8 @@ set_target_properties(record-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BI
 if(UNIX AND NOT APPLE)
   find_package(Threads REQUIRED)
   target_link_libraries(record-test PRIVATE ALSA::ALSA Threads::Threads)
+elseif(APPLE)
+  target_link_libraries(record-test PRIVATE "-framework CoreAudio" "-framework CoreFoundation" "-framework AVFoundation")
 endif()
 if(MSVC)
   target_compile_definitions(record-test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES)

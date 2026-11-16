@@ -8,6 +8,7 @@ import {
   engineCanRecord,
   engineRecordFinalize,
   engineRecordFinalizeProgress,
+  engineRecordInputAccess,
   engineRecordInputs,
   engineRecordStart,
   engineRecordStatus,
@@ -44,8 +45,10 @@ export interface RecordingTake {
 }
 
 export interface RecordingSnapshot {
-  /** This engine can record and the platform has inputs (Linux / ALSA). */
+  /** This engine can record on this platform (Linux / ALSA, macOS / Core Audio). */
   available: boolean;
+  /** macOS privacy: may the host read inputs ("granted" elsewhere). */
+  inputAccess: 'granted' | 'undetermined' | 'denied';
   settings: RecordingConfig;
   /** The folder takes go to, resolved. */
   folder: string;
@@ -144,7 +147,8 @@ export class RecordingService extends EventEmitter {
   }
 
   available(): boolean {
-    return engineCanRecord() && (process.platform === 'linux' || Boolean(process.env.HARBOR_RECORD_TEST_INPUT));
+    const platform = process.platform === 'linux' || process.platform === 'darwin';
+    return engineCanRecord() && (platform || Boolean(process.env.HARBOR_RECORD_TEST_INPUT));
   }
 
   inputs(): RecordingInput[] {
@@ -162,6 +166,7 @@ export class RecordingService extends EventEmitter {
     }
     return {
       available: this.available(),
+      inputAccess: engineRecordInputAccess(),
       settings: this.getConfig().recording,
       folder,
       rates: RECORDING_RATES,
@@ -208,7 +213,13 @@ export class RecordingService extends EventEmitter {
     if (!settings.enabled) throw new RecordingError('Recording is off (Settings → Recording)');
     if (!engineCanRecord()) throw new RecordingError('This engine cannot record');
     const device = req.device?.trim() || settings.device || this.inputs()[0]?.id;
-    if (!device) throw new RecordingError('No input found — is the S/PDIF HAT set up (dtoverlay=hifiberry-digi)?');
+    if (!device) {
+      throw new RecordingError(
+        process.platform === 'darwin'
+          ? 'No stereo audio input found — connect the audio interface'
+          : 'No input found — is the S/PDIF HAT set up (dtoverlay=hifiberry-digi)?'
+      );
+    }
     const rate = req.rate ?? settings.rate;
     if (!(RECORDING_RATES as readonly number[]).includes(rate)) throw new RecordingError(`Unsupported rate ${rate}`);
 

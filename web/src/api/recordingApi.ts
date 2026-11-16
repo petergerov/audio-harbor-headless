@@ -46,6 +46,7 @@ export interface RecordingTake {
 
 export interface RecordingSnapshot {
   available: boolean;
+  inputAccess: 'granted' | 'undetermined' | 'denied';
   settings: RecordingSettings;
   folder: string;
   rates: number[];

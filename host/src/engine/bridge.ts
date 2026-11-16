@@ -46,6 +46,7 @@ type NativeEngine = {
   fxSetBypass?(bypassed: boolean): void;
   fxTouch?(): void;
   recordInputs?(): RecordInput[];
+  recordInputAccess?(): 'granted' | 'undetermined' | 'denied';
   recordStart?(options: RecordStartOptions): void;
   recordStop?(): RecordStatus;
   recordStatus?(): RecordStatus;
@@ -265,6 +266,11 @@ export function engineCanRecord(): boolean {
 
 export function engineRecordInputs(): RecordInput[] {
   return loadNative()?.recordInputs?.() ?? [];
+}
+
+/** macOS privacy (Microphone): may the host read audio inputs. */
+export function engineRecordInputAccess(): 'granted' | 'undetermined' | 'denied' {
+  return loadNative()?.recordInputAccess?.() ?? 'granted';
 }
 
 export function engineRecordStart(options: RecordStartOptions): void {

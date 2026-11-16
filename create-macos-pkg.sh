@@ -157,7 +157,9 @@ MENUBAR_APP="$COMP_ROOT/Applications/Audio Harbor.app"
 log "Building menu bar app"
 mkdir -p "$COMP_ROOT/Applications"
 "$ROOT/packaging/macos/build-menubar.sh" "$COMP_ROOT/Applications" "$VERSION"
-codesign --force --options runtime --timestamp --sign "$SIGN_APP" "$MENUBAR_APP"
+codesign --force --options runtime --timestamp \
+  --entitlements "$ROOT/packaging/macos/menubar-entitlements.plist" \
+  --sign "$SIGN_APP" "$MENUBAR_APP"
 codesign --verify --strict --verbose=2 "$MENUBAR_APP"
 
 SCRIPTS="$WORK/scripts"

@@ -511,6 +511,12 @@ Napi::Value RecordInputs(const Napi::CallbackInfo& info) {
   return arr;
 }
 
+/** "granted" | "undetermined" | "denied": may the host read audio inputs (macOS privacy). */
+Napi::Value RecordInputAccess(const Napi::CallbackInfo& info) {
+  const int access = captureAccess();
+  return Napi::String::New(info.Env(), access > 0 ? "granted" : access == 0 ? "undetermined" : "denied");
+}
+
 Napi::Value RecordStart(const Napi::CallbackInfo& info) {
   auto env = info.Env();
   if (info.Length() < 1 || !info[0].IsObject()) {
@@ -680,6 +686,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("fxSetBinary", Napi::Function::New(env, FxSetBinary));
   exports.Set("fxTouch", Napi::Function::New(env, FxTouch));
   exports.Set("recordInputs", Napi::Function::New(env, RecordInputs));
+  exports.Set("recordInputAccess", Napi::Function::New(env, RecordInputAccess));
   exports.Set("recordStart", Napi::Function::New(env, RecordStart));
   exports.Set("recordStop", Napi::Function::New(env, RecordStop));
   exports.Set("recordStatus", Napi::Function::New(env, RecordStatus));

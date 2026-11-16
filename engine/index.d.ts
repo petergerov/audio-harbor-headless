@@ -77,7 +77,7 @@ export interface RecordInput {
 }
 
 export interface RecordStartOptions {
-  /** hw:CARD=…,DEV=…; or file:<wav> / filefast:<wav> to feed a WAV in as if it were live. */
+  /** hw:CARD=…,DEV=… (Linux), a Core Audio device UID (macOS); or file:/filefast:<wav> as if live. */
   device: string;
   /** Must be the input's rate: nothing resamples, a wrong rate fails. */
   rate: number;
@@ -172,8 +172,10 @@ export interface HarborEngine {
   fxTouch(): void;
   /** harbor-fx path; null = next to harbor_engine.node (or $HARBOR_FX). */
   fxSetBinary(path: string | null): void;
-  /** Capture devices (none outside Linux). */
+  /** Capture devices: ALSA hw: on Linux, Core Audio stereo inputs (by UID) on macOS. */
   recordInputs(): RecordInput[];
+  /** macOS privacy (Microphone): may the host read inputs. Always "granted" elsewhere. */
+  recordInputAccess(): 'granted' | 'undetermined' | 'denied';
   /** Throws when the input cannot run at exactly this rate. */
   recordStart(options: RecordStartOptions): void;
   /** Stops and closes the raw take; its final status. */

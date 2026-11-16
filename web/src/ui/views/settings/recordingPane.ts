@@ -126,7 +126,7 @@ export class RecordingPane implements Pane {
       root.innerHTML = `
         <p class="group-label">Recording</p>
         <div class="group"><div class="cell"><span>No digital input on this host</span></div></div>
-        <p class="footer-note">Recording needs Linux with an S/PDIF input, e.g. a Raspberry Pi with the HiFiBerry Digi+ I/O (<code>dtoverlay=hifiberry-digi</code> in config.txt). It records bit-perfect, in the format the source sends.</p>`;
+        <p class="footer-note">Recording needs an S/PDIF input: on a Raspberry Pi the HiFiBerry Digi+ I/O (<code>dtoverlay=hifiberry-digi</code> in config.txt), on a Mac an audio interface with a digital input. It records bit-perfect, in the format the source sends.</p>`;
       return;
     }
     const s = snap.settings;
@@ -176,7 +176,14 @@ export class RecordingPane implements Pane {
           <input type="checkbox" role="switch" class="switch" data-raw ${s.keep_raw ? 'checked' : ''} />
         </label>
       </div>
-      <p class="footer-note">Set the rate the source sends: the input cannot tell it, and nothing is resampled. Files come out as the source sent them — FLAC at the bit depth really used (16 or 24), DSD from DoP as DSF, Dolby / DTS as a raw bitstream.</p>
+      ${
+        snap.inputAccess === 'denied'
+          ? `<p class="footer-note" style="color:var(--danger)">macOS does not let Audio Harbor read audio inputs. Turn it on in System Settings → Privacy &amp; Security → Microphone → Audio Harbor, then restart Audio Harbor.</p>`
+          : snap.inputAccess === 'undetermined'
+            ? `<p class="footer-note">On the first Record, macOS asks on the Mac whether Audio Harbor may use audio inputs — allow it there.</p>`
+            : ''
+      }
+      <p class="footer-note">Set the rate the source sends: the input cannot tell it, and nothing is resampled. On a Mac, set the interface's clock source to S/PDIF (external). Files come out as the source sent them — FLAC at the bit depth really used (16 or 24), DSD from DoP as DSF, Dolby / DTS as a raw bitstream.</p>
       <p class="group-label">Take</p>
       <div class="group" data-live></div>
       <div class="group" data-actions></div>
