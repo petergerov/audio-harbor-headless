@@ -14,9 +14,9 @@ interface Destination {
 
 /** Primary surfaces — the iOS remote's three, and Recordings after Catalogue when recording is on. */
 const DESTINATIONS: Destination[] = [
-  { tab: 'now', short: 'Deck', long: 'Deck', icon: icons.now },
-  { tab: 'library', short: 'Catalogue', long: 'Catalogue', icon: icons.browse },
-  { tab: 'recordings', short: 'Record', long: 'Recordings', icon: icons.record },
+  { tab: 'now', short: 'Deck', long: 'Deck', icon: icons.navDeck },
+  { tab: 'library', short: 'Catalogue', long: 'Catalogue', icon: icons.navCatalogue },
+  { tab: 'recordings', short: 'Record', long: 'Recordings', icon: icons.navRecord },
   { tab: 'settings', short: 'Settings', long: 'Settings', icon: icons.settings },
 ];
 
@@ -63,12 +63,18 @@ export function sidebarHtml(state: AppState): string {
       </button>`;
   const playlists = state.collections.playlists.map((p) => collectionRow('playlist', p.id, p.name, p.trackCount)).join('');
   const labels = state.collections.labels.map((l) => collectionRow('label', l.name, l.name, l.trackCount)).join('');
+  // As in the Mac app: the brand, Catalogue · (Recordings) · Deck · Settings, then the collections,
+  // and the power lamp at the foot.
+  const live = state.nowPlaying?.state === 'playing';
   return `
     <aside class="sidebar" aria-label="Navigation">
-      <div class="side-brand">Audio Harbor</div>
-      ${sideRow(destination('now'), tab === 'now')}
-      ${sideRow(destination('library'), catalogueActive && !open)}
-      ${recordingsShown(state) || tab === 'recordings' ? sideRow(destination('recordings'), tab === 'recordings') : ''}
+      <div class="side-brand"><img src="/brand-logo.png" alt="Audio Harbor" width="143" height="40" /></div>
+      <nav class="side-nav">
+        ${sideRow(destination('library'), catalogueActive && !open)}
+        ${recordingsShown(state) || tab === 'recordings' ? sideRow(destination('recordings'), tab === 'recordings') : ''}
+        ${sideRow(destination('now'), tab === 'now')}
+        ${sideRow(destination('settings'), tab === 'settings')}
+      </nav>
       <div class="side-heading">
         <p class="side-label">Playlists</p>
         <button type="button" class="side-plus" data-new-playlist aria-label="New playlist" title="New playlist">+</button>
@@ -77,7 +83,7 @@ export function sidebarHtml(state: AppState): string {
       <div class="side-heading"><p class="side-label">Labels</p></div>
       <div class="side-scroll">${labels || `<p class="side-empty">No labels yet</p>`}</div>
       <div class="side-foot">
-        ${sideRow(destination('settings'), tab === 'settings')}
+        <span class="power-lamp${live ? ' is-on' : ''}"><i aria-hidden="true"></i>${live ? 'Live' : 'Standby'}</span>
       </div>
     </aside>
   `;

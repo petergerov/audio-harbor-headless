@@ -20,6 +20,26 @@ import { openRackSheet } from '../sheets/rackSheet';
 import { bindSwipe } from '../swipe';
 import type { View } from './view';
 
+/** The host's name ("Studio Mac" on iOS), shown above the Deck on a phone; asked once. */
+let hostName: string | null = null;
+let hostNameAsked = false;
+
+function askHostName(onName: (name: string) => void): void {
+  if (hostNameAsked) return;
+  hostNameAsked = true;
+  void fetch('/api/v1/health')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((body: { name?: string } | null) => {
+      if (body?.name) {
+        hostName = body.name;
+        onName(body.name);
+      }
+    })
+    .catch(() => {
+      hostNameAsked = false;
+    });
+}
+
 /** Deck: photoreal stage (Turntable / Reel-to-Reel), cover chip, hardware transport. */
 export class NowPlayingView implements View {
   private root: HTMLElement | null = null;
@@ -53,6 +73,7 @@ export class NowPlayingView implements View {
     const showRail = desktop && this.railOpen;
     const rack = state.rack;
     const actions = `
+      ${desktop ? `<span class="power-lamp${playing ? ' is-on' : ''}"><i aria-hidden="true"></i>${playing ? 'Live' : 'Standby'}</span>` : ''}
       ${
         rack?.available
           ? `<button type="button" class="deck-pill rack-pill ${rack.path.lit ? 'is-lit' : ''}" data-rack
@@ -69,6 +90,7 @@ export class NowPlayingView implements View {
     `;
     root.innerHTML = `
       <section class="now-screen ${desktop ? 'is-desktop' : ''} ${showRail ? 'has-queue-rail' : ''}">
+        ${desktop ? '' : `<header class="phone-title" data-host-name>${escapeHtml(hostName ?? '')}</header>`}
         <div class="deck-layout">
           <div class="deck-stage faceplate compact">
             ${deckStageHtml({
@@ -87,12 +109,15 @@ export class NowPlayingView implements View {
               <div class="now-meta">
                 <h2 class="now-title">${escapeHtml(track?.title ?? 'Not Playing')}</h2>
                 <p class="now-artist" data-line="deck">${escapeHtml(subtitle)}</p>
-                <span class="now-badge" data-now-badge>${escapeHtml(state.nowPlaying?.conversionBadge ?? '')}</span>
                 <p class="now-error" data-now-error>${escapeHtml(playbackError(state))}</p>
               </div>
               <div class="scrub">
                 <input data-seek type="range" min="0" max="${Math.max(duration, 1)}" step="0.1" value="${position}" ${disabled} />
-                <div class="time-row"><span data-time-pos>${formatTime(position)}</span><span data-time-end>${duration ? formatTime(duration) : '--:--'}</span></div>
+                <div class="time-row">
+                  <span data-time-pos>${formatTime(position)}</span>
+                  <span class="now-badge" data-now-badge>${escapeHtml(state.nowPlaying?.conversionBadge ?? '')}</span>
+                  <span data-time-end>${duration ? formatTime(duration) : '--:--'}</span>
+                </div>
               </div>
               <div class="transport">
                 <button type="button" class="mode-btn" data-shuffle aria-label="Shuffle"
@@ -131,6 +156,12 @@ export class NowPlayingView implements View {
     );
     bindPlayerControls(root, this.ctx);
     bindDeckChrome(root);
+    if (!desktop && !hostName) {
+      askHostName((name) => {
+        const title = root.querySelector('[data-host-name]');
+        if (title) title.textContent = name;
+      });
+    }
     if (showRail) {
       this.disposeRail = bindDeckQueueRail(root, this.ctx, () => this.setRailOpen(false));
     }

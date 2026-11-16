@@ -4864,3 +4864,956 @@ html.rec-drag-active body {
 .rec-targets .cell:disabled {
   opacity: 0.4;
 }
+
+/* ==========================================================================
+   Redesign: as close as the web allows to Audio Harbor for macOS and iOS
+   (DesignSystem/HarborTheme.swift, HarborChrome.swift). Phone = the iOS
+   remote, desktop = the Mac app. Overrides the rules above.
+   ========================================================================== */
+
+:root {
+  /* HarborColor.amber (0.98, 0.72, 0.22) and the system serif (New York) / mono. */
+  --amber: #fab838;
+  --tint: var(--amber);
+  --tint-soft: rgba(250, 184, 56, 0.14);
+  --font-display: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* —— Sidebar (Mac: HarborSidebar) —— */
+.app-shell.wide .sidebar {
+  background: var(--chassis);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: calc(18px + var(--safe-top)) 12px calc(16px + var(--safe-bottom));
+  gap: 0;
+}
+
+.side-brand {
+  padding: 2px 6px 20px;
+}
+
+.side-brand img {
+  display: block;
+  height: 40px;
+  width: auto;
+  max-width: 100%;
+}
+
+.side-nav {
+  display: grid;
+  gap: 4px;
+}
+
+.side-nav .side-row {
+  position: relative;
+  min-height: 38px;
+  padding: 8px 8px 8px 21px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ivory-dim);
+}
+
+.side-nav .side-row svg {
+  width: 17px;
+  height: 17px;
+  color: var(--ivory-dim);
+}
+
+.side-nav .side-row::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 1.5px;
+  background: transparent;
+}
+
+.side-nav .side-row.active {
+  background: rgba(250, 184, 56, 0.12);
+  color: var(--ivory);
+  font-weight: 600;
+}
+
+.side-nav .side-row.active::before {
+  background: var(--amber);
+}
+
+.side-nav .side-row.active svg {
+  color: var(--amber);
+}
+
+.side-nav .side-row:hover:not(.active) {
+  background: rgba(189, 181, 168, 0.06);
+}
+
+.side-nav .side-row.rec-live svg {
+  color: var(--danger);
+}
+
+.side-heading {
+  margin-top: 22px;
+}
+
+.side-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ivory-dim);
+}
+
+.side-foot {
+  padding: 16px 8px 0;
+}
+
+/* PowerLamp: green "Live" while playing, "Standby" otherwise. */
+.power-lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ivory-dim);
+}
+
+.power-lamp i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--aluminum-dark);
+  transition: background 0.35s ease, box-shadow 0.35s ease;
+}
+
+.power-lamp.is-on {
+  color: var(--power-led);
+}
+
+.power-lamp.is-on i {
+  background: var(--power-led);
+  box-shadow: 0 0 7px rgba(107, 235, 133, 0.85);
+}
+
+/* —— Screen header (ScreenHeader): serif title, quiet subtitle, compact player at the right —— */
+.app-shell.wide .screen {
+  padding: calc(24px + var(--safe-top)) 28px 40px 28px;
+}
+
+.app-shell.wide .page-header {
+  align-items: flex-start;
+  margin: 0 0 18px;
+}
+
+.app-shell.wide .large-title,
+.app-shell.wide .page-header .large-title {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.app-shell.wide .screen > .large-title:first-child {
+  margin-top: 0;
+}
+
+.page-title-block {
+  min-width: 0;
+}
+
+.page-sub {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--ivory-dim);
+}
+
+.app-shell.wide .header-player {
+  position: relative;
+  flex: 0 1 380px;
+  max-width: 380px;
+  height: 52px;
+  padding: 6px 8px 6px 6px;
+  gap: 10px;
+  justify-content: space-between;
+  border-radius: 12px;
+  background: rgba(31, 28, 26, 0.9);
+  border: 1px solid rgba(97, 89, 83, 0.65);
+  overflow: hidden;
+}
+
+.app-shell.wide .header-player-art {
+  width: 36px;
+  height: 36px;
+  border-radius: 7px;
+  border: 0.8px solid rgba(97, 89, 83, 0.55);
+}
+
+.app-shell.wide .header-player-main {
+  height: 40px;
+  flex: 1 1 auto;
+}
+
+.app-shell.wide .header-player-actions button {
+  width: 30px;
+  height: 30px;
+  color: var(--ivory-dim);
+}
+
+.app-shell.wide .header-player-actions .play-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: var(--chassis);
+}
+
+.app-shell.wide .header-player-actions .play-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.header-player-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--pct, 0%);
+  background: var(--amber);
+  pointer-events: none;
+}
+
+/* —— Segmented controls —— */
+.seg-long {
+  display: none;
+}
+
+/* Mac: engraved, upper-case keys; the chosen one amber. */
+.app-shell.wide .segmented {
+  gap: 8px;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  grid-auto-columns: max-content;
+  width: max-content;
+  min-width: 0;
+}
+
+.app-shell.wide .segmented button {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(97, 89, 83, 0.8);
+  background: rgba(22, 20, 18, 0.5);
+  color: var(--ivory-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.app-shell.wide .segmented button.active {
+  background: var(--amber);
+  border-color: rgba(199, 148, 71, 0.6);
+  color: var(--chassis);
+  box-shadow: 0 0 12px rgba(250, 184, 56, 0.18);
+}
+
+.app-shell.wide .segmented .seg-long {
+  display: inline;
+}
+
+.app-shell.wide .segmented .seg-short {
+  display: none;
+}
+
+/* iPhone: a flat bar, the chosen segment tinted amber. */
+.app-shell:not(.wide) .segmented {
+  padding: 0;
+  gap: 0;
+  background: rgba(189, 181, 168, 0.06);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.app-shell:not(.wide) .segmented button {
+  min-height: 40px;
+  border-radius: 0;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ivory-dim);
+  box-shadow: none;
+}
+
+.app-shell:not(.wide) .segmented button.active {
+  background: rgba(250, 184, 56, 0.16);
+  color: var(--amber);
+  box-shadow: none;
+}
+
+/* —— Search (AluminumField) —— */
+.search-wrap input {
+  background: rgba(31, 28, 26, 0.9);
+  border: 1px solid rgba(97, 89, 83, 0.65);
+  border-radius: 12px;
+  min-height: 44px;
+}
+
+.app-shell.wide .search-wrap {
+  max-width: none;
+}
+
+/* —— Lists —— */
+.row-meta {
+  font-size: 13px;
+  color: var(--ivory-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* An album: the artist in amber, the count below (Mac). */
+.row-text:has(.row-meta) .row-sub {
+  color: var(--amber);
+}
+
+.row-badge {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(199, 148, 71, 0.45);
+  background: rgba(250, 184, 56, 0.08);
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.row-wrap.has-play {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.row-play {
+  display: none;
+}
+
+.row-trail.text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ivory-dim);
+  min-width: 40px;
+  justify-items: end;
+}
+
+.row-num {
+  width: 26px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ivory-dim);
+}
+
+.row-num svg {
+  width: 16px;
+  height: 16px;
+  color: var(--amber);
+}
+
+.row-wrap.numbered .row {
+  min-height: 56px;
+}
+
+.row-wrap.numbered + .row-wrap.numbered::before {
+  left: 54px;
+}
+
+.row-wrap.numbered.playing {
+  background: rgba(250, 184, 56, 0.12);
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+/* Mac catalogue: rows in a faceplate panel; covers with a fine rim; an amber play key. */
+.app-shell.wide #list.group,
+.app-shell.wide .rec-list.group {
+  padding: 8px 18px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background-image:
+    linear-gradient(var(--faceplate), var(--faceplate)),
+    linear-gradient(180deg, rgba(189, 181, 168, 0.28), rgba(97, 89, 83, 0.55));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.45);
+}
+
+.app-shell.wide #list .row {
+  min-height: 72px;
+  padding: 10px 4px 10px 4px;
+  gap: 16px;
+}
+
+.app-shell.wide #list .row-wrap + .row-wrap::before {
+  left: 4px;
+}
+
+.app-shell.wide #list .row-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 7px;
+  border: 0.8px solid rgba(97, 89, 83, 0.55);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
+}
+
+.app-shell.wide .row-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-shell.wide .row-sub {
+  font-size: 14px;
+}
+
+.app-shell.wide .row-play {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 32px;
+  height: 32px;
+  margin: 0 6px 0 4px;
+  border-radius: 8px;
+  background: var(--amber);
+  color: var(--chassis);
+  box-shadow: 0 1px 6px rgba(250, 184, 56, 0.28);
+  transition: transform 0.1s ease, filter 0.15s ease;
+}
+
+.app-shell.wide .row-play svg {
+  width: 13px;
+  height: 13px;
+}
+
+.app-shell.wide .row-play:hover {
+  filter: brightness(1.08);
+}
+
+.app-shell.wide .row-play:active {
+  transform: scale(0.94);
+}
+
+/* The actions stay a right click away (and show on hover), as on the Mac. */
+.app-shell.wide .row-wrap.has-menu .row-more {
+  opacity: 0;
+  width: 36px;
+  transition: opacity 0.15s ease;
+}
+
+.app-shell.wide .row-wrap.has-menu:hover .row-more,
+.app-shell.wide .row-wrap.has-menu .row-more:focus-visible {
+  opacity: 1;
+}
+
+/* iPhone: a plain list on the chassis, actions on a long press. */
+.app-shell:not(.wide) #list.group {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.app-shell:not(.wide) #list .row {
+  padding-left: 0;
+}
+
+.app-shell:not(.wide) #list .row-wrap + .row-wrap::before {
+  left: 0;
+}
+
+.app-shell:not(.wide) .row-wrap.has-menu .row-more {
+  display: none;
+}
+
+.app-shell:not(.wide) .row-wrap.has-menu {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-shell:not(.wide) .row-wrap.has-play {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* iPhone album rows: "Artist · 12 tracks" on one line, quiet. */
+.app-shell:not(.wide) .row-text:has(.row-meta) {
+  grid-template-columns: auto 1fr;
+  column-gap: 0;
+}
+
+.app-shell:not(.wide) .row-text:has(.row-meta) .row-title {
+  grid-column: 1 / -1;
+}
+
+.app-shell:not(.wide) .row-text:has(.row-meta) .row-sub {
+  color: var(--ivory-dim);
+}
+
+.app-shell:not(.wide) .row-meta::before {
+  content: "\00a0·\00a0";
+}
+
+.app-shell:not(.wide) .row-meta {
+  font-size: 14px;
+}
+
+.app-shell:not(.wide) .row-wrap.numbered.playing {
+  background: none;
+  box-shadow: none;
+}
+
+.app-shell:not(.wide) .row-wrap.numbered.playing .row-title {
+  color: var(--amber);
+}
+
+@media (max-width: 520px) {
+  .row-badge {
+    display: none;
+  }
+}
+
+/* —— Deck —— */
+.now-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+}
+
+.now-artist {
+  color: var(--ivory-dim);
+}
+
+.app-shell.wide .now-meta .now-title {
+  font-size: 34px;
+}
+
+/* The header player's lines stay plain text. */
+.app-shell .header-player .header-player-text .now-title {
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app-shell .header-player .header-player-text .now-artist {
+  font-size: 12px;
+}
+
+/* A track row with a format capsule: icon · text · capsule · play mark. */
+.row:has(.row-badge) {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+/* SeekBar: a 5 px aluminium track filled amber → brass, an ivory thumb. */
+.scrub input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 36px;
+  background: transparent;
+  accent-color: auto;
+}
+
+.scrub input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, var(--amber), var(--brass)) 0 0 / var(--pct, 0%) 100% no-repeat,
+    rgba(97, 89, 83, 0.7);
+  box-shadow: 0 0 4px rgba(250, 184, 56, 0.2);
+}
+
+.scrub input[type="range"]::-moz-range-track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(97, 89, 83, 0.7);
+}
+
+.scrub input[type="range"]::-moz-range-progress {
+  height: 5px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--amber), var(--brass));
+}
+
+.scrub input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--ivory), var(--aluminum));
+  border: 1px solid rgba(199, 148, 71, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.scrub input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--ivory), var(--aluminum));
+  border: 1px solid rgba(199, 148, 71, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Times in mono, the format capsule between them. */
+.time-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ivory-dim);
+}
+
+.time-row .now-badge {
+  justify-self: center;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(199, 148, 71, 0.45);
+  background: rgba(250, 184, 56, 0.08);
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.time-row .now-badge:empty {
+  visibility: hidden;
+}
+
+/* HardwareButton: brushed aluminium keys, dark glyphs; the play key lights amber. */
+.transport {
+  gap: 14px;
+  align-items: center;
+}
+
+.transport .icon-btn,
+.transport .mode-btn,
+.transport .play-btn {
+  border: 0;
+  border-radius: 50%;
+  color: var(--faceplate);
+  background: radial-gradient(circle at 28% 22%, rgba(189, 181, 168, 0.95) 0%, var(--aluminum-dark) 78%);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.1),
+    0 5px 8px rgba(0, 0, 0, 0.45);
+}
+
+.transport .mode-btn {
+  width: 40px;
+  height: 40px;
+}
+
+.transport .icon-btn {
+  width: 52px;
+  height: 52px;
+}
+
+.transport .play-btn {
+  width: 76px;
+  height: 76px;
+}
+
+.transport .mode-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.transport .icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.transport .play-btn svg {
+  width: 28px;
+  height: 28px;
+}
+
+.transport .play-btn.is-lit,
+.transport .play-btn[aria-pressed="true"],
+.transport .mode-btn[aria-pressed="true"] {
+  color: var(--amber);
+  background: radial-gradient(circle at 28% 22%, rgba(189, 181, 168, 0.95) 0%, var(--aluminum-dark) 78%);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.1),
+    0 5px 8px rgba(0, 0, 0, 0.45);
+}
+
+.transport .play-btn.is-lit svg,
+.transport .play-btn[aria-pressed="true"] svg,
+.transport .mode-btn[aria-pressed="true"] svg {
+  filter: drop-shadow(0 0 6px rgba(250, 184, 56, 0.7));
+}
+
+.transport button:active:not(:disabled) {
+  transform: scale(0.94);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* iPhone: room for the host's name and the bigger keys under the stage. */
+.app-shell:not(.wide) .deck-hero {
+  --deck-mobile-chrome: 392px;
+}
+
+.app-shell:not(.wide) .transport {
+  gap: 12px;
+}
+
+.app-shell:not(.wide) .transport .play-btn {
+  width: 70px;
+  height: 70px;
+}
+
+.deck-toolbar-slot .power-lamp {
+  margin-right: 8px;
+}
+
+/* iPhone: the host's name above the Deck, as the iOS remote's title. */
+.phone-title {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ivory);
+  min-height: 22px;
+  margin: 6px 0 14px;
+}
+
+.phone-title:empty {
+  visibility: hidden;
+}
+
+/* —— iPhone: centred inline titles and the floating tab bar —— */
+.app-shell:not(.wide) .page-header {
+  justify-content: center;
+  margin: 6px 0 16px;
+}
+
+.app-shell:not(.wide) .large-title,
+.app-shell:not(.wide) .page-header .large-title {
+  font-family: var(--font);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: center;
+  margin: 0;
+}
+
+.app-shell:not(.wide) .screen > .large-title:first-child {
+  margin: 6px 0 16px;
+}
+
+.app-shell:not(.wide) .page-sub {
+  display: none;
+}
+
+.app-shell:not(.wide) {
+  --tab-h: 78px;
+}
+
+.tab-bar {
+  left: 50%;
+  right: auto;
+  bottom: calc(var(--safe-bottom) + 10px);
+  transform: translateX(-50%);
+  height: 66px;
+  padding: 5px;
+  grid-auto-columns: 86px;
+  gap: 0;
+  border-radius: 33px;
+  background: rgba(28, 26, 24, 0.9);
+  border: 1px solid rgba(189, 181, 168, 0.16);
+  border-top: 1px solid rgba(189, 181, 168, 0.16);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.tab-bar button {
+  min-height: 0;
+  height: 56px;
+  border-radius: 28px;
+  gap: 2px;
+  color: var(--ivory);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tab-bar button svg {
+  width: 25px;
+  height: 25px;
+}
+
+.tab-bar button.active {
+  color: var(--amber);
+  background: rgba(189, 181, 168, 0.12);
+}
+
+.mini-player {
+  bottom: calc(var(--safe-bottom) + 86px);
+  border-radius: 14px;
+  background: rgba(31, 28, 26, 0.94);
+  border: 1px solid rgba(97, 89, 83, 0.65);
+}
+
+/* —— Settings (Mac): each section a faceplate panel, its engraved name inside —— */
+.app-shell.wide [data-settings-body] .group-label:has(+ .group) {
+  margin: 0;
+  padding: 18px 18px 8px;
+  border: 1px solid rgba(97, 89, 83, 0.45);
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--faceplate);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--ivory-dim);
+}
+
+.app-shell.wide [data-settings-body] .group-label + .group {
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  padding: 0 2px 6px;
+}
+
+.app-shell.wide [data-settings-body] .group .cell {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+.app-shell.wide [data-settings-body] .group .cell + .cell::before {
+  left: 18px;
+  right: 18px;
+}
+
+/* —— Mac catalogue path bar: Up, where you are, Play —— */
+.path-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  padding: 10px 18px 10px 18px;
+}
+
+.path-bar[hidden] {
+  display: none;
+}
+
+.app-shell.wide .path-bar:not([hidden]) + #list.group {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.app-shell.wide .path-bar {
+  margin-top: 0;
+  border: 1px solid rgba(189, 181, 168, 0.22);
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--faceplate);
+  box-shadow: inset 0 -1px 0 rgba(97, 89, 83, 0.55);
+}
+
+.path-up {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--amber);
+  font-size: 15px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.path-up svg {
+  width: 9px;
+  height: 15px;
+}
+
+.path-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.path-crumb {
+  color: var(--amber);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.path-crumb.current {
+  color: var(--ivory-dim);
+  font-weight: 400;
+}
+
+.path-sep {
+  color: var(--ivory-dim);
+  display: inline-grid;
+  flex-shrink: 0;
+}
+
+.path-sep svg {
+  width: 6px;
+  height: 10px;
+}
+
+.path-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: var(--amber);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.path-play-key {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--amber);
+  color: var(--chassis);
+  box-shadow: 0 1px 6px rgba(250, 184, 56, 0.28);
+}
+
+.path-play-key svg {
+  width: 13px;
+  height: 13px;
+}
+
+.path-play:disabled {
+  opacity: 0.4;
+}

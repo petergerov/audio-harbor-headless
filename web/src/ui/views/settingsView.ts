@@ -7,7 +7,7 @@ import { RackPane } from './settings/rackPane';
 import { RecordingPane } from './settings/recordingPane';
 import { SharingPane } from './settings/sharingPane';
 import { SourcesPane } from './settings/sourcesPane';
-import type { View } from './view';
+import type { View, ViewHost } from './view';
 
 /** A part of Settings: mounts into the settings body, cleans up when left. */
 export interface Pane {
@@ -44,10 +44,13 @@ export class SettingsView implements View {
 
   constructor(private readonly ctx: AppContext) {}
 
-  async render(root: HTMLElement): Promise<void> {
+  async render(root: HTMLElement, host: ViewHost): Promise<void> {
     const current = this.ctx.store.get().settingsPane;
     root.innerHTML = `
-      <h1 class="large-title">Settings</h1>
+      <div class="page-header">
+        <h1 class="large-title">Settings</h1>
+        ${host.headerPlayerSlot()}
+      </div>
       <p class="engraved">This Host</p>
       <div class="segmented">
         ${(Object.keys(PANES) as SettingsPane[])

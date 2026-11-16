@@ -127,9 +127,14 @@ export class PlayerBindings {
     this.each(PlayerMarkup.position, (el) => {
       if (el.textContent !== text) el.textContent = text;
     });
+    const total = duration || Number(this.root.querySelector<HTMLInputElement>(PlayerMarkup.seek)?.max ?? 0);
+    // The amber part of the seek bars and the header player's line.
+    const pct = `${total > 0 ? Math.min(100, Math.max(0, (position / total) * 100)).toFixed(2) : 0}%`;
+    this.each<HTMLElement>(`${PlayerMarkup.seek}, [data-progress]`, (el) => {
+      el.style.setProperty('--pct', pct);
+    });
     const rig = this.root.querySelector(PlayerMarkup.deckRig);
     if (!rig) return;
-    const total = duration ?? Number(this.root.querySelector<HTMLInputElement>(PlayerMarkup.seek)?.max ?? 0);
     syncDeckStage(this.root, rig.classList.contains('is-playing'), loadDeckStyle(), total > 0 ? position / total : 0);
   }
 

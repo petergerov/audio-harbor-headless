@@ -2,6 +2,7 @@ import type { AppContext } from '../../app/context';
 import type { QueueSnapshot } from '../../api/types';
 import { haptic } from '../../core/device';
 import { errorMessage } from '../../core/errors';
+import { formatTime } from '../../core/format';
 import { paintRows, type RowEntry } from './mediaRow';
 import { showToast } from '../overlay';
 
@@ -38,13 +39,16 @@ export function paintQueueList(list: HTMLElement, deps: QueueDeps): void {
   }
   const entries = queue.tracks.map(
     (track, index): RowEntry => ({
+      // As in the Mac and iOS queue: the position, title and artist, the length at the end.
       row: {
         kind: 'track',
         title: track.title,
         subtitle: track.artist,
         chevron: false,
-        artworkHash: track.artworkHash,
+        number: index + 1,
+        trailText: track.durationSecs ? formatTime(track.durationSecs) : '',
         playing: index === queue.currentIndex,
+        paused: index === queue.currentIndex && deps.store.get().nowPlaying?.state !== 'playing',
       },
       path: track.cataloguePath,
       moreLabel: 'Actions',

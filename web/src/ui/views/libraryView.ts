@@ -2,6 +2,7 @@ import type { AppContext } from '../../app/context';
 import type { LibraryScope, PlayContext } from '../../api/types';
 import { escapeAttr, escapeHtml, required } from '../../core/html';
 import type { LibraryState } from '../../state/appState';
+import { isDesktopUi } from '../../core/device';
 import { icons } from '../icons';
 import { CATALOGUE_SCOPES } from './catalogueScopes';
 import { paintLoadError, paintMediaList, paintPlaceholders } from './mediaList';
@@ -76,7 +77,7 @@ export class LibraryView implements View {
       <div class="segmented" data-scopes>
         ${CATALOGUE_SCOPES.map(
           (s) =>
-            `<button type="button" data-scope="${s.scope}" class="${library.scope === s.scope ? 'active' : ''}">${s.label}</button>`
+            `<button type="button" data-scope="${s.scope}" class="${library.scope === s.scope ? 'active' : ''}"><span class="seg-short">${s.label}</span><span class="seg-long">${s.long}</span></button>`
         ).join('')}
       </div>
       <div class="search-wrap">
@@ -85,6 +86,7 @@ export class LibraryView implements View {
           placeholder="${escapeAttr(placeholderOf(library))}" value="${escapeAttr(library.query)}" />
         <button type="button" class="search-clear" aria-label="Clear search" ${library.query ? '' : 'hidden'}>${icons.clear}</button>
       </div>
+      <div class="path-bar" data-pathbar hidden></div>
       <div id="list" class="group"></div>
     `;
     const head = required(root, '[data-head]');
@@ -153,10 +155,23 @@ export class LibraryView implements View {
   private paintHead(head: HTMLElement, host: ViewHost): void {
     const library = this.ctx.store.get().library;
     const drill = drillOf(library);
-    if (!drill) {
+    const pathBar = head.parentElement?.querySelector<HTMLElement>('[data-pathbar]') ?? null;
+    if (pathBar) pathBar.hidden = true;
+    // Desktop (the Mac catalogue): the screen keeps its title; where you are shows in a path bar
+    // at the top of the list, with Up and Play.
+    if (drill && isDesktopUi() && pathBar) {
+      this.paintPathBar(pathBar, library, drill);
+    }
+    if (!drill || (isDesktopUi() && pathBar)) {
+      // "Albums — 263 files indexed.", as the Mac catalogue says it.
+      const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
+      const files = this.ctx.store.get().scan?.lastScan?.scanned;
       head.innerHTML = `
         <div class="page-header">
-          <h1 class="large-title">Catalogue</h1>
+          <div class="page-title-block">
+            <h1 class="large-title">Catalogue</h1>
+            <p class="page-sub">${escapeHtml(scope.long)}${files ? ` — ${files} files indexed.` : ''}</p>
+          </div>
           ${host.headerPlayerSlot()}
         </div>`;
       return;
@@ -173,6 +188,36 @@ export class LibraryView implements View {
       ${drill.subtitle ? `<p class="drill-sub">${escapeHtml(drill.subtitle)}</p>` : ''}`;
     head.querySelector('[data-back]')?.addEventListener('click', () => void this.ctx.nav.back());
     head.querySelector('[data-play-all]')?.addEventListener('click', () => void this.ctx.actions.play(drill.play));
+  }
+
+  private paintPathBar(bar: HTMLElement, library: LibraryState, drill: Drill): void {
+    const name = (p: string) => p.split(/[/\\]/).filter(Boolean).pop() ?? p;
+    let crumbs: string[];
+    if (library.scope === 'folders' && library.folderPath) {
+      crumbs = [...library.folderStack, library.folderPath].map(name);
+    } else {
+      const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
+      crumbs = [scope.long, drill.subtitle ? `${drill.title} · ${drill.subtitle}` : drill.title];
+    }
+    const last = crumbs.length - 1;
+    bar.hidden = false;
+    bar.innerHTML = `
+      <button type="button" class="path-up" data-back>${icons.chevronLeft}<span>Up</span></button>
+      <nav class="path-crumbs" aria-label="Where">
+        ${crumbs
+          .map(
+            (c, i) =>
+              `${i ? `<span class="path-sep" aria-hidden="true">${icons.chevron}</span>` : ''}<span class="path-crumb${
+                i === last ? ' current' : ''
+              }">${escapeHtml(c)}</span>`
+          )
+          .join('')}
+      </nav>
+      <button type="button" class="path-play" data-play-all ${library.items.length ? '' : 'disabled'}>
+        <span class="path-play-key">${icons.trailPlay}</span><span>Play all</span>
+      </button>`;
+    bar.querySelector('[data-back]')?.addEventListener('click', () => void this.ctx.nav.back());
+    bar.querySelector('[data-play-all]')?.addEventListener('click', () => void this.ctx.actions.play(drill.play));
   }
 
   private paintList(root: HTMLElement, list: HTMLElement): void {

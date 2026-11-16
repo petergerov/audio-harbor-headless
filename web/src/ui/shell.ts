@@ -41,6 +41,8 @@ export class Shell {
       const lists = state.collections;
       const before = previous.collections;
       if (lists.playlists !== before.playlists || lists.labels !== before.labels) this.syncNavigation();
+      // The power lamp at the sidebar's foot follows play / pause.
+      else if (state.nowPlaying?.state !== previous.nowPlaying?.state) this.syncNavigation();
     });
   }
 
@@ -95,7 +97,8 @@ export class Shell {
   /** The player chrome came or went (a track loaded, the window crossed the breakpoint); the view stays. */
   updateChrome(): void {
     const chrome = chromeFor(this.ctx.store.get(), isDesktopUi());
-    if (this.needsFrame(chrome)) {
+    // The header player lives in the screen's header: the screen is drawn again with or without it.
+    if (this.needsFrame(chrome) || this.layout?.header !== chrome.header) {
       this.render('none');
       return;
     }

@@ -55,9 +55,9 @@ export interface Chrome {
   wide: boolean;
   /** Phone: mini player above the tab bar — not on the Deck screen. */
   mini: boolean;
-  /** Phone: compact player in the page header of Library and Playlists (off for now). */
+  /** Desktop: compact player in the page header (the Mac app's), not on the Deck. */
   header: boolean;
-  /** Desktop: bottom bar when a track is loaded — not on the Deck screen. */
+  /** Desktop bottom bar (retired for the header player; kept for the layout code). */
   bar: boolean;
 }
 
@@ -67,10 +67,9 @@ export function chromeFor(state: AppState, desktop: boolean): Chrome {
   return {
     wide: desktop,
     mini: loaded && !desktop && !onDeck,
-    // Compact header player: not needed for now. HeaderPlayer stays wired up; restore the line
-    // below to bring it back.
-    // header: loaded && !desktop && (state.tab === 'library' || state.tab === 'collections'),
-    header: false,
-    bar: loaded && desktop && !onDeck,
+    // Desktop: the compact player at the top right of every screen's header, as in the Mac app
+    // (no bottom bar); the Deck has its own transport.
+    header: loaded && desktop && !onDeck,
+    bar: false,
   };
 }

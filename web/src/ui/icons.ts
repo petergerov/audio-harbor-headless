@@ -1,4 +1,9 @@
 export const icons = {
+  /** The Mac / iOS app's navigation glyphs (SF Symbols look-alikes). */
+  chevronLeft: `<svg width="10" height="16" viewBox="0 0 12 20" fill="currentColor" aria-hidden="true"><path d="M9.9 1.4 1.8 10l8.1 8.6-1.4 1.4L-1 10 8.5 0l1.4 1.4z" transform="translate(1 0)"/></svg>`,
+  navDeck: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm5 2.6a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6.4a4.2 4.2 0 1 0 0 8.4 4.2 4.2 0 0 0 0-8.4zm0 2.4a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6z"/></svg>`,
+  navCatalogue: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3.5h12a1 1 0 0 1 0 2H6a1 1 0 0 1 0-2zm-1.5 3.5h15a1 1 0 0 1 0 2h-15a1 1 0 0 1 0-2zM5 10.5h14a2.5 2.5 0 0 1 2.5 2.5v6a2.5 2.5 0 0 1-2.5 2.5H5A2.5 2.5 0 0 1 2.5 19v-6A2.5 2.5 0 0 1 5 10.5z"/></svg>`,
+  navRecord: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19zm0 5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z"/></svg>`,
   record: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z"/></svg>`,
   browse: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"/></svg>`,
   now: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3zm1 4.5V12l3.2 1.9-.9 1.5L11 13V7.5h2z"/></svg>`,

@@ -20,6 +20,14 @@ export interface RowModel {
   paused?: boolean;
   /** On a folder, drive or share that is not connected: greyed out, not playable. */
   unavailable?: boolean;
+  /** A third line under the subtitle ("12 tracks"), as in the Mac catalogue. */
+  meta?: string;
+  /** A format capsule at the end ("FLAC · 24/96k"), as in the Mac directory list. */
+  badge?: string;
+  /** A queue position in place of the tile (the Mac and iOS queue). */
+  number?: number;
+  /** Quiet text at the end (a duration). */
+  trailText?: string;
 }
 
 /** One row: what it shows and what a tap, `···`, a long press or a right click do. */
@@ -33,6 +41,8 @@ export interface RowEntry {
   path?: string;
   /** A long press (touch) or right click opens `onMore`. */
   contextMenu?: boolean;
+  /** An amber play key at the end (albums, folders, artists, lists on the desktop). */
+  onPlay?: () => void | Promise<unknown>;
 }
 
 /** How long a press must last to open the row's actions, and how far the finger may drift. */
@@ -61,29 +71,46 @@ export function trackTrail(mark: TrackMark): string {
 }
 
 function rowHtml(row: RowModel, covers: Covers): string {
-  const img = covers.img(row.artworkHash);
-  const icon = img
-    ? `<div class="row-icon ${row.kind} has-art">${img}</div>`
-    : `<div class="row-icon ${row.kind}">${TILES[row.kind]}</div>`;
+  let icon: string;
+  if (row.number !== undefined) {
+    // Queue: the position, or the speaker on the one playing.
+    icon = `<div class="row-num" aria-hidden="true">${
+      row.playing ? (row.paused ? icons.speakerOff : icons.speaker) : row.number
+    }</div>`;
+  } else {
+    const img = covers.img(row.artworkHash);
+    icon = img
+      ? `<div class="row-icon ${row.kind} has-art">${img}</div>`
+      : `<div class="row-icon ${row.kind}">${TILES[row.kind]}</div>`;
+  }
   let trail = `<span class="row-trail"></span>`;
-  if (row.kind === 'track') {
+  if (row.trailText !== undefined) {
+    trail = `<span class="row-trail text">${escapeHtml(row.trailText)}</span>`;
+  } else if (row.kind === 'track') {
     const mark: TrackMark = row.playing ? (row.paused ? 'paused' : 'playing') : 'idle';
     trail = `<span class="row-trail track${row.playing ? ' playing' : ''}" data-mark="${mark}">${trackTrail(mark)}</span>`;
   } else if (row.chevron) {
     trail = `<span class="row-trail chevron">${icons.chevron}</span>`;
   }
-  return `${icon}<div class="row-text"><div class="row-title">${escapeHtml(row.title)}</div><div class="row-sub">${escapeHtml(row.subtitle)}</div></div>${trail}`;
+  const badge = row.badge ? `<span class="row-badge">${escapeHtml(row.badge)}</span>` : '';
+  const meta = row.meta ? `<div class="row-meta">${escapeHtml(row.meta)}</div>` : '';
+  return `${icon}<div class="row-text"><div class="row-title">${escapeHtml(row.title)}</div><div class="row-sub">${escapeHtml(row.subtitle)}</div>${meta}</div>${badge}${trail}`;
 }
 
 function wrapHtml(entry: RowEntry, index: number, covers: Covers): string {
   const { row } = entry;
-  const wrapClass = `row-wrap${row.unavailable ? ' unavailable' : ''}${row.playing ? ' playing' : ''}`;
+  const wrapClass = `row-wrap${row.unavailable ? ' unavailable' : ''}${row.playing ? ' playing' : ''}${
+    entry.contextMenu ? ' has-menu' : ''
+  }${entry.onPlay ? ' has-play' : ''}${row.number !== undefined ? ' numbered' : ''}`;
   const path = entry.path ? ` data-path="${escapeAttr(entry.path)}"` : '';
   // Folders and albums still open when not connected (the catalogue shows them); a track does not play.
   const disabled = row.unavailable && row.kind === 'track' ? ' aria-disabled="true"' : '';
   return (
     `<div class="${wrapClass}" data-row="${index}"${path}>` +
     `<button type="button" class="row has-icon${row.playing ? ' playing' : ''}"${disabled}>${rowHtml(row, covers)}</button>` +
+    (entry.onPlay && !row.unavailable
+      ? `<button type="button" class="row-play" aria-label="Play ${escapeAttr(row.title)}">${icons.trailPlay}</button>`
+      : '') +
     `<button type="button" class="row-more" aria-label="${escapeAttr(entry.moreLabel)}"><span class="more-glyph">···</span></button>` +
     `</div>`
   );
@@ -123,6 +150,12 @@ function bindRows(container: HTMLElement, entryOf: (wrap: HTMLElement) => RowEnt
     if (hit.el.closest('.row-more')) {
       event.stopPropagation();
       hit.entry.onMore();
+      return;
+    }
+    if (hit.el.closest('.row-play')) {
+      event.stopPropagation();
+      haptic('light');
+      void Promise.resolve(hit.entry.onPlay?.()).catch(() => undefined);
       return;
     }
     if (!hit.el.closest('.row')) return;

@@ -151,6 +151,7 @@ export class HeaderPlayer implements PlayerChrome {
         ${toggleButton(isPlaying(state), true)}
         <button type="button" data-cmd="next" aria-label="Next">${icons.next}</button>
       </div>
+      <span class="header-player-progress" data-progress aria-hidden="true"></span>
     `;
     this.deps.covers.fill(el.querySelector('[data-art]'), track.artworkHash);
     required(el, '[data-open]').addEventListener('click', () => openNowPlaying(this.deps));

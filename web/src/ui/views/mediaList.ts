@@ -2,7 +2,7 @@ import type { AppContext } from '../../app/context';
 import type { BrowseItem, PlayContext, Selection, Track } from '../../api/types';
 import { haptic } from '../../core/device';
 import { errorMessage } from '../../core/errors';
-import { songs } from '../../core/format';
+import { formatTime, songs } from '../../core/format';
 import { escapeHtml } from '../../core/html';
 import type { LibraryState, OpenCollection } from '../../state/appState';
 import { isCurrentTrack, isPlaying, nowPlayingPath } from '../../state/selectors';
@@ -22,6 +22,8 @@ interface PresentedRow {
   open(): void | Promise<unknown>;
   /** Track rows carry their path (playing mark, long press). */
   path?: string;
+  /** Plays the whole entry (album, artist, folder, list) without opening it. */
+  play?: PlayContext;
 }
 
 type Presenter = (item: BrowseItem, scope: ListScope, ctx: AppContext) => PresentedRow | null;
@@ -52,13 +54,15 @@ const albumEntry: Presenter = (item, scope, ctx) => {
     row: {
       kind: 'album',
       title: album.title,
-      subtitle: withOffline(count ? `${album.artist} · ${songs(count)}` : album.artist, offline),
+      subtitle: withOffline(album.artist, offline),
+      meta: count ? songs(count) : undefined,
       chevron: true,
       artworkHash: item.artworkHash,
       unavailable: offline,
     },
     selection: { albumId: album.id, title: album.title },
     open: () => void ctx.nav.openAlbum(album),
+    play: { albumId: album.id },
   };
 };
 
@@ -69,6 +73,7 @@ const artistEntry: Presenter = (item, scope, ctx) => {
     row: { kind: 'artist', title: name, subtitle: songs(Number(item.trackCount ?? 0)), chevron: true },
     selection: { artist: name, title: name },
     open: () => void ctx.nav.openArtist(name),
+    play: { artist: name },
   };
 };
 
@@ -85,6 +90,7 @@ const playlistEntry: Presenter = (item, scope, ctx) => {
     },
     selection: { title: name },
     open: () => void ctx.nav.openPlaylist(id, name),
+    play: { playlistId: id },
   };
 };
 
@@ -118,6 +124,7 @@ const folderEntry: Presenter = (item, _scope, ctx) => {
     row: { kind: 'folder', title: name, subtitle: offline ? NOT_CONNECTED : 'Folder', chevron: true, unavailable: offline },
     selection: { folder: path, title: name },
     open: () => void ctx.nav.openFolder(path),
+    play: offline ? undefined : { folder: path },
   };
 };
 
@@ -130,12 +137,17 @@ const trackEntry: Presenter = (item, scope, ctx) => {
   const labels = (track.labels ?? []).slice(0, 2).join(' · ');
   const artist = track.artist ?? '';
   const offline = track.available === false || item.available === false;
+  // "Chris Jones · 2003 · 3:52", as in the Mac directory list.
+  const detail = [artist, track.year ? String(track.year) : '', track.durationSecs ? formatTime(track.durationSecs) : '']
+    .filter(Boolean)
+    .join(' · ');
   return {
     row: {
       kind: 'track',
       // Folder browse may send a formatted name ("01 Title", a disc prefix).
       title: item.name || track.title || 'Track',
-      subtitle: withOffline(labels ? `${artist} · ${labels}` : artist, offline),
+      subtitle: withOffline(labels ? `${detail} · ${labels}` : detail, offline),
+      badge: formatBadge(track),
       chevron: false,
       // As in the iOS remote: a track shows the note tile, its album the cover.
       playing: path === nowPlayingPath(ctx.store.get()),
@@ -157,6 +169,19 @@ const trackEntry: Presenter = (item, scope, ctx) => {
     path,
   };
 };
+
+/** "FLAC · 24/96k", "DSF · DSD64", "MP3 · 44.1k" — the Mac's format capsule. */
+function formatBadge(track: Partial<Track>): string | undefined {
+  const format = String(track.format ?? '').toUpperCase();
+  if (!format) return undefined;
+  const hz = Number(track.sampleRate ?? 0);
+  if (!hz) return format;
+  if (format === 'DSF' || format === 'DFF' || format === 'SACD') return `${format} · DSD${Math.round(hz / 44100)}`;
+  const k = hz / 1000;
+  const rate = `${Number.isInteger(k) ? k : k.toFixed(1)}k`;
+  const bits = Number(track.bitDepth ?? 0);
+  return `${format} · ${bits ? `${bits}/${rate}` : rate}`;
+}
 
 /** First match wins — the order is the precedence. */
 const PRESENTERS: Presenter[] = [
@@ -236,6 +261,7 @@ export function paintMediaList(list: HTMLElement, items: BrowseItem[], scope: Li
       moreLabel: 'Actions',
       contextMenu: true,
       onOpen: presented.open,
+      onPlay: presented.play ? () => ctx.actions.play(presented.play!) : undefined,
       onMore: () => ctx.actions.organize(presented.selection, inCollection),
     });
   }
