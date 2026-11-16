@@ -151,6 +151,7 @@ stage_tree() {
   local tar_excludes=(--exclude='.git' --exclude='./.git')
   for pat in "${excludes[@]}"; do
     pat="${pat%/}"
+    pat="${pat#/}"
     tar_excludes+=(--exclude="$pat" --exclude="./$pat")
   done
   (
@@ -210,8 +211,10 @@ if [[ "$MODE" == "prebuilt" ]]; then
   # App runtime tree
   stage_tree \
     '.git/' \
-    'dist/packages/' \
-    'dist/release/' \
+    '/dist/' \
+    '/tmp/' \
+    '.gstack/' \
+    '.claude/' \
     '.idea/' \
     '.DS_Store' \
     '*.sqlite' \

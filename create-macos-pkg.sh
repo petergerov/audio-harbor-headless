@@ -164,6 +164,23 @@ codesign --verify --strict --verbose=2 "$MENUBAR_APP"
 
 SCRIPTS="$WORK/scripts"
 mkdir -p "$SCRIPTS"
+# An upgrade replaces the app folder as a whole, so nothing an older package had stays behind
+# (old web bundles, files since dropped). Harbor keeps no data there: settings, library and
+# recordings live in the user's ~/.audio-harbor-headless.
+cat > "$SCRIPTS/preinstall" <<EOF
+#!/bin/bash
+PREFIX="$INSTALL_PREFIX"
+[[ "\$PREFIX" == "/usr/local/audio-harbor-headless" ]] || exit 0
+if [[ -d "\$PREFIX" ]]; then
+  # The menu bar app stops the server it started when it quits.
+  pkill -x AudioHarbor 2>/dev/null || true
+  "\$PREFIX/start.sh" stop >/dev/null 2>&1 || true
+  rm -rf "\$PREFIX"
+fi
+exit 0
+EOF
+chmod +x "$SCRIPTS/preinstall"
+
 cat > "$SCRIPTS/postinstall" <<EOF
 #!/bin/bash
 set -e
