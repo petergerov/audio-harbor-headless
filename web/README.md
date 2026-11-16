@@ -1,19 +1,23 @@
 # Web remote
 
-Mobile-first web app (Vite + TypeScript, no framework) served by the host. Visual language matches the
-iOS remote (Harbor chassis / ivory / amber). Layers depend inward only:
+Mobile-first web app (Vite + TypeScript, no framework) served by the host. It looks like Audio Harbor
+(Harbor chassis / ivory / amber, `HarborTheme.swift`): on a desktop like the Mac app, on a phone like the
+iOS remote. The glyphs are drawn after SF Symbols' shapes (the symbols themselves are for Apple platforms). Layers depend inward only:
 `ui` → `services` → `state` / `api` → `core`. Nothing below `ui` touches the DOM.
 
 ## Tabs and layout
 
-Primary tabs: **Deck · Catalogue · Settings**. Catalogue roots: Dirs · Albums · Artists · Lists.
-Labels open as a drill-in (not a primary tab).
+Primary tabs: **Deck · Catalogue · Settings**, and **Recordings** after Catalogue while recording is on.
+Catalogue roots: Directories · Albums · Artists · Playlists (Dirs · Lists on a phone). Labels open as a
+drill-in (not a primary tab).
 
 | Surface | Phone | Desktop (`min-width: 700px`) |
 |---|---|---|
-| Chrome | Tab bar; mini player above it when a track is loaded **and** you are not on Deck | Left sidebar; bottom now-bar when a track is loaded **and** you are not on Deck |
-| Deck | Stacked stage + controls; sized to fit above the tab bar without scrolling; Up Next is a sheet | Larger stacked Deck + optional **Up Next** rail on the right (macOS-style); no bottom player |
-| Catalogue / Settings | Full-screen lists | Content starts beside the sidebar (not a centered narrow column) |
+| Chrome | Floating tab bar; mini player above it when a track is loaded **and** you are not on Deck; centred titles | Sidebar (brand logo, Catalogue · Recordings · Deck · Settings with the amber marker, playlists, labels, Live / Standby lamp); serif title and a compact header player (with a progress line) when a track is loaded **and** you are not on Deck — no bottom bar |
+| Deck | Stacked stage + controls; sized to fit above the tab bar without scrolling; Up Next is a sheet | Larger stacked Deck + optional **Up Next** rail on the right (numbered, with lengths) |
+| Catalogue | Plain list on the chassis, actions on a long press | Rows in a faceplate panel: albums with the artist in amber and an amber play key, folders with a small amber folder; actions on right click / hover `···` |
+| Path bar | Under the search, once inside a folder, album, artist or list: Up · Home · the path (each folder above taps straight there) · Play; the path scrolls sideways | Same, as the top of the list's panel |
+| Settings | Sections with an ⓘ at the title for long explanations (`settings/infoNotes.ts`); short notes, warnings and status lines stay | Each section a panel, its title inside |
 
 The Deck stage is Turntable or Reel-to-Reel (preference in `localStorage` under `harbor.deckStyle`);
 photos live in `public/deck/` (`*-portrait.jpg` / `*-wide.jpg`). Queue rail open/closed is

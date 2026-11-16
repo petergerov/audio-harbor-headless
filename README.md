@@ -128,7 +128,14 @@ macOS `.pkg` installs to `/usr/local/audio-harbor-headless`, adds `audioharbor` 
 
 ### Web remote (Deck · Catalogue · Settings)
 
-The Vite remote matches the Harbor look of the iOS / macOS app: Deck (Turntable or Reel-to-Reel stage), Catalogue (Dirs · Albums · Artists · Lists), and Settings. On a phone the Deck fits above the tab bar without scrolling; on a wide desktop the content sits beside the sidebar, Up Next is a right rail on Deck, and the bottom player stays off while you are on Deck. Details: [web/README.md](web/README.md).
+The Vite remote looks like Audio Harbor: on a desktop like the Mac app, on a phone like the iPhone remote. Deck (Turntable or Reel-to-Reel stage, aluminium transport, the path badge between the times), Catalogue (Directories · Albums · Artists · Playlists), Recordings when recording is switched on, and Settings.
+
+- **Phone:** the Deck fits above the floating tab bar without scrolling; Up Next is a sheet; a mini player shows when you leave the Deck; a long press on a row opens its actions.
+- **Desktop:** sidebar (Catalogue · Recordings · Deck · Settings, playlists and labels, a Live / Standby lamp), serif screen titles and a compact player at the top right; on Deck a numbered queue rail on the right.
+- **Catalogue:** under the search a path bar — Up, Home, every folder on the way to tap straight back to, and Play. Albums show the artist in amber and an amber play key (desktop); a song shows a speaker in front of its title while it plays and its format quietly at the end.
+- **Settings:** long explanations sit behind an ⓘ at their section's title.
+
+Details: [web/README.md](web/README.md).
 
 Settings has five panes:
 
