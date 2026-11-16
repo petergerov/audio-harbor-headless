@@ -28,6 +28,7 @@ import { isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } fro
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { dataDir, webDistPath } from '../paths.js';
 import { RackError, type Rack } from '../rack.js';
+import { RecordingFilesError } from '../recording/files.js';
 import { RecordingError, type RecordingService } from '../recording/service.js';
 import type { RemoteSettings } from '../remote/settings.js';
 import { systemStatus } from '../system.js';
@@ -235,10 +236,17 @@ export async function buildServer(ctx: AppContext) {
     try {
       return await fn();
     } catch (err) {
-      if (err instanceof RecordingError) return reply.code(400).send({ error: err.message });
+      if (err instanceof RecordingError || err instanceof RecordingFilesError) {
+        return reply.code(400).send({ error: err.message });
+      }
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EACCES' || code === 'EPERM' || code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EBUSY') {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
       throw err;
     }
   };
+  const pathList = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : []);
   // Polled while the record view is open (meters) — kept out of the request log.
   app.get('/api/v1/recording', { logLevel: 'warn' }, async () => ctx.recording.snapshot());
   app.get('/api/v1/recording/inputs', async () => ({ inputs: ctx.recording.inputs() }));
@@ -261,6 +269,34 @@ export async function buildServer(ctx: AppContext) {
       await ctx.recording.updateSettings((req.body ?? {}) as never);
       return ctx.recording.snapshot();
     })
+  );
+
+  // The recordings folder as a file manager: list, new folder, rename, move, delete.
+  app.get<{ Querystring: { path?: string } }>('/api/v1/recording/files', async (req, reply) =>
+    recordingCall(reply, () => ctx.recording.files.list(req.query.path ?? ''))
+  );
+  app.get('/api/v1/recording/folders', async (req, reply) =>
+    recordingCall(reply, async () => ({ folders: await ctx.recording.files.folders() }))
+  );
+  app.post<{ Body: { path?: string; name?: string } }>('/api/v1/recording/files/folder', async (req, reply) =>
+    recordingCall(reply, () =>
+      ctx.recording.edit(async (files) => ({ path: await files.createFolder(req.body?.path ?? '', req.body?.name) }))
+    )
+  );
+  app.post<{ Body: { path?: string; name?: string } }>('/api/v1/recording/files/rename', async (req, reply) =>
+    recordingCall(reply, () =>
+      ctx.recording.edit(async (files) => ({ path: await files.rename(String(req.body?.path ?? ''), req.body?.name) }))
+    )
+  );
+  app.post<{ Body: { paths?: string[]; to?: string } }>('/api/v1/recording/files/move', async (req, reply) =>
+    recordingCall(reply, () =>
+      ctx.recording.edit(async (files) => ({ moved: await files.move(pathList(req.body?.paths), String(req.body?.to ?? '')) }))
+    )
+  );
+  app.post<{ Body: { paths?: string[] } }>('/api/v1/recording/files/delete', async (req, reply) =>
+    recordingCall(reply, () =>
+      ctx.recording.edit(async (files) => ({ removed: await files.remove(pathList(req.body?.paths)) }))
+    )
   );
 
   app.get('/api/v1/now-playing', async () => ctx.playback.snapshot());
@@ -975,6 +1011,11 @@ export async function buildServer(ctx: AppContext) {
       void ctx.rack.snapshot().then((p) => send('rack', p), () => {});
       const onRack = (p: unknown) => send('rack', p);
       ctx.rack.on('change', onRack);
+      send('recording', ctx.recording.brief());
+      const onRecording = () => send('recording', ctx.recording.brief());
+      const onRecordingFiles = () => send('recordingFiles', {});
+      ctx.recording.on('change', onRecording);
+      ctx.recording.on('files', onRecordingFiles);
       const onNp = (p: unknown) => send('nowPlaying', p);
       const onQ = (p: unknown) => send('queue', p);
       const onScan = (p: unknown) => send('scan', p);
@@ -987,6 +1028,8 @@ export async function buildServer(ctx: AppContext) {
         ctx.playback.off('queue', onQ);
         ctx.catalogue.off('progress', onScan);
         ctx.rack.off('change', onRack);
+        ctx.recording.off('change', onRecording);
+        ctx.recording.off('files', onRecordingFiles);
         unwatch();
       });
     });

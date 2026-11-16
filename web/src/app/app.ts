@@ -2,6 +2,7 @@ import type { AuthApi } from '../api/authApi';
 import { ApiError } from '../api/http';
 import type { TokenStore } from '../api/http';
 import type { LiveUpdates } from '../api/liveUpdates';
+import type { RecordingBrief } from '../api/recordingApi';
 import type { SettingsSnapshot } from '../api/types';
 import { errorMessage } from '../core/errors';
 import type { Store } from '../core/store';
@@ -90,6 +91,10 @@ export class App {
         if (this.ready && before !== null && before !== connectedRoots(message.payload)) this.sourcesChanged();
       }
       else if (message.type === 'rack') this.deps.store.update({ rack: message.payload });
+      else if (message.type === 'recording') this.recordingChanged(message.payload);
+      else if (message.type === 'recordingFiles') {
+        this.deps.store.update((s) => ({ recordingFilesRev: s.recordingFilesRev + 1 }));
+      }
       else if (message.type === 'scan') {
         const finished = Boolean(this.deps.store.get().scan?.scanning) && !message.payload.scanning;
         this.deps.store.update({ scan: message.payload });
@@ -123,6 +128,15 @@ export class App {
     ]);
     this.ready = true;
     void shell.render('forward');
+  }
+
+  /**
+   * Recording switched on or off (Settings) shows or hides Recordings in the navigation; a take
+   * starting or ending lights its entry (the navigation repaints only when its markup changes).
+   */
+  private recordingChanged(brief: RecordingBrief): void {
+    this.deps.store.update({ recording: brief });
+    if (this.ready) this.deps.shell.navigationChanged();
   }
 
   private sourcesChanged(): void {

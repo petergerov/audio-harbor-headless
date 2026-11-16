@@ -11,8 +11,9 @@ import type {
   SettingsSnapshot,
 } from '../api/types';
 import type { LiveStatus } from '../api/liveUpdates';
+import type { RecordingBrief } from '../api/recordingApi';
 
-export type Tab = 'library' | 'collections' | 'now' | 'settings';
+export type Tab = 'library' | 'collections' | 'now' | 'recordings' | 'settings';
 export type SettingsPane = 'sources' | 'output' | 'rack' | 'record' | 'sharing' | 'about';
 
 export interface AlbumRef {
@@ -73,6 +74,12 @@ export interface AppState {
   rack: RackSnapshot | null;
   /** Whether the host's push channel is up. */
   connection: LiveStatus;
+  /** Recording on the host: whether Recordings shows in the navigation, and a running take. */
+  recording: RecordingBrief | null;
+  /** The folder open in Recordings, relative to the recordings folder ('' = its top). */
+  recordingsPath: string;
+  /** Bumped when the host says the recordings changed: the open listing loads again. */
+  recordingFilesRev: number;
 }
 
 export const initialState: AppState = {
@@ -98,4 +105,7 @@ export const initialState: AppState = {
   scan: null,
   rack: null,
   connection: 'connecting',
+  recording: null,
+  recordingsPath: '',
+  recordingFilesRev: 0,
 };

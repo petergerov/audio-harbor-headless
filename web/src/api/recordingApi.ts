@@ -63,6 +63,41 @@ export interface RecordingInput {
   name: string;
 }
 
+/** One file or folder in the recordings folder. */
+export interface RecordingEntry {
+  name: string;
+  /** Relative to the recordings folder, `/`-separated. */
+  path: string;
+  kind: 'folder' | 'audio' | 'file' | 'raw';
+  bytes: number;
+  modified: number;
+  folders?: number;
+  tracks?: number;
+  title?: string;
+  seconds?: number | null;
+  sampleRate?: number | null;
+  bits?: number | null;
+  format?: string;
+  /** Set when the library has it: play it by this path. */
+  cataloguePath?: string;
+}
+
+export interface RecordingListing {
+  path: string;
+  root: string;
+  absolute: string;
+  inLibrary: boolean;
+  entries: RecordingEntry[];
+  raw: RecordingEntry[];
+}
+
+/** What the navigation needs, pushed by the host. */
+export interface RecordingBrief {
+  available: boolean;
+  enabled: boolean;
+  state: 'idle' | 'recording' | 'finalizing';
+}
+
 /** Recording from the host's digital input. */
 export interface RecordingApi {
   snapshot(): Promise<RecordingSnapshot>;
@@ -70,6 +105,12 @@ export interface RecordingApi {
   start(opts?: { device?: string; rate?: number; split?: 'none' | 'silence' }): Promise<RecordingSnapshot>;
   stop(discard?: boolean): Promise<RecordingSnapshot>;
   updateSettings(patch: Partial<RecordingSettings>): Promise<RecordingSnapshot>;
+  files(path: string): Promise<RecordingListing>;
+  folders(): Promise<Array<{ path: string; name: string; depth: number }>>;
+  createFolder(parent: string, name: string): Promise<{ path: string }>;
+  rename(path: string, name: string): Promise<{ path: string }>;
+  move(paths: string[], to: string): Promise<{ moved: number }>;
+  remove(paths: string[]): Promise<{ removed: number }>;
 }
 
 export class HttpRecordingApi implements RecordingApi {
@@ -93,5 +134,29 @@ export class HttpRecordingApi implements RecordingApi {
 
   updateSettings(patch: Partial<RecordingSettings>): Promise<RecordingSnapshot> {
     return this.http.put('/api/v1/recording/settings', patch);
+  }
+
+  files(path: string): Promise<RecordingListing> {
+    return this.http.get(`/api/v1/recording/files?path=${encodeURIComponent(path)}`);
+  }
+
+  async folders(): Promise<Array<{ path: string; name: string; depth: number }>> {
+    return (await this.http.get<{ folders: Array<{ path: string; name: string; depth: number }> }>('/api/v1/recording/folders')).folders;
+  }
+
+  createFolder(parent: string, name: string): Promise<{ path: string }> {
+    return this.http.post('/api/v1/recording/files/folder', { path: parent, name });
+  }
+
+  rename(path: string, name: string): Promise<{ path: string }> {
+    return this.http.post('/api/v1/recording/files/rename', { path, name });
+  }
+
+  move(paths: string[], to: string): Promise<{ moved: number }> {
+    return this.http.post('/api/v1/recording/files/move', { paths, to });
+  }
+
+  remove(paths: string[]): Promise<{ removed: number }> {
+    return this.http.post('/api/v1/recording/files/delete', { paths });
   }
 }

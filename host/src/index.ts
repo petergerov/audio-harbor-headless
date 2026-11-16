@@ -5,7 +5,7 @@ import { AccessPolicy } from './access.js';
 import { buildServer, loadPairing, printPairingInfo, rotatePin } from './api/server.js';
 import { configLacked, loadConfig, saveConfig } from './config.js';
 import { engineVersion } from './engine/bridge.js';
-import { Catalogue } from './library/catalogue.js';
+import { Catalogue, isUnderRoots } from './library/catalogue.js';
 import { SourceOrigins } from './library/origins.js';
 import { SourceMonitor } from './library/sources.js';
 import { lanBaseUrl } from './net.js';
@@ -115,7 +115,13 @@ async function main(): Promise<void> {
   });
 
   // Recording from the digital input; a take a crash left behind is finished in the background.
-  const recording = new RecordingService(getConfig, persist, () => catalogue.scanRoots(cfg.library.roots));
+  const recording = new RecordingService(getConfig, persist, {
+    getTrack: (p) => catalogue.getTrack(p),
+    movePaths: (from, to) => catalogue.movePaths(from, to),
+    forgetPaths: (p) => catalogue.forgetPaths(p),
+    rescan: () => catalogue.scanRoots(getConfig().library.roots),
+    inLibrary: (p) => isUnderRoots(p, getConfig().library.roots),
+  });
   void recording.recover().catch((err) => console.warn('Recording recovery failed:', err));
 
   const updates = new Updater(hostVersion() || '0.0.0');

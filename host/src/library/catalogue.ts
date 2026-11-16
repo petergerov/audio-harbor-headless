@@ -8,7 +8,7 @@ import { artworkDir, cataloguePath } from '../paths.js';
 import type { Album, Artist, AudioFormat, BrowseScope, Track } from '../types.js';
 import { isSacdIso, listSacdTracks, parseSacdPath } from './sacd.js';
 
-const AUDIO_EXT = new Set([
+export const AUDIO_EXT = new Set([
   '.flac',
   '.m4a',
   '.mp4',
@@ -1208,6 +1208,50 @@ export class Catalogue extends EventEmitter {
     this.db.exec(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`);
     this.directories = null;
     return count;
+  }
+
+  /**
+   * Forgets the tracks at or below `target` (deleted from disk): their labels and playlist
+   * entries go with them. Answers how many tracks went.
+   */
+  forgetPaths(target: string): number {
+    const a = path.resolve(target);
+    const gone = (p: string) => p === a || p.startsWith(`${a}/`) || p.startsWith(`${a}#`);
+    const rows = this.db.prepare('SELECT catalogue_path FROM tracks').all() as Array<{ catalogue_path: string }>;
+    const paths = rows.map((r) => r.catalogue_path).filter(gone);
+    if (!paths.length) return 0;
+    const set = new Set(paths);
+    const delTrack = this.db.prepare('DELETE FROM tracks WHERE catalogue_path = ?');
+    const delLabel = this.db.prepare('DELETE FROM labels WHERE catalogue_path = ?');
+    this.db.exec('BEGIN');
+    try {
+      for (const cp of paths) {
+        delTrack.run(cp);
+        delLabel.run(cp);
+      }
+      const playlists = this.db.prepare('SELECT id, paths_json FROM playlists').all() as Array<{
+        id: string;
+        paths_json: string;
+      }>;
+      const updatePl = this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?');
+      for (const pl of playlists) {
+        let list: string[];
+        try {
+          list = JSON.parse(pl.paths_json) as string[];
+        } catch {
+          continue;
+        }
+        const next = list.filter((p) => !set.has(p));
+        if (next.length !== list.length) updatePl.run(JSON.stringify(next), pl.id);
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    this.db.exec(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`);
+    this.directories = null;
+    return paths.length;
   }
 
   private toTrack(row: Record<string, unknown>): Track {

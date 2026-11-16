@@ -15,9 +15,7 @@ import {
   engineRecordStop,
 } from '../engine/bridge.js';
 import type { HarborConfig, RecordingConfig } from '../types.js';
-
-/** Raw takes wait here (hidden: the library scan skips dot folders). */
-const TAKES_DIR = '.takes';
+import { KEPT_SUFFIX, RecordingFiles, TAKES_DIR, type RecordingsLibrary } from './files.js';
 /** No take starts with less free space; a running one stops below the second. */
 const MIN_FREE_TO_START = 2 * 1024 ** 3;
 const MIN_FREE_RUNNING = 512 * 1024 ** 2;
@@ -61,6 +59,13 @@ export interface RecordingSnapshot {
   progress: number | null;
   last: RecordingTake | null;
   freeBytes: number | null;
+}
+
+/** What the remote's navigation needs: whether to show Recordings, and whether a take runs. */
+export interface RecordingBrief {
+  available: boolean;
+  enabled: boolean;
+  state: RecordingState;
 }
 
 export interface StartRequest {
@@ -129,13 +134,33 @@ export class RecordingService extends EventEmitter {
   private watch: NodeJS.Timeout | null = null;
   private free: number | null = null;
 
+  /** The recordings folder as a file manager (rename, move, delete …). */
+  readonly files: RecordingFiles;
+
   constructor(
     private readonly getConfig: () => HarborConfig,
     private readonly persist: (cfg: HarborConfig) => void,
-    /** The library looks at new files (rescan of its folders). */
-    private readonly rescan: () => Promise<unknown>
+    private readonly library: RecordingsLibrary
   ) {
     super();
+    this.files = new RecordingFiles(() => this.folder(), library);
+  }
+
+  private rescan(): Promise<unknown> {
+    return this.library.rescan();
+  }
+
+  brief(): RecordingBrief {
+    return { available: this.available(), enabled: this.getConfig().recording.enabled, state: this.state };
+  }
+
+  /** Changes to the files wait while a take is being written into them. */
+  async edit<T>(fn: (files: RecordingFiles) => Promise<T>): Promise<T> {
+    if (this.state === 'finalizing') throw new RecordingError('Wait until the take is written');
+    const result = await fn(this.files);
+    if (this.last && !fs.existsSync(this.last.dir)) this.last = null;
+    this.emit('files');
+    return result;
   }
 
   /** Where takes go. */
@@ -372,7 +397,11 @@ export class RecordingService extends EventEmitter {
       await fs.promises.rmdir(outDir).catch(() => undefined);
       error = error ?? 'Nothing came in (no signal or only silence)';
     }
-    if (result && !error && !settings.keep_raw) await fs.promises.rm(rawPath, { force: true });
+    if (result && !error) {
+      if (!settings.keep_raw) await fs.promises.rm(rawPath, { force: true });
+      // Kept on purpose: marked done, so a renamed take is not written again at the next start.
+      else await fs.promises.rename(rawPath, rawPath.replace(/\.raw\.wav$/, KEPT_SUFFIX)).catch(() => undefined);
+    }
 
     const overruns = status?.overruns ?? 0;
     const dropped = status?.dropped ?? 0;
@@ -389,6 +418,7 @@ export class RecordingService extends EventEmitter {
     if (error) console.warn(`Recording ${name}: ${error}${result ? '' : ` (raw take kept: ${rawPath})`}`);
     else console.log(`Recording ${name}: ${result?.files.length ?? 0} file(s) in ${dir}`);
     if (result?.files.length) void this.rescan().catch(() => undefined);
+    this.emit('files');
   }
 
   /** On shutdown: stop capturing; the raw take is finished at the next start. */

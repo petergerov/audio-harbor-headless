@@ -44,6 +44,11 @@ export class Shell {
     });
   }
 
+  /** A destination came or went (Recordings switched on or off): the sidebar / tab bar again. */
+  navigationChanged(): void {
+    this.syncNavigation();
+  }
+
   /** Whether the layout on screen still fits the state and the window width. */
   fits(): boolean {
     const want = chromeFor(this.ctx.store.get(), isDesktopUi());

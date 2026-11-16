@@ -1,4 +1,5 @@
 import type { TokenStore } from './http';
+import type { RecordingBrief } from './recordingApi';
 import type { NowPlaying, QueueSnapshot, RackSnapshot, ScanProgress, SettingsSnapshot } from './types';
 
 export type LiveMessage =
@@ -6,7 +7,9 @@ export type LiveMessage =
   | { type: 'queue'; payload: QueueSnapshot }
   | { type: 'settings'; payload: SettingsSnapshot }
   | { type: 'scan'; payload: ScanProgress }
-  | { type: 'rack'; payload: RackSnapshot };
+  | { type: 'rack'; payload: RackSnapshot }
+  | { type: 'recording'; payload: RecordingBrief }
+  | { type: 'recordingFiles'; payload: Record<string, never> };
 
 /** Whether the push channel is up. */
 export type LiveStatus = 'open' | 'connecting';

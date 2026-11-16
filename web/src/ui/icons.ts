@@ -1,4 +1,5 @@
 export const icons = {
+  record: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z"/></svg>`,
   browse: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"/></svg>`,
   now: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3zm1 4.5V12l3.2 1.9-.9 1.5L11 13V7.5h2z"/></svg>`,
   library: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 3h2v18H4V3zm4 0h2v18H8V3zm3.5 1.5 9.5 2.1v13.3l-9.5-2.1V4.5zm2 3.1v9.2l5.5 1.2V8.8l-5.5-1.2z"/></svg>`,

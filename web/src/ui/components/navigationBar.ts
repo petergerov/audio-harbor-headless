@@ -12,24 +12,38 @@ interface Destination {
   icon: string;
 }
 
-/** Primary surfaces — same three as the iOS remote. */
+/** Primary surfaces — the iOS remote's three, and Recordings after Catalogue when recording is on. */
 const DESTINATIONS: Destination[] = [
   { tab: 'now', short: 'Deck', long: 'Deck', icon: icons.now },
   { tab: 'library', short: 'Catalogue', long: 'Catalogue', icon: icons.browse },
+  { tab: 'recordings', short: 'Record', long: 'Recordings', icon: icons.record },
   { tab: 'settings', short: 'Settings', long: 'Settings', icon: icons.settings },
 ];
 
 const destination = (tab: Tab) => DESTINATIONS.find((d) => d.tab === tab)!;
 
+/** Recordings shows when the host can record and Recording is switched on (Settings → Record). */
+export function recordingsShown(state: AppState): boolean {
+  return Boolean(state.recording?.available && state.recording.enabled);
+}
+
+/** A take running: the Recordings entry glows red, wherever the user is. */
+function liveClass(state: AppState, d: Destination): string {
+  return d.tab === 'recordings' && state.recording && state.recording.state !== 'idle' ? ' rec-live' : '';
+}
+
 /** Phone: the bottom tab bar. */
 export function tabBarHtml(state: AppState): string {
   const active = state.tab === 'collections' ? 'library' : state.tab;
+  const shown = DESTINATIONS.filter((d) => d.tab !== 'recordings' || recordingsShown(state) || active === 'recordings');
   return `<nav class="tab-bar" id="tabs">
-    ${DESTINATIONS.map(
-      (d) => `<button type="button" data-tab="${d.tab}" class="${active === d.tab ? 'active' : ''}">
+    ${shown
+      .map(
+        (d) => `<button type="button" data-tab="${d.tab}" class="${active === d.tab ? 'active' : ''}${liveClass(state, d)}">
         ${d.icon}<span>${d.short}</span>
       </button>`
-    ).join('')}
+      )
+      .join('')}
   </nav>`;
 }
 
@@ -39,7 +53,7 @@ export function sidebarHtml(state: AppState): string {
   const open = state.collections.open;
   const catalogueActive = tab === 'library' || tab === 'collections';
   const sideRow = (d: Destination, active: boolean) =>
-    `<button type="button" class="side-row ${active ? 'active' : ''}" data-nav="${d.tab}">${d.icon}<span>${d.long}</span></button>`;
+    `<button type="button" class="side-row ${active ? 'active' : ''}${liveClass(state, d)}" data-nav="${d.tab}">${d.icon}<span>${d.long}</span></button>`;
   const collectionRow = (kind: 'playlist' | 'label', id: string, name: string, count: number) => `
       <button type="button" class="side-row ${tab === 'collections' && open?.kind === kind && open.id === id ? 'active' : ''}"
         data-nav="${kind}" data-id="${escapeAttr(id)}" data-name="${escapeAttr(name)}">
@@ -54,6 +68,7 @@ export function sidebarHtml(state: AppState): string {
       <div class="side-brand">Audio Harbor</div>
       ${sideRow(destination('now'), tab === 'now')}
       ${sideRow(destination('library'), catalogueActive && !open)}
+      ${recordingsShown(state) || tab === 'recordings' ? sideRow(destination('recordings'), tab === 'recordings') : ''}
       <div class="side-heading">
         <p class="side-label">Playlists</p>
         <button type="button" class="side-plus" data-new-playlist aria-label="New playlist" title="New playlist">+</button>

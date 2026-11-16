@@ -318,7 +318,7 @@ bool FlacEncoder::writeHeaderBlocks(bool final) {
   w.put(final ? totalFrames_ : 0, 36);
   for (int i = 0; i < 16; ++i) w.put(final ? md5Bytes_[size_t(i)] : 0, 8);
   out.insert(out.end(), w.bytes().begin(), w.bytes().end());
-  // VORBIS_COMMENT, last metadata block
+  // VORBIS_COMMENT, then PADDING (last): room to retag (rename) in place later.
   std::vector<uint8_t> vc;
   const std::string vendor = "Audio Harbor";
   le32(vc, uint32_t(vendor.size()));
@@ -330,8 +330,11 @@ bool FlacEncoder::writeHeaderBlocks(bool final) {
     vc.insert(vc.end(), entry.begin(), entry.end());
   }
   const uint32_t len = uint32_t(vc.size());
-  out.insert(out.end(), {uint8_t(0x80 | 4), uint8_t(len >> 16), uint8_t(len >> 8), uint8_t(len)});
+  out.insert(out.end(), {uint8_t(4), uint8_t(len >> 16), uint8_t(len >> 8), uint8_t(len)});
   out.insert(out.end(), vc.begin(), vc.end());
+  constexpr uint32_t kPadding = 4096;
+  out.insert(out.end(), {uint8_t(0x80 | 1), uint8_t(kPadding >> 16), uint8_t(kPadding >> 8), uint8_t(kPadding)});
+  out.insert(out.end(), kPadding, uint8_t(0));
   if (final && std::fseek(file_, 0, SEEK_SET) != 0) return false;
   return std::fwrite(out.data(), 1, out.size(), file_) == out.size();
 }
