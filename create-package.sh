@@ -162,8 +162,18 @@ stage_tree() {
   )
 }
 
+# Removes a directory even while Finder (an open window) drops .DS_Store files into it.
+remove_dir() {
+  local i
+  for i in 1 2 3 4 5; do
+    rm -rf "$1" 2>/dev/null && return 0
+    sleep 0.3
+  done
+  rm -rf "$1"
+}
+
 log "Mode=$MODE platform=$PLATFORM node=$NODE_VER (ABI $NODE_ABI)"
-rm -rf "$OUT_DIR/stage"
+remove_dir "$OUT_DIR/stage"
 mkdir -p "$STAGE"
 
 if [[ "$MODE" == "prebuilt" ]]; then
@@ -334,7 +344,7 @@ if [[ "$PLATFORM" == win32-* ]] || [[ "$MODE" == "prebuilt" && "$PLATFORM" == wi
   fi
 fi
 
-rm -rf "$OUT_DIR/stage"
+remove_dir "$OUT_DIR/stage"
 
 if command -v shasum >/dev/null 2>&1; then
   (cd "$OUT_DIR" && shasum -a 256 "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256")
