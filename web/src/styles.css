@@ -5577,9 +5577,9 @@ html.rec-drag-active body {
     0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
-/* iPhone: room for the host's name and the bigger keys under the stage. */
+/* iPhone: room for the bigger keys under the stage. */
 .app-shell:not(.wide) .deck-hero {
-  --deck-mobile-chrome: 392px;
+  --deck-mobile-chrome: 350px;
 }
 
 .app-shell:not(.wide) .transport {
@@ -5593,20 +5593,6 @@ html.rec-drag-active body {
 
 .deck-toolbar-slot .power-lamp {
   margin-right: 8px;
-}
-
-/* iPhone: the host's name above the Deck, as the iOS remote's title. */
-.phone-title {
-  text-align: center;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--ivory);
-  min-height: 22px;
-  margin: 6px 0 14px;
-}
-
-.phone-title:empty {
-  visibility: hidden;
 }
 
 /* —— iPhone: centred inline titles and the floating tab bar —— */
@@ -5818,4 +5804,18 @@ html.rec-drag-active body {
 
 .path-play:disabled {
   opacity: 0.4;
+}
+
+/* Small phones (iPhone SE / mini): style keys and tools stay on one line. */
+@media (max-width: 389px) {
+  .app-shell:not(.wide) .deck-style-bar .deck-pill {
+    min-width: 34px;
+    padding: 6px 7px;
+    letter-spacing: 0.04em;
+  }
+
+  .app-shell:not(.wide) .deck-style-bar,
+  .app-shell:not(.wide) .deck-toolbar-slot {
+    gap: 6px;
+  }
 }

@@ -20,26 +20,6 @@ import { openRackSheet } from '../sheets/rackSheet';
 import { bindSwipe } from '../swipe';
 import type { View } from './view';
 
-/** The host's name ("Studio Mac" on iOS), shown above the Deck on a phone; asked once. */
-let hostName: string | null = null;
-let hostNameAsked = false;
-
-function askHostName(onName: (name: string) => void): void {
-  if (hostNameAsked) return;
-  hostNameAsked = true;
-  void fetch('/api/v1/health')
-    .then((r) => (r.ok ? r.json() : null))
-    .then((body: { name?: string } | null) => {
-      if (body?.name) {
-        hostName = body.name;
-        onName(body.name);
-      }
-    })
-    .catch(() => {
-      hostNameAsked = false;
-    });
-}
-
 /** Deck: photoreal stage (Turntable / Reel-to-Reel), cover chip, hardware transport. */
 export class NowPlayingView implements View {
   private root: HTMLElement | null = null;
@@ -90,7 +70,6 @@ export class NowPlayingView implements View {
     `;
     root.innerHTML = `
       <section class="now-screen ${desktop ? 'is-desktop' : ''} ${showRail ? 'has-queue-rail' : ''}">
-        ${desktop ? '' : `<header class="phone-title" data-host-name>${escapeHtml(hostName ?? '')}</header>`}
         <div class="deck-layout">
           <div class="deck-stage faceplate compact">
             ${deckStageHtml({
@@ -156,12 +135,6 @@ export class NowPlayingView implements View {
     );
     bindPlayerControls(root, this.ctx);
     bindDeckChrome(root);
-    if (!desktop && !hostName) {
-      askHostName((name) => {
-        const title = root.querySelector('[data-host-name]');
-        if (title) title.textContent = name;
-      });
-    }
     if (showRail) {
       this.disposeRail = bindDeckQueueRail(root, this.ctx, () => this.setRailOpen(false));
     }
