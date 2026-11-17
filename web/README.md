@@ -13,9 +13,10 @@ drill-in (not a primary tab).
 
 | Surface | Phone | Desktop (`min-width: 700px`) |
 |---|---|---|
-| Chrome | Floating tab bar; mini player above it when a track is loaded **and** you are not on Deck; centred titles | Sidebar (brand logo, Catalogue · Recordings · Deck · Settings with the amber marker, playlists, labels, Live / Standby lamp); serif title and a compact header player (with a progress line) when a track is loaded **and** you are not on Deck — no bottom bar |
+| Chrome | Floating tab bar; mini player above it when a track is loaded **and** you are not on Deck; centred titles (Catalogue, Recordings and Settings drop theirs in portrait, Settings its “This Host” too — the tab bar says where you are) | Sidebar (brand logo, Catalogue · Recordings · Deck · Settings with the amber marker, playlists, labels, Live / Standby lamp); serif title and a compact header player (with a progress line) when a track is loaded **and** you are not on Deck — no bottom bar |
 | Deck | Stacked stage + controls; sized to fit above the tab bar without scrolling; Up Next is a sheet | Larger stacked Deck + optional **Up Next** rail on the right (numbered, with lengths) |
 | Catalogue | Plain list on the chassis, actions on a long press | Rows in a faceplate panel: albums with the artist in amber and an amber play key, folders with a small amber folder; actions on right click / hover `···` |
+| Fixed top | Catalogue (scopes, search, path bar), Settings (pane switch) and Recordings (recorder) keep their top in a sticky `.screen-top`; only the rest scrolls — compact on a phone, as in the Mac catalogue | Same, under the title row |
 | Path bar | Under the search, once inside a folder, album, artist or list: Up · Home · the path (each folder above taps straight there) · Play; the path scrolls sideways | Same, as the top of the list's panel |
 | Settings | Sections with an ⓘ at the title for long explanations (`settings/infoNotes.ts`); short notes, warnings and status lines stay | Each section a panel, its title inside |
 

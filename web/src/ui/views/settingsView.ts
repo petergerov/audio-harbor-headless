@@ -49,18 +49,20 @@ export class SettingsView implements View {
   async render(root: HTMLElement, host: ViewHost): Promise<void> {
     const current = this.ctx.store.get().settingsPane;
     root.innerHTML = `
-      <div class="page-header">
-        <h1 class="large-title">Settings</h1>
-        ${host.headerPlayerSlot()}
-      </div>
-      <p class="engraved">This Host</p>
-      <div class="segmented">
-        ${(Object.keys(PANES) as SettingsPane[])
-          .map(
-            (pane) =>
-              `<button type="button" data-pane="${pane}" class="${pane === current ? 'active' : ''}">${PANES[pane].label}</button>`
-          )
-          .join('')}
+      <div class="screen-top">
+        <div class="page-header phone-untitled">
+          <h1 class="large-title">Settings</h1>
+          ${host.headerPlayerSlot()}
+        </div>
+        <p class="engraved phone-untitled">This Host</p>
+        <div class="segmented">
+          ${(Object.keys(PANES) as SettingsPane[])
+            .map(
+              (pane) =>
+                `<button type="button" data-pane="${pane}" class="${pane === current ? 'active' : ''}">${PANES[pane].label}</button>`
+            )
+            .join('')}
+        </div>
       </div>
       <div data-settings-body></div>
     `;

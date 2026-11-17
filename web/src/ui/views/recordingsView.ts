@@ -77,11 +77,13 @@ export class RecordingsView implements View {
     this.dispose();
     const state = this.ctx.store.get();
     root.innerHTML = `
-      <div class="page-header">
-        <h1 class="large-title">Recordings</h1>
-        ${host.headerPlayerSlot()}
+      <div class="screen-top">
+        <div class="page-header phone-untitled">
+          <h1 class="large-title">Recordings</h1>
+          ${host.headerPlayerSlot()}
+        </div>
+        <div data-recorder></div>
       </div>
-      <div data-recorder></div>
       <div data-browser></div>`;
     if (!recordingsShown(state)) {
       required(root, '[data-recorder]').innerHTML = `

@@ -68,20 +68,22 @@ export class LibraryView implements View {
     this.dispose();
     const library = this.ctx.store.get().library;
     root.innerHTML = `
-      <div data-head></div>
-      <div class="segmented" data-scopes>
-        ${CATALOGUE_SCOPES.map(
-          (s) =>
-            `<button type="button" data-scope="${s.scope}" class="${library.scope === s.scope ? 'active' : ''}"><span class="seg-short">${s.label}</span><span class="seg-long">${s.long}</span></button>`
-        ).join('')}
+      <div class="screen-top">
+        <div data-head></div>
+        <div class="segmented" data-scopes>
+          ${CATALOGUE_SCOPES.map(
+            (s) =>
+              `<button type="button" data-scope="${s.scope}" class="${library.scope === s.scope ? 'active' : ''}"><span class="seg-short">${s.label}</span><span class="seg-long">${s.long}</span></button>`
+          ).join('')}
+        </div>
+        <div class="search-wrap">
+          ${icons.search}
+          <input id="search" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false"
+            placeholder="${escapeAttr(placeholderOf(library))}" value="${escapeAttr(library.query)}" />
+          <button type="button" class="search-clear" aria-label="Clear search" ${library.query ? '' : 'hidden'}>${icons.clear}</button>
+        </div>
+        <div class="path-bar" data-pathbar hidden></div>
       </div>
-      <div class="search-wrap">
-        ${icons.search}
-        <input id="search" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false"
-          placeholder="${escapeAttr(placeholderOf(library))}" value="${escapeAttr(library.query)}" />
-        <button type="button" class="search-clear" aria-label="Clear search" ${library.query ? '' : 'hidden'}>${icons.clear}</button>
-      </div>
-      <div class="path-bar" data-pathbar hidden></div>
       <div id="list" class="group"></div>
     `;
     const head = required(root, '[data-head]');
@@ -165,7 +167,7 @@ export class LibraryView implements View {
     const scope = CATALOGUE_SCOPES.find((s) => s.scope === library.scope) ?? CATALOGUE_SCOPES[0]!;
     const files = this.ctx.store.get().scan?.lastScan?.scanned;
     head.innerHTML = `
-      <div class="page-header">
+      <div class="page-header phone-untitled">
         <div class="page-title-block">
           <h1 class="large-title">Catalogue</h1>
           <p class="page-sub">${escapeHtml(scope.long)}${files ? ` — ${files} files indexed.` : ''}</p>

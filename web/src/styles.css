@@ -5723,7 +5723,7 @@ html.rec-drag-active body {
   box-shadow: inset 0 -1px 0 rgba(97, 89, 83, 0.55);
 }
 
-.app-shell.wide .path-bar:not([hidden]) + #list.group {
+.app-shell.wide .screen-top:has(.path-bar:not([hidden])) + #list.group {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   margin-top: 0;
@@ -6067,4 +6067,112 @@ button.path-crumb:hover,
 
 .info-btn[hidden] {
   display: none;
+}
+
+/* —— Phone, portrait: Catalogue, Recordings and Settings drop their title — the tab bar
+   already says where you are. The heading stays for screen readers; the header shrinks to
+   the compact player, or to nothing when none is playing. —— */
+@media (orientation: portrait) {
+  .app-shell:not(.wide) .page-header.phone-untitled {
+    min-height: 0;
+    margin: 0;
+  }
+
+  .app-shell:not(.wide) .page-header.phone-untitled:has(.header-player:not(:empty)) {
+    margin: 6px 0 16px;
+  }
+
+  /* Settings' "This Host" goes too: the pane switch under it says enough. */
+  .app-shell:not(.wide) .engraved.phone-untitled {
+    display: none;
+  }
+
+  .app-shell:not(.wide) .page-header.phone-untitled .large-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* —— The top of Catalogue, Settings and Recordings stays put: title row, scopes, search, path
+   bar (or the pane switch, or the recorder); only what is below scrolls. The band reaches
+   to the screen's edges and over the status bar, so nothing shows through above it. —— */
+.screen-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: calc(-8px - var(--safe-top)) calc(-1 * max(16px, env(safe-area-inset-right))) 12px
+    calc(-1 * max(16px, env(safe-area-inset-left)));
+  padding: calc(8px + var(--safe-top)) max(16px, env(safe-area-inset-right)) 0
+    max(16px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--chassis) 94%, transparent);
+  backdrop-filter: saturate(160%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  box-shadow: 0 1px 0 rgba(97, 89, 83, 0.35);
+}
+
+.app-shell.wide .screen-top {
+  margin: calc(-24px - var(--safe-top)) -28px 0;
+  padding: calc(24px + var(--safe-top)) 28px 0;
+  box-shadow: none;
+}
+
+/* Phone: compact, as the Mac catalogue — small keys, a slimmer field and path bar. */
+.app-shell:not(.wide) .screen-top {
+  padding-bottom: 8px;
+}
+
+.app-shell:not(.wide) .screen-top .segmented {
+  margin-bottom: 8px;
+}
+
+.app-shell:not(.wide) .screen-top .segmented button {
+  min-height: 32px;
+  font-size: 14px;
+}
+
+.app-shell:not(.wide) .screen-top [data-scopes] button {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app-shell:not(.wide) .screen-top .search-wrap {
+  margin-bottom: 8px;
+}
+
+.app-shell:not(.wide) .screen-top .search-wrap input {
+  min-height: 36px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  border-radius: 10px;
+  /* 16px: iOS zooms into a smaller field on focus. */
+  font-size: 16px;
+}
+
+.app-shell:not(.wide) .screen-top .path-bar {
+  min-height: 40px;
+  padding: 4px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+}
+
+.app-shell:not(.wide) .screen-top .engraved {
+  margin-bottom: 6px;
+}
+
+.app-shell:not(.wide) .screen-top > :last-child {
+  margin-bottom: 0;
+}
+
+.app-shell:not(.wide) .screen-top:has(> .path-bar[hidden]) > .search-wrap {
+  margin-bottom: 0;
+}
+
+.app-shell:not(.wide) .screen-top [data-recorder] .group:last-child {
+  margin-bottom: 0;
 }
