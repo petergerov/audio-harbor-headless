@@ -108,7 +108,7 @@ export class PlaybackService extends EventEmitter {
     super();
     engineEvents.on('state', () => this.emitUpdate());
     engineEvents.on('ended', () => {
-      if (!this.usingNetwork()) void this.next();
+      if (!this.usingNetwork()) void this.trackEnded();
     });
     network.on('change', () => this.emitNowPlaying());
     network.on('trackEnded', (track: Track) => void this.networkTrackEnded(track));
@@ -662,11 +662,20 @@ export class PlaybackService extends EventEmitter {
     await this.loadAndPlay(next);
   }
 
-  private async next(): Promise<void> {
+  /** The track played out on this host: Repeat One plays it again, otherwise the queue moves on. */
+  private async trackEnded(): Promise<void> {
     if (this.repeat === 'one' && this.current) {
       await this.loadAndPlay(this.current);
       return;
     }
+    await this.next();
+  }
+
+  /**
+   * Next always moves on, also under Repeat One (as in Apple Music); past the end it starts over
+   * when any repeat is on.
+   */
+  private async next(): Promise<void> {
     if (this.index == null || !this.queue.length) return;
     let next = this.index + 1;
     // A source that went away since the queue was made: its tracks are skipped.
@@ -674,7 +683,7 @@ export class PlaybackService extends EventEmitter {
       next += 1;
     }
     if (next >= this.queue.length) {
-      if (this.repeat === 'all') next = this.queue.findIndex((t) => !this.catalogue.sources.isDisconnected(t.cataloguePath));
+      if (this.repeat !== 'off') next = this.queue.findIndex((t) => !this.catalogue.sources.isDisconnected(t.cataloguePath));
       if (next < 0 || next >= this.queue.length) {
         this.loadSeq += 1;
         engineStop();
