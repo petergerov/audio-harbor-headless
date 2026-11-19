@@ -78,7 +78,7 @@ export class RecordingsView implements View {
     const state = this.ctx.store.get();
     root.innerHTML = `
       <div class="screen-top">
-        <div class="page-header phone-untitled">
+        <div class="page-header phone-quiet">
           <h1 class="large-title">Recordings</h1>
           ${host.headerPlayerSlot()}
         </div>

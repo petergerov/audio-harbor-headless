@@ -173,7 +173,7 @@ export function resolveSelection(
   const playlist = arg('playlist');
   if (playlist) {
     const found = findPlaylist(catalogue, String(playlist.id ?? ''));
-    return found ? queue(catalogue.playlistTracks(found.id), { kind: 'Playlist', name: found.name }) : null;
+    return found ? queue(catalogue.playlistTracks(found.id), { kind: 'Playlist', name: found.name, playlistId: found.id }) : null;
   }
   const folder = arg('folder');
   if (folder) {

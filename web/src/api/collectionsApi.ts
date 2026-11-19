@@ -1,5 +1,12 @@
 import type { HttpClient } from './http';
-import type { CollectionTracks, LabelSummary, PlaylistSummary, Selection } from './types';
+import type {
+  CollectionTracks,
+  LabelSummary,
+  PlaylistChoice,
+  PlaylistExport,
+  PlaylistSummary,
+  Selection,
+} from './types';
 
 export interface CollectionsApi {
   playlists(): Promise<PlaylistSummary[]>;
@@ -17,6 +24,17 @@ export interface CollectionsApi {
   deleteLabel(name: string): Promise<void>;
   /** The labels on one track. */
   trackLabels(cataloguePath: string): Promise<string[]>;
+  /** The playlists, each marked if it holds every one of `paths`. */
+  playlistChoices(paths: string[]): Promise<PlaylistChoice[]>;
+  /** Appends the songs in order, skipping ones the playlist holds; returns how many went in. */
+  addPaths(id: string, paths: string[]): Promise<number>;
+  removePaths(id: string, paths: string[]): Promise<void>;
+  /** The playlists as listed, in their new order. */
+  reorderPlaylists(ids: string[]): Promise<void>;
+  /** A playlist's songs as listed, in their new order. */
+  reorderPlaylistTracks(id: string, paths: string[]): Promise<void>;
+  /** Every playlist as an M3U8 file into `folder` on the host. */
+  exportPlaylists(folder: string): Promise<PlaylistExport>;
 }
 
 /** The selection as request body: what it names, without the display title. */
@@ -86,6 +104,30 @@ export class HttpCollectionsApi implements CollectionsApi {
 
   async deleteLabel(name: string): Promise<void> {
     await this.http.delete(labelPath(name));
+  }
+
+  async playlistChoices(paths: string[]): Promise<PlaylistChoice[]> {
+    return (await this.http.post<{ playlists: PlaylistChoice[] }>('/api/v1/playlists/choices', { paths })).playlists;
+  }
+
+  async addPaths(id: string, paths: string[]): Promise<number> {
+    return (await this.http.post<{ added: number }>(`${playlistPath(id)}/items`, { paths })).added;
+  }
+
+  async removePaths(id: string, paths: string[]): Promise<void> {
+    await this.http.delete(`${playlistPath(id)}/items`, { paths });
+  }
+
+  async reorderPlaylists(ids: string[]): Promise<void> {
+    await this.http.put('/api/v1/playlists/order', { ids });
+  }
+
+  async reorderPlaylistTracks(id: string, paths: string[]): Promise<void> {
+    await this.http.put(`${playlistPath(id)}/order`, { paths });
+  }
+
+  exportPlaylists(folder: string): Promise<PlaylistExport> {
+    return this.http.post('/api/v1/playlists/export', { folder });
   }
 
   async trackLabels(cataloguePath: string): Promise<string[]> {

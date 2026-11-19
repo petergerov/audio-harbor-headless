@@ -33,6 +33,8 @@ export interface RowModel {
    * in front of the title only while it is the one loaded.
    */
   bare?: boolean;
+  /** Catalogue's Select mode: a tick circle in front, filled when the song is ticked. */
+  picked?: boolean;
 }
 
 /** One row: what it shows and what a tap, `···`, a long press or a right click do. */
@@ -46,8 +48,10 @@ export interface RowEntry {
   path?: string;
   /** A long press (touch) or right click opens `onMore`. */
   contextMenu?: boolean;
-  /** An amber play key at the end (albums, folders, artists, lists on the desktop). */
+  /** An amber play key at the end (playlists, on the desktop). */
   onPlay?: () => void | Promise<unknown>;
+  /** ⌘- / Ctrl-click ticks the song, ⇧-click ticks the songs from the last one ticked to it. */
+  onPick?: (range: boolean) => void;
 }
 
 /** How long a press must last to open the row's actions, and how far the finger may drift. */
@@ -76,17 +80,32 @@ export function trackTrail(mark: TrackMark): string {
 }
 
 /** The speaker in front of a bare song's title: sounding while it plays, quiet while paused. */
+/** Ticks or unticks the circle of a row painted in Select mode, without painting it again. */
+export function setRowTick(wrap: HTMLElement, picked: boolean): void {
+  const tick = wrap.querySelector('.row-tick');
+  if (!tick) return;
+  tick.classList.toggle('on', picked);
+  tick.textContent = picked ? '✓' : '';
+  wrap.querySelector('.row')?.setAttribute('aria-pressed', String(picked));
+}
+
 export function speakerGlyph(paused: boolean): string {
   return paused ? icons.macSpeakerPaused : icons.macSpeaker;
 }
 
+/** The Select mode's circle, ticked or not. */
+function tickHtml(picked: boolean): string {
+  return `<span class="row-tick${picked ? ' on' : ''}" aria-hidden="true">${picked ? '✓' : ''}</span>`;
+}
+
 function rowHtml(row: RowModel, covers: Covers): string {
   if (row.bare) {
+    const tick = row.picked === undefined ? '' : tickHtml(row.picked);
     const speaker = `<span class="row-speaker" data-speaker aria-hidden="true">${speakerGlyph(Boolean(row.paused))}</span>`;
     const badge = row.badge ? `<span class="row-badge">${escapeHtml(row.badge)}</span>` : '';
     const meta = row.meta ? `<div class="row-meta">${escapeHtml(row.meta)}</div>` : '';
     // The empty trail still carries the spinner while a song starts.
-    return `<div class="row-text"><div class="row-title">${speaker}${escapeHtml(row.title)}</div><div class="row-sub">${escapeHtml(
+    return `${tick}<div class="row-text"><div class="row-title">${speaker}${escapeHtml(row.title)}</div><div class="row-sub">${escapeHtml(
       row.subtitle
     )}</div>${meta}</div>${badge}<span class="row-trail"></span>`;
   }
@@ -128,7 +147,9 @@ function wrapHtml(entry: RowEntry, index: number, covers: Covers): string {
   const disabled = row.unavailable && row.kind === 'track' ? ' aria-disabled="true"' : '';
   return (
     `<div class="${wrapClass}" data-row="${index}"${path}>` +
-    `<button type="button" class="row${row.bare ? ' bare' : ' has-icon'}${row.playing ? ' playing' : ''}"${disabled}>${rowHtml(row, covers)}</button>` +
+    `<button type="button" class="row${row.bare ? ' bare' : ' has-icon'}${row.playing ? ' playing' : ''}${
+      row.picked === undefined ? '' : ' ticking'
+    }"${row.picked === undefined ? '' : ` aria-pressed="${row.picked}"`}${disabled}>${rowHtml(row, covers)}</button>` +
     (entry.onPlay && !row.unavailable
       ? `<button type="button" class="row-play" aria-label="Play ${escapeAttr(row.title)}">${icons.trailPlay}</button>`
       : '') +
@@ -182,6 +203,11 @@ function bindRows(container: HTMLElement, entryOf: (wrap: HTMLElement) => RowEnt
     if (!hit.el.closest('.row')) return;
     if (swallowClick) {
       swallowClick = false;
+      return;
+    }
+    if (hit.entry.onPick && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+      event.preventDefault();
+      hit.entry.onPick(event.shiftKey);
       return;
     }
     const pending = hit.entry.onOpen();

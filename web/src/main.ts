@@ -18,6 +18,7 @@ import { HttpSettingsApi } from './api/settingsApi';
 import { required } from './core/html';
 import { Store } from './core/store';
 import { CollectionsService } from './services/collectionsService';
+import { Picks } from './state/picks';
 import { LibraryService } from './services/libraryService';
 import { Navigator } from './services/navigator';
 import { PlaybackClock } from './services/playbackClock';
@@ -54,7 +55,8 @@ let shell: Shell | null = null;
 const nav = new Navigator(store, library, collections, new BrowserHistory(), (transition, afterSwap) =>
   shell?.render(transition, afterSwap)
 );
-const actions = new SheetActions({ store, collections, nav, playback });
+const picks = new Picks(store);
+const actions = new SheetActions({ store, collections, nav, playback, picks, settings: settingsApi });
 
 const ctx: AppContext = {
   store,
@@ -69,6 +71,7 @@ const ctx: AppContext = {
   covers,
   bindings,
   actions,
+  picks,
 };
 const chromeDeps = { store, covers, nav, playback, clock, bindings };
 shell = new Shell(root, ctx, VIEWS, {

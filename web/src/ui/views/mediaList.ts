@@ -4,9 +4,9 @@ import { haptic } from '../../core/device';
 import { errorMessage } from '../../core/errors';
 import { formatTime, songs } from '../../core/format';
 import { escapeHtml } from '../../core/html';
-import type { LibraryState, OpenCollection } from '../../state/appState';
+import type { LibraryState, OpenCollection, PickedTrack } from '../../state/appState';
 import { isCurrentTrack, isPlaying, nowPlayingPath } from '../../state/selectors';
-import { paintRows, type RowEntry, type RowModel } from '../components/mediaRow';
+import { paintRows, setRowTick, type RowEntry, type RowModel } from '../components/mediaRow';
 import { showToast } from '../overlay';
 
 /** Where a list shows: the library (browse or search), or an open playlist / label. */
@@ -22,8 +22,10 @@ interface PresentedRow {
   open(): void | Promise<unknown>;
   /** Track rows carry their path (playing mark, long press). */
   path?: string;
-  /** Plays the whole entry (album, artist, folder, list) without opening it. */
+  /** Plays the whole entry (a playlist) without opening it: the play key on the desktop. */
   play?: PlayContext;
+  /** A song Catalogue's Select mode can tick. */
+  pick?: PickedTrack;
 }
 
 type Presenter = (item: BrowseItem, scope: ListScope, ctx: AppContext) => PresentedRow | null;
@@ -61,8 +63,8 @@ const albumEntry: Presenter = (item, scope, ctx) => {
       unavailable: offline,
     },
     selection: { albumId: album.id, title: album.title },
+    // No play key: Play is in the row's menu, and the open album's path bar plays it.
     open: () => void ctx.nav.openAlbum(album),
-    play: { albumId: album.id },
   };
 };
 
@@ -72,8 +74,8 @@ const artistEntry: Presenter = (item, scope, ctx) => {
   return {
     row: { kind: 'artist', title: name, subtitle: songs(Number(item.trackCount ?? 0)), chevron: true },
     selection: { artist: name, title: name },
+    // No play key: Play is in the row's menu, and the open artist's path bar plays it.
     open: () => void ctx.nav.openArtist(name),
-    play: { artist: name },
   };
 };
 
@@ -123,8 +125,9 @@ const folderEntry: Presenter = (item, _scope, ctx) => {
     // Still opens: what the catalogue knows of it shows, greyed out.
     row: { kind: 'folder', title: name, subtitle: offline ? NOT_CONNECTED : '', chevron: true, unavailable: offline },
     selection: { folder: path, title: name },
+    // No play key on folders: Play is in the row's menu (··· or right click), and the open
+    // folder's path bar plays it.
     open: () => void ctx.nav.openFolder(path),
-    play: offline ? undefined : { folder: path },
   };
 };
 
@@ -168,6 +171,7 @@ const trackEntry: Presenter = (item, scope, ctx) => {
       void ctx.playback.transport('toggle').catch((err) => showToast(errorMessage(err, 'Playback failed'), { error: true }));
     },
     path,
+    pick: offline ? undefined : { cataloguePath: path, title: track.title ?? item.name ?? 'Track' },
   };
 };
 
@@ -238,6 +242,24 @@ export function paintLoadError(list: HTMLElement, message: string, retry: () => 
   list.querySelector('[data-retry]')?.addEventListener('click', retry);
 }
 
+/** The song a ⇧-click ticks from: the last one ticked or unticked. */
+let pickAnchor: string | null = null;
+
+/** The songs a list can tick, in its order. */
+const pickablesOf = new WeakMap<HTMLElement, PickedTrack[]>();
+
+/** Brings the Select mode circles of a painted list in line with the ticks. */
+export function syncTicks(list: HTMLElement, ctx: AppContext): void {
+  list.querySelectorAll<HTMLElement>('.row-wrap[data-path]').forEach((wrap) => {
+    setRowTick(wrap, ctx.picks.has(wrap.dataset.path ?? ''));
+  });
+}
+
+/** The songs in `list` that Select All ticks. */
+export function pickablesIn(list: HTMLElement): PickedTrack[] {
+  return pickablesOf.get(list) ?? [];
+}
+
 /** Fills `list` with a row per item it can show. */
 export function paintMediaList(list: HTMLElement, items: BrowseItem[], scope: ListScope, ctx: AppContext): void {
   list.innerHTML = '';
@@ -249,22 +271,36 @@ export function paintMediaList(list: HTMLElement, items: BrowseItem[], scope: Li
     return;
   }
   const inCollection = scope.kind === 'collection' ? scope.collection : null;
-  const entries: RowEntry[] = [];
-  for (const item of items) {
-    const presented = PRESENTERS.reduce<PresentedRow | null>(
-      (found, present) => found ?? present(item, scope, ctx),
-      null
-    );
-    if (!presented) continue;
-    entries.push({
-      row: presented.row,
+  // Select mode is the Catalogue's: songs tick there instead of playing.
+  const canPick = scope.kind === 'library';
+  const selecting = canPick && ctx.picks.state.selecting;
+  const presentedRows = items
+    .map((item) => PRESENTERS.reduce<PresentedRow | null>((found, present) => found ?? present(item, scope, ctx), null))
+    .filter((p): p is PresentedRow => p !== null);
+  const pickables = canPick ? presentedRows.flatMap((p) => (p.pick ? [p.pick] : [])) : [];
+  pickablesOf.set(list, pickables);
+
+  const pick = (track: PickedTrack, range: boolean) => {
+    const from = range && pickAnchor ? pickables.findIndex((t) => t.cataloguePath === pickAnchor) : -1;
+    const to = pickables.findIndex((t) => t.cataloguePath === track.cataloguePath);
+    if (from >= 0 && to >= 0) ctx.picks.select(pickables.slice(Math.min(from, to), Math.max(from, to) + 1));
+    else ctx.picks.toggle(track);
+    pickAnchor = track.cataloguePath;
+    haptic('light');
+  };
+
+  const entries: RowEntry[] = presentedRows.map((presented) => {
+    const track = canPick ? presented.pick : undefined;
+    return {
+      row: selecting && track ? { ...presented.row, picked: ctx.picks.has(track.cataloguePath) } : presented.row,
       path: presented.path,
       moreLabel: 'Actions',
       contextMenu: true,
-      onOpen: presented.open,
+      onOpen: selecting && track ? () => pick(track, false) : presented.open,
       onPlay: presented.play ? () => ctx.actions.play(presented.play!) : undefined,
       onMore: () => ctx.actions.organize(presented.selection, inCollection),
-    });
-  }
+      onPick: track ? (range) => pick(track, range) : undefined,
+    };
+  });
   paintRows(list, entries, ctx.covers);
 }

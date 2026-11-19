@@ -11,8 +11,12 @@ import type { RemoteRack, RemoteRackSnapshot } from './rack.js';
 import type { RemoteSettings, SettingsSnapshot } from './settings.js';
 import { trackDto, wireNowPlaying, wirePlaylistId, wireQueue } from './wire.js';
 
-/** 4: the plugin rack (`getRack`, `setRack`, `loadRackPreset`, topic `rack`). */
-const PROTOCOL_VERSION = 4;
+/**
+ * 4: the plugin rack (`getRack`, `setRack`, `loadRackPreset`, topic `rack`).
+ * 5: several songs filed at once (`playlistChoices`, `editTracks`), and playlists and their songs
+ * put in order (`reorderPlaylists`, `reorderPlaylistTracks`).
+ */
+const PROTOCOL_VERSION = 5;
 const SERVICE_TYPE = 'audioharbor';
 const MAX_FRAME = 4 << 20;
 const CAPABILITIES = ['transport', 'queueJump', 'browse', 'search', 'artwork'];
@@ -51,6 +55,11 @@ function frame(kind: 0 | 1, payload: Buffer): Buffer {
 
 function fields(value: unknown): Fields {
   return value && typeof value === 'object' ? (value as Fields) : {};
+}
+
+/** A list of strings from the wire; anything else in it is left out. */
+function paths(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
 function message(err: unknown): string {
@@ -186,6 +195,23 @@ class RemoteSession {
         return this.trackOptions(String(data.cataloguePath ?? ''), id);
       case 'editTrack':
         return this.editTrack(String(data.cataloguePath ?? ''), fields(data.edit), id);
+      case 'playlistChoices':
+        return this.playlistChoices(paths(data.cataloguePaths), id);
+      case 'editTracks':
+        return this.editTracks(paths(data.cataloguePaths), fields(data.edit), id);
+      case 'reorderPlaylists': {
+        // No answer, as from the Mac; a list that no longer matches is ignored.
+        const ids = paths(data.ids).map((wanted) => findPlaylist(catalogue, wanted)?.id ?? wanted);
+        catalogue.reorderPlaylists(ids);
+        return;
+      }
+      case 'reorderPlaylistTracks': {
+        const playlist = findPlaylist(catalogue, String(data.playlistID ?? ''));
+        if (playlist && catalogue.reorderPlaylistTracks(playlist.id, paths(data.cataloguePaths))) {
+          playback.playlistReordered(playlist.id);
+        }
+        return;
+      }
       case 'getSettings':
         return this.sendSettings(settings.snapshot(), id);
       case 'setSettings': {
@@ -301,18 +327,43 @@ class RemoteSession {
   private editTrack(cataloguePath: string, edit: Fields, id: number | undefined): void {
     const catalogue = this.opts.catalogue;
     if (!catalogue.getTrack(cataloguePath)) return this.error('notFound', 'Track not found', id);
-    // The app names a playlist by the UUID it was sent for it.
-    for (const key of ['addToPlaylist', 'removeFromPlaylist']) {
-      if (!edit[key] || typeof edit[key] !== 'object') continue;
-      const playlist = findPlaylist(catalogue, String(fields(edit[key]).id ?? ''));
-      if (playlist) edit[key] = { id: playlist.id };
-    }
     try {
-      catalogue.applyTrackEdit(cataloguePath, edit);
+      catalogue.applyTrackEdit(cataloguePath, this.localEdit(edit));
     } catch (err) {
       return this.error('badRequest', message(err), id);
     }
     this.trackOptions(cataloguePath, id);
+  }
+
+  /** The playlists for several songs: `containsTrack` means it holds every one of them. */
+  private playlistChoices(cataloguePaths: string[], id: number | undefined): void {
+    const playlists = this.opts.catalogue
+      .playlistChoices(cataloguePaths)
+      .map((p) => ({ ...p, id: wirePlaylistId(p.id) }));
+    this.send({ playlistChoices: { playlists } }, id);
+  }
+
+  /** One edit for several songs; answered with the choices as they stand after it. */
+  private editTracks(cataloguePaths: string[], edit: Fields, id: number | undefined): void {
+    const catalogue = this.opts.catalogue;
+    const known = cataloguePaths.filter((p) => catalogue.getTrack(p));
+    if (!known.length) return this.error('notFound', 'Tracks not found', id);
+    try {
+      catalogue.applyTracksEdit(known, this.localEdit(edit));
+    } catch (err) {
+      return this.error('badRequest', message(err), id);
+    }
+    this.playlistChoices(cataloguePaths, id);
+  }
+
+  /** The app names a playlist by the UUID it was sent for it: the edit gets this host's id. */
+  private localEdit(edit: Fields): Fields {
+    for (const key of ['addToPlaylist', 'removeFromPlaylist']) {
+      if (!edit[key] || typeof edit[key] !== 'object') continue;
+      const playlist = findPlaylist(this.opts.catalogue, String(fields(edit[key]).id ?? ''));
+      if (playlist) edit[key] = { id: playlist.id };
+    }
+    return edit;
   }
 
   private pushNowPlaying(snapshot: NowPlayingSnapshot): void {

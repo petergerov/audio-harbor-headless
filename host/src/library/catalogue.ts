@@ -23,6 +23,53 @@ export const AUDIO_EXT = new Set([
   '.iso',
 ]);
 
+/**
+ * `current` with the entries for `ordered` put into that order, in the places they held; entries
+ * not listed stay where they are. Null when `ordered` does not hold exactly those entries
+ * (duplicates included), or nothing would move.
+ */
+export function fillSlots(current: string[], ordered: string[]): string[] | null {
+  const wanted = new Set(ordered);
+  const slots = current.flatMap((p, index) => (wanted.has(p) ? [index] : []));
+  if (slots.length !== ordered.length) return null;
+  const held = slots.map((i) => current[i]!).sort();
+  const asked = [...ordered].sort();
+  if (held.some((p, i) => p !== asked[i])) return null;
+  const next = current.slice();
+  slots.forEach((slot, i) => {
+    next[slot] = ordered[i]!;
+  });
+  return next.some((p, i) => p !== current[i]) ? next : null;
+}
+
+/** A playlist name as a file name: no path separators or colons, never empty or hidden. */
+function m3uFileName(name: string): string {
+  const cleaned = name.replace(/[/\\:]/g, '-').replace(/[\u0000-\u001f]/g, '').trim().replace(/^\.+/, '');
+  return cleaned || 'Playlist';
+}
+
+/**
+ * Extended M3U8 as the Mac writes it: UTF-8, `\n`, absolute paths. SACD ISO tracks share one
+ * file, so a disc is written once.
+ */
+export function renderM3u8(name: string, tracks: Track[]): string {
+  const single = (text: string) => text.replace(/[\r\n]+/g, ' ');
+  const lines = ['#EXTM3U', `#PLAYLIST:${single(name)}`];
+  const containers = new Set<string>();
+  for (const track of tracks) {
+    const sacd = parseSacdPath(track.cataloguePath);
+    const file = sacd?.filePath ?? track.cataloguePath;
+    if (sacd) {
+      if (containers.has(file)) continue;
+      containers.add(file);
+    }
+    const seconds = track.durationSecs && track.durationSecs > 0 ? Math.round(track.durationSecs) : -1;
+    const display = track.artist ? `${track.artist} - ${track.title}` : track.title;
+    lines.push(`#EXTINF:${seconds},${single(display)}`, file);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 function formatFromExt(ext: string): AudioFormat {
   switch (ext.toLowerCase()) {
     case '.flac':
@@ -284,6 +331,14 @@ export class Catalogue extends EventEmitter {
         content='tracks', content_rowid='rowid'
       );
     `);
+    // Playlists keep the order they are dragged into; before that they listed by name.
+    const playlistColumns = this.db.prepare('PRAGMA table_info(playlists)').all() as Array<{ name: string }>;
+    if (!playlistColumns.some((c) => c.name === 'position')) {
+      this.db.exec('ALTER TABLE playlists ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
+      const rows = this.db.prepare('SELECT id FROM playlists ORDER BY name').all() as Array<{ id: string }>;
+      const setPosition = this.db.prepare('UPDATE playlists SET position = ? WHERE id = ?');
+      rows.forEach((row, index) => setPosition.run(index, row.id));
+    }
   }
 
   close(): void {
@@ -871,7 +926,9 @@ export class Catalogue extends EventEmitter {
   }
 
   listPlaylists(): Array<{ id: string; name: string; paths: string[] }> {
-    const rows = this.db.prepare('SELECT id, name, paths_json FROM playlists ORDER BY name').all() as Array<{
+    const rows = this.db
+      .prepare('SELECT id, name, paths_json FROM playlists ORDER BY position, name')
+      .all() as Array<{
       id: string;
       name: string;
       paths_json: string;
@@ -902,9 +959,11 @@ export class Catalogue extends EventEmitter {
     if (!trimmed) throw new Error('name required');
     const id = crypto.randomUUID();
     const unique = [...new Set(paths.filter((p) => Boolean(this.getTrack(p))))];
+    // A new playlist goes to the top, as on the Mac.
+    const top = this.db.prepare('SELECT MIN(position) AS top FROM playlists').get() as { top: number | null };
     this.db
-      .prepare('INSERT INTO playlists (id, name, paths_json) VALUES (?, ?, ?)')
-      .run(id, trimmed, JSON.stringify(unique));
+      .prepare('INSERT INTO playlists (id, name, paths_json, position) VALUES (?, ?, ?, ?)')
+      .run(id, trimmed, JSON.stringify(unique), (top.top ?? 1) - 1);
     return { id, name: trimmed, paths: unique };
   }
 
@@ -926,9 +985,11 @@ export class Catalogue extends EventEmitter {
       | undefined;
     if (!row) throw new Error('playlist not found');
     const current = JSON.parse(row.paths_json) as string[];
+    const known = new Set(current);
     let added = 0;
     for (const p of paths) {
-      if (!this.getTrack(p) || current.includes(p)) continue;
+      if (known.has(p) || !this.getTrack(p)) continue;
+      known.add(p);
       current.push(p);
       added += 1;
     }
@@ -944,6 +1005,96 @@ export class Catalogue extends EventEmitter {
     const drop = new Set(paths);
     const next = (JSON.parse(row.paths_json) as string[]).filter((p) => !drop.has(p));
     this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?').run(JSON.stringify(next), id);
+  }
+
+  /**
+   * Puts the playlists listed in `orderedIds` into that order, in the places they held among the
+   * others, so a list that shows only some of them (a search) moves those and leaves the rest.
+   * A list that no longer matches (a playlist was deleted meanwhile) is ignored. Returns whether
+   * anything moved.
+   */
+  reorderPlaylists(orderedIds: string[]): boolean {
+    const playlists = this.listPlaylists();
+    const byId = new Map<string, { id: string }>();
+    for (const p of playlists) byId.set(p.id.toLowerCase(), p);
+    const ordered = orderedIds.map((id) => byId.get(id.toLowerCase()));
+    const wanted = new Set(ordered.map((p) => p?.id));
+    if (ordered.some((p) => !p) || wanted.size !== orderedIds.length) return false;
+    const slots = playlists.flatMap((p, index) => (wanted.has(p.id) ? [index] : []));
+    const result = playlists.map((p) => p.id);
+    slots.forEach((slot, i) => {
+      result[slot] = ordered[i]!.id;
+    });
+    if (result.every((id, i) => id === playlists[i]!.id)) return false;
+    const setPosition = this.db.prepare('UPDATE playlists SET position = ? WHERE id = ?');
+    this.db.exec('BEGIN');
+    try {
+      result.forEach((id, index) => setPosition.run(index, id));
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    return true;
+  }
+
+  /**
+   * Puts the playlist's entries for `orderedPaths` into that order, in the places they held.
+   * Entries that are not listed (songs on a drive that is offline) stay where they are. The list
+   * must hold exactly the playlist's entries for those paths; a stale one is ignored. Returns
+   * whether anything moved.
+   */
+  reorderPlaylistTracks(id: string, orderedPaths: string[]): boolean {
+    const playlist = this.getPlaylist(id);
+    if (!playlist) throw new Error('playlist not found');
+    const next = fillSlots(playlist.paths, orderedPaths);
+    if (!next) return false;
+    this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?').run(JSON.stringify(next), playlist.id);
+    return true;
+  }
+
+  /** The playlists, each marked if it holds every one of `paths` (the remote's Add to Playlist). */
+  playlistChoices(paths: string[]): Array<{ id: string; name: string; containsTrack: boolean }> {
+    const wanted = [...new Set(paths)];
+    return this.listPlaylists().map((p) => {
+      const held = new Set(p.paths);
+      return { id: p.id, name: p.name, containsTrack: wanted.length > 0 && wanted.every((x) => held.has(x)) };
+    });
+  }
+
+  /**
+   * Writes every playlist as `<name>.m3u8` into `folder`, replacing files of the same name there;
+   * two playlists with one name get " 2", " 3". Empty playlists are left out. Songs on a drive
+   * that is offline are kept: their paths work again once it is back.
+   */
+  exportPlaylists(folder: string): { folder: string; written: number; empty: string[]; failed: string[] } {
+    const target = path.resolve(folder);
+    if (!fs.statSync(target, { throwIfNoEntry: false })?.isDirectory()) throw new Error('folder not found');
+    const used = new Set<string>();
+    let written = 0;
+    const empty: string[] = [];
+    const failed: string[] = [];
+    for (const playlist of this.listPlaylists()) {
+      const tracks = this.playlistTracks(playlist.id);
+      if (!tracks.length) {
+        empty.push(playlist.name);
+        continue;
+      }
+      const base = m3uFileName(playlist.name);
+      let name = base;
+      for (let n = 2; used.has(name.toLowerCase()); n += 1) name = `${base} ${n}`;
+      used.add(name.toLowerCase());
+      const file = path.join(target, `${name}.m3u8`);
+      try {
+        const temp = `${file}.${process.pid}.tmp`;
+        fs.writeFileSync(temp, renderM3u8(playlist.name, tracks));
+        fs.renameSync(temp, file);
+        written += 1;
+      } catch (err) {
+        failed.push(`${playlist.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return { folder: target, written, empty, failed };
   }
 
   allLabels(): string[] {
@@ -1117,29 +1268,34 @@ export class Catalogue extends EventEmitter {
 
   applyTrackEdit(cataloguePathValue: string, edit: Record<string, unknown>): void {
     if (!this.getTrack(cataloguePathValue)) throw new Error('track not found');
+    this.applyTracksEdit([cataloguePathValue], edit);
+  }
+
+  /** One edit (the remote's `TrackEdit`) for several songs at once, in the order given. */
+  applyTracksEdit(paths: string[], edit: Record<string, unknown>): void {
     if (edit.addToPlaylist && typeof edit.addToPlaylist === 'object') {
       const id = String((edit.addToPlaylist as { id?: string }).id ?? '');
-      this.addPathsToPlaylist(this.getPlaylist(id)?.id ?? id, [cataloguePathValue]);
+      this.addPathsToPlaylist(this.getPlaylist(id)?.id ?? id, paths);
       return;
     }
     if (edit.removeFromPlaylist && typeof edit.removeFromPlaylist === 'object') {
       const id = String((edit.removeFromPlaylist as { id?: string }).id ?? '');
-      this.removePathsFromPlaylist(this.getPlaylist(id)?.id ?? id, [cataloguePathValue]);
+      this.removePathsFromPlaylist(this.getPlaylist(id)?.id ?? id, paths);
       return;
     }
     if (edit.addToNewPlaylist && typeof edit.addToNewPlaylist === 'object') {
       const name = String((edit.addToNewPlaylist as { name?: string }).name ?? '').trim();
-      this.createPlaylist(name, [cataloguePathValue]);
+      this.createPlaylist(name, paths);
       return;
     }
     if (edit.addLabel && typeof edit.addLabel === 'object') {
       const name = String((edit.addLabel as { name?: string }).name ?? '').trim();
-      this.addLabelToPaths(name, [cataloguePathValue]);
+      this.addLabelToPaths(name, paths);
       return;
     }
     if (edit.removeLabel && typeof edit.removeLabel === 'object') {
       const name = String((edit.removeLabel as { name?: string }).name ?? '').trim();
-      this.removeLabelFromPaths(name, [cataloguePathValue]);
+      this.removeLabelFromPaths(name, paths);
       return;
     }
     throw new Error('unknown edit');

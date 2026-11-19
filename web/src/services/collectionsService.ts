@@ -1,5 +1,5 @@
 import type { CollectionsApi } from '../api/collectionsApi';
-import type { CollectionKind, Selection } from '../api/types';
+import type { CollectionKind, PlaylistChoice, PlaylistExport, Selection } from '../api/types';
 import type { Store } from '../core/store';
 import { errorMessage } from '../core/errors';
 import type { AppState, CollectionsState } from '../state/appState';
@@ -82,6 +82,45 @@ export class CollectionsService {
 
   trackLabels(cataloguePath: string): Promise<string[]> {
     return this.api.trackLabels(cataloguePath);
+  }
+
+  playlistChoices(paths: string[]): Promise<PlaylistChoice[]> {
+    return this.api.playlistChoices(paths);
+  }
+
+  addPaths(id: string, paths: string[]): Promise<number> {
+    return this.api.addPaths(id, paths);
+  }
+
+  removePaths(id: string, paths: string[]): Promise<void> {
+    return this.api.removePaths(id, paths);
+  }
+
+  /** The playlists in a new order: the lists show it at once, then the host's answer. */
+  async reorderPlaylists(ids: string[]): Promise<void> {
+    const rank = new Map(ids.map((id, i) => [id, i]));
+    const playlists = this.store.get().collections.playlists;
+    const slots = playlists.flatMap((p, i) => (rank.has(p.id) ? [i] : []));
+    const moved = slots.map((i) => playlists[i]!).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+    const next = playlists.slice();
+    slots.forEach((slot, i) => {
+      next[slot] = moved[i]!;
+    });
+    this.patch({ playlists: next });
+    try {
+      await this.api.reorderPlaylists(ids);
+    } finally {
+      await this.refresh();
+    }
+  }
+
+  /** A playlist's songs in a new order. */
+  reorderPlaylistTracks(id: string, paths: string[]): Promise<void> {
+    return this.api.reorderPlaylistTracks(id, paths);
+  }
+
+  exportPlaylists(folder: string): Promise<PlaylistExport> {
+    return this.api.exportPlaylists(folder);
   }
 
   private patch(change: Partial<CollectionsState>): void {

@@ -13,6 +13,8 @@ export interface PlaybackActions {
   setRepeat(mode: RepeatMode): Promise<void>;
   /** Jumps to a queue position; the track playing now pauses or resumes. */
   playQueueIndex(index: number): Promise<void>;
+  /** The queue in a new order: shown at once, then as the host has it. */
+  reorderQueue(paths: string[]): Promise<void>;
 }
 
 /** At least this long between two volume requests while a slider moves. */
@@ -118,6 +120,25 @@ export class PlaybackService implements PlaybackActions {
 
   async playQueueIndex(index: number): Promise<void> {
     this.receive(await this.api.playQueueIndex(index));
+  }
+
+  async reorderQueue(paths: string[]): Promise<void> {
+    const queue = this.store.get().queue;
+    if (queue) {
+      const pool = new Map<string, QueueSnapshot['tracks']>();
+      for (const t of queue.tracks) pool.set(t.cataloguePath, [...(pool.get(t.cataloguePath) ?? []), t]);
+      const tracks = paths.map((p) => pool.get(p)?.shift()).filter((t): t is NonNullable<typeof t> => Boolean(t));
+      if (tracks.length === queue.tracks.length) {
+        const current = queue.currentIndex === null ? undefined : queue.tracks[queue.currentIndex];
+        this.store.update({ queue: { ...queue, tracks, currentIndex: current ? tracks.indexOf(current) : null } });
+      }
+    }
+    try {
+      this.store.update({ queue: await this.api.reorderQueue(paths) });
+    } catch (err) {
+      this.store.update({ queue: await this.api.queue().catch(() => queue) });
+      throw err;
+    }
   }
 
   /** Flip play ↔ pause in the store before the host answers (iOS remote does the same). */

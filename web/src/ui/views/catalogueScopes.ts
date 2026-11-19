@@ -11,5 +11,5 @@ export const CATALOGUE_SCOPES: ReadonlyArray<{
   { scope: 'folders', label: 'Dirs', long: 'Directories', search: 'Find directories & files' },
   { scope: 'albums', label: 'Albums', long: 'Albums', search: 'Find album, artist, track' },
   { scope: 'artists', label: 'Artists', long: 'Artists', search: 'Find artist, album, track' },
-  { scope: 'playlists', label: 'Lists', long: 'Playlists', search: 'Find playlist, artist, track' },
+  { scope: 'playlists', label: 'Playlists', long: 'Playlists', search: 'Find playlist, artist, track' },
 ];

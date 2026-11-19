@@ -307,6 +307,80 @@ export class PlaybackService extends EventEmitter {
     await this.loadAndPlay(track);
   }
 
+  /**
+   * The queue in a new order (the same tracks, by catalogue path) without touching playback: the
+   * current track plays on and what follows it comes from the new order. Only without shuffle,
+   * where the queue on screen is the play order. A queue started from a playlist moves the
+   * playlist's songs along. Returns false for a list that does not match the queue.
+   */
+  reorderQueue(orderedPaths: string[]): boolean {
+    if (this.shuffle || !this.queue.length) return false;
+    const next = this.matchOrder(this.queue, orderedPaths);
+    if (!next) return false;
+    this.setOrder(next);
+    const playlistId = this.source.playlistId;
+    if (playlistId) {
+      const inPlaylist = new Set(this.catalogue.getPlaylist(playlistId)?.paths ?? []);
+      try {
+        this.catalogue.reorderPlaylistTracks(
+          playlistId,
+          orderedPaths.filter((p) => inPlaylist.has(p))
+        );
+      } catch {
+        // The playlist went away: the queue keeps its new order all the same.
+      }
+    }
+    return true;
+  }
+
+  /** A playlist's songs were put in a new order: a queue playing it follows, the song plays on. */
+  playlistReordered(playlistId: string): void {
+    if (this.source.playlistId?.toLowerCase() !== playlistId.toLowerCase()) return;
+    const order = this.catalogue.getPlaylist(playlistId)?.paths;
+    if (!order) return;
+    const rank = new Map(order.map((p, i) => [p, i]));
+    const reorder = (tracks: Track[]): Track[] => {
+      // The playlist's songs take the slots they held in the queue; anything else stays put.
+      const slots = tracks.flatMap((t, i) => (rank.has(t.cataloguePath) ? [i] : []));
+      const sorted = slots
+        .map((i) => tracks[i]!)
+        .sort((a, b) => rank.get(a.cataloguePath)! - rank.get(b.cataloguePath)!);
+      const out = tracks.slice();
+      slots.forEach((slot, i) => {
+        out[slot] = sorted[i]!;
+      });
+      return out;
+    };
+    this.ordered = reorder(this.ordered);
+    // A shuffled draw keeps its sequence; otherwise the play order is the playlist's.
+    if (!this.shuffle) this.setOrder(reorder(this.queue));
+  }
+
+  /** `tracks` in the order of `paths`, matching each path once (it may be listed twice). */
+  private matchOrder(tracks: Track[], paths: string[]): Track[] | null {
+    if (paths.length !== tracks.length) return null;
+    const pool = new Map<string, Track[]>();
+    for (const t of tracks) pool.set(t.cataloguePath, [...(pool.get(t.cataloguePath) ?? []), t]);
+    const out: Track[] = [];
+    for (const p of paths) {
+      const t = pool.get(p)?.shift();
+      if (!t) return null;
+      out.push(t);
+    }
+    return out;
+  }
+
+  /** Puts the unshuffled queue in `next`; the playhead stays on the track it was on. */
+  private setOrder(next: Track[]): void {
+    const playing = this.index === null ? undefined : this.queue[this.index];
+    if (next.every((t, i) => t === this.queue[i])) return;
+    this.queue = next;
+    this.ordered = next.slice();
+    if (playing) this.index = next.indexOf(playing);
+    this.emitUpdate();
+    void this.prepareFollowingTrack();
+  }
+
   /** Rebuild play order from `ordered`, keeping the current track under the playhead. */
   private applyShuffle(enabled: boolean): void {
     if (enabled === this.shuffle) return;

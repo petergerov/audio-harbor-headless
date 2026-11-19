@@ -122,7 +122,7 @@ export class Navigator implements Navigation {
   }
 
   async openCollection(kind: CollectionKind, id: string, title: string): Promise<void> {
-    // Playlists stay in Catalogue → Lists; labels still use the collections drill view.
+    // Playlists stay in Catalogue → Playlists; labels still use the collections drill view.
     if (kind === 'playlist') {
       await this.openPlaylist(id, title);
       return;
@@ -285,7 +285,8 @@ export class Navigator implements Navigation {
     const before = this.store.get();
     const leavingScroll = this.history.scrollY();
     this.tabScroll.set(before.tab, { key: routeKey(routeOf(before)), y: leavingScroll });
-    this.store.update(change);
+    // Reorder ends with the screen it was on.
+    this.store.update((state) => ({ ...change(state), reorder: null }));
     const after = this.store.get();
     const route = routeOf(after);
     if (how === 'push') this.history.push(route, leavingScroll);
@@ -321,6 +322,6 @@ export class Navigator implements Navigation {
   }
 
   private toRoute(state: AppState, route: Route): Partial<AppState> {
-    return { ...applyRoute(state, route), collections: withOpen(state.collections, route.open) };
+    return { ...applyRoute(state, route), collections: withOpen(state.collections, route.open), reorder: null };
   }
 }

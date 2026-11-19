@@ -302,6 +302,15 @@ export async function buildServer(ctx: AppContext) {
   app.get('/api/v1/now-playing', async () => ctx.playback.snapshot());
   app.get('/api/v1/queue', async () => ctx.playback.queueSnapshot());
 
+  // The queue as listed, in a new order (no shuffle); a playlist it was started from follows.
+  app.put<{ Body: { paths?: unknown } }>('/api/v1/queue/order', async (req, reply) => {
+    const paths = Array.isArray(req.body?.paths) ? req.body.paths.filter((v): v is string => typeof v === 'string') : [];
+    if (!ctx.playback.reorderQueue(paths)) {
+      return reply.code(409).send({ error: 'The queue cannot be reordered now' });
+    }
+    return ctx.playback.queueSnapshot();
+  });
+
   app.get('/api/v1/mounts', async () => {
     const cfg = ctx.getConfig();
     return cfg.library.roots.map((p) => ({
@@ -656,7 +665,8 @@ export async function buildServer(ctx: AppContext) {
     } else if (body.playlistId) {
       tracks = ctx.catalogue.playlistTracks(body.playlistId);
       if (!tracks.length) return reply.code(404).send({ error: 'playlist empty or missing' });
-      source = { kind: 'Playlist', name: ctx.catalogue.getPlaylist(body.playlistId)?.name ?? null };
+      const playlist = ctx.catalogue.getPlaylist(body.playlistId);
+      source = { kind: 'Playlist', name: playlist?.name ?? null, playlistId: playlist?.id };
     } else if (body.label) {
       tracks = ctx.catalogue.tracksForLabel(body.label);
       if (!tracks.length) return reply.code(404).send({ error: 'label empty or missing' });
@@ -769,6 +779,46 @@ export async function buildServer(ctx: AppContext) {
       }
     }
   );
+
+  // Playlists in the order they are listed; a list that no longer matches is ignored.
+  app.put<{ Body: { ids?: unknown } }>('/api/v1/playlists/order', async (req) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((v): v is string => typeof v === 'string') : [];
+    return { moved: ctx.catalogue.reorderPlaylists(ids) };
+  });
+
+  // A playlist's songs as listed, in their new order; a queue playing it follows.
+  app.put<{ Params: { id: string }; Body: { paths?: unknown } }>(
+    '/api/v1/playlists/:id/order',
+    async (req, reply) => {
+      const paths = Array.isArray(req.body?.paths)
+        ? req.body.paths.filter((v): v is string => typeof v === 'string')
+        : [];
+      try {
+        const moved = ctx.catalogue.reorderPlaylistTracks(req.params.id, paths);
+        if (moved) ctx.playback.playlistReordered(req.params.id);
+        return { moved };
+      } catch (err) {
+        return reply.code(404).send({ error: err instanceof Error ? err.message : 'failed' });
+      }
+    }
+  );
+
+  // The playlists for several songs, each marked if it holds every one of them.
+  app.post<{ Body: { paths?: unknown } }>('/api/v1/playlists/choices', async (req) => {
+    const paths = Array.isArray(req.body?.paths) ? req.body.paths.filter((v): v is string => typeof v === 'string') : [];
+    return { playlists: ctx.catalogue.playlistChoices(paths) };
+  });
+
+  // Every playlist as <name>.m3u8 into a folder on this host.
+  app.post<{ Body: { folder?: string } }>('/api/v1/playlists/export', async (req, reply) => {
+    const folder = String(req.body?.folder ?? '').trim();
+    if (!folder || !path.isAbsolute(folder)) return reply.code(400).send({ error: 'Choose a folder' });
+    try {
+      return ctx.catalogue.exportPlaylists(folder);
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+    }
+  });
 
   app.get('/api/v1/labels', async () => ({
     labels: ctx.catalogue.allLabels().map((name) => ({

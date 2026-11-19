@@ -18,6 +18,8 @@ export type QueueSourceKind = 'Album' | 'Artist' | 'Folder' | 'Playlist' | 'Labe
 export interface QueueSource {
   kind: QueueSourceKind;
   name: string | null;
+  /** The playlist the queue was started from: its order and the queue's move together. */
+  playlistId?: string;
 }
 
 export type AudioFormat =

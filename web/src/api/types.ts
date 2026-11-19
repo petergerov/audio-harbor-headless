@@ -16,6 +16,8 @@ export type QueueSourceKind = 'Album' | 'Artist' | 'Folder' | 'Playlist' | 'Labe
 export interface QueueSource {
   kind: QueueSourceKind;
   name: string | null;
+  /** The playlist the queue was started from: the Deck can reorder it with the queue. */
+  playlistId?: string;
 }
 
 export interface Track {
@@ -191,6 +193,23 @@ export interface PlaylistSummary {
   id: string;
   name: string;
   trackCount: number;
+}
+
+/** A playlist for songs ticked together: `containsTrack` means it holds every one of them. */
+export interface PlaylistChoice {
+  id: string;
+  name: string;
+  containsTrack: boolean;
+}
+
+/** What Export All wrote into the folder. */
+export interface PlaylistExport {
+  folder: string;
+  written: number;
+  /** Playlists left out: no songs. */
+  empty: string[];
+  /** "Name: why" for each file that could not be written. */
+  failed: string[];
 }
 
 export interface LabelSummary {

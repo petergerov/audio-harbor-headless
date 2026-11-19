@@ -12,6 +12,8 @@ export interface PlaybackApi {
   setRepeat(mode: RepeatMode): Promise<NowPlaying>;
   /** Jumps to a queue position; the track playing now pauses or resumes. */
   playQueueIndex(index: number): Promise<NowPlaying>;
+  /** The queue as listed, in a new order (no shuffle); a playlist it was started from follows. */
+  reorderQueue(paths: string[]): Promise<QueueSnapshot>;
 }
 
 export class HttpPlaybackApi implements PlaybackApi {
@@ -51,5 +53,9 @@ export class HttpPlaybackApi implements PlaybackApi {
 
   playQueueIndex(index: number): Promise<NowPlaying> {
     return this.http.post('/api/v1/transport', { command: 'playQueueIndex', index });
+  }
+
+  reorderQueue(paths: string[]): Promise<QueueSnapshot> {
+    return this.http.put('/api/v1/queue/order', { paths });
   }
 }

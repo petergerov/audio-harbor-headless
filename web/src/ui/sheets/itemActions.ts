@@ -5,10 +5,14 @@ import type { Store } from '../../core/store';
 import type { CollectionsService } from '../../services/collectionsService';
 import type { Navigation } from '../../services/navigator';
 import type { PlaybackActions } from '../../services/playbackService';
+import type { SettingsApi } from '../../api/settingsApi';
 import type { AppState, OpenCollection } from '../../state/appState';
+import type { Picks } from '../../state/picks';
 import { closeOverlay, showToast } from '../overlay';
 import { openCollectionMenu, openNewPlaylist } from './collectionMenu';
+import { openExportPlaylists } from './exportPlaylists';
 import { openOrganize } from './organizeSheet';
+import { openPicksPicker } from './picksPicker';
 import type { SheetDeps } from './sheetDeps';
 
 /** What a screen can do with an item beyond navigating: play it, organize it, manage collections. */
@@ -18,17 +22,27 @@ export interface ItemActions {
   organize(selection: Selection, inCollection: OpenCollection | null): void;
   manageCollection(kind: CollectionKind, id: string, name: string): void;
   createPlaylist(): void;
+  /** Add to Playlist for the songs ticked in Catalogue. */
+  addPicksToPlaylist(): void;
+  /** Every playlist as an M3U8 file into a folder on the host. */
+  exportPlaylists(): void;
 }
 
 export class SheetActions implements ItemActions {
   private readonly sheets: SheetDeps;
+  private readonly picks: Picks;
+  private readonly settings: SettingsApi;
 
   constructor(deps: {
     store: Store<AppState>;
     collections: CollectionsService;
     nav: Navigation;
     playback: PlaybackActions;
+    picks: Picks;
+    settings: SettingsApi;
   }) {
+    this.picks = deps.picks;
+    this.settings = deps.settings;
     this.sheets = {
       store: deps.store,
       collections: deps.collections,
@@ -59,5 +73,13 @@ export class SheetActions implements ItemActions {
 
   createPlaylist(): void {
     openNewPlaylist(this.sheets);
+  }
+
+  addPicksToPlaylist(): void {
+    void openPicksPicker(this.picks, this.sheets);
+  }
+
+  exportPlaylists(): void {
+    openExportPlaylists(this.settings, this.sheets);
   }
 }

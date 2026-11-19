@@ -31,7 +31,7 @@ export interface LibraryState {
   album: AlbumRef | null;
   /** Artist drilled into (artists scope). */
   artist: string | null;
-  /** Playlist drilled into (playlists / Lists scope). */
+  /** Playlist drilled into (Playlists scope). */
   playlist: { id: string; name: string } | null;
   query: string;
   items: BrowseItem[];
@@ -59,6 +59,25 @@ export interface CollectionsState {
   error: string | null;
 }
 
+/** A song ticked in Catalogue's Select mode. */
+export interface PickedTrack {
+  cataloguePath: string;
+  title: string;
+}
+
+/** Catalogue's Select mode: songs tick instead of play, kept across levels, scopes and searches. */
+export interface PicksState {
+  selecting: boolean;
+  /** In the order they were ticked. */
+  tracks: PickedTrack[];
+}
+
+/**
+ * What Reorder is on for: `playlists` (the playlist list), `playlist:<id>` (its songs) or `queue`
+ * (the Deck's, for a playlist). Off again on the next screen.
+ */
+export type ReorderTarget = 'playlists' | `playlist:${string}` | 'queue';
+
 export interface AppState {
   tab: Tab;
   library: LibraryState;
@@ -80,6 +99,8 @@ export interface AppState {
   recordingsPath: string;
   /** Bumped when the host says the recordings changed: the open listing loads again. */
   recordingFilesRev: number;
+  picks: PicksState;
+  reorder: ReorderTarget | null;
 }
 
 export const initialState: AppState = {
@@ -108,4 +129,6 @@ export const initialState: AppState = {
   recording: null,
   recordingsPath: '',
   recordingFilesRev: 0,
+  picks: { selecting: false, tracks: [] },
+  reorder: null,
 };
