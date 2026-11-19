@@ -36,14 +36,15 @@ on:
         description: 'Linux x86_64 (.deb + .tar.gz)'
         type: boolean
         default: true
-      linux_armv7:
-        description: 'Linux armhf / Raspberry Pi OS 32-bit (.deb + .tar.gz)'
+      # Raspberry Pi OS 32-bit: off for now (see the linux-armv7 job below).
+      # linux_armv7:
+      #   description: 'Linux armhf / Raspberry Pi OS 32-bit (.deb + .tar.gz)'
+      #   type: boolean
+      #   default: true
+      windows_x64:
+        description: 'Windows x64 (.zip) — experimental'
         type: boolean
         default: true
-      windows_x64:
-        description: 'Windows x64 (.zip + .tar.gz) — experimental'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -260,47 +261,49 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Off for now — Raspberry Pi OS 32-bit is not needed yet. Builds locally with
+  # release-local.sh --platforms linux-armv7.
   # 32-bit Raspberry Pi OS (armhf). No runner runs it as its own system, so the Linux job's steps
   # run in a debian:bookworm linux/arm/v7 container (packaging/linux/build-in-docker.sh) on the
   # arm64 runner — natively where its CPU runs 32-bit code, else through QEMU (slower).
-  linux-armv7:
-    name: linux-armv7
-    needs: plan
-    if: needs.plan.outputs.armv7 == 'true'
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 300
-    steps:
-      - uses: actions/checkout@v7
+  #linux-armv7:
+  #  name: linux-armv7
+  #  needs: plan
+  #  if: needs.plan.outputs.armv7 == 'true'
+  #  runs-on: ubuntu-24.04-arm
+  #  timeout-minutes: 300
+  #  steps:
+  #    - uses: actions/checkout@v7
 
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm
+  #    - uses: docker/setup-qemu-action@v3
+  #      with:
+  #        platforms: arm
 
-      - name: Build in debian:bookworm (linux/arm/v7)
-        run: |
-          mkdir -p out
-          docker run --rm --platform linux/arm/v7 \
-            -v "$PWD:/src:ro" -v "$PWD/out:/out" \
-            -v "$PWD/packaging/linux/build-in-docker.sh:/build.sh:ro" \
-            debian:bookworm bash /build.sh
-          ls -l out
+  #    - name: Build in debian:bookworm (linux/arm/v7)
+  #      run: |
+  #        mkdir -p out
+  #        docker run --rm --platform linux/arm/v7 \
+  #          -v "$PWD:/src:ro" -v "$PWD/out:/out" \
+  #          -v "$PWD/packaging/linux/build-in-docker.sh:/build.sh:ro" \
+  #          debian:bookworm bash /build.sh
+  #        ls -l out
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: package-linux-armv7
-          # The .tar.gz is built (the .deb wraps it) but not released for now.
-          path: |
-            # out/*.tar.gz
-            # out/*.tar.gz.sha256
-            out/*.deb
-            out/*.deb.sha256
-          if-no-files-found: error
-          retention-days: 14
+  #    - name: Upload artifact
+  #      uses: actions/upload-artifact@v7
+  #      with:
+  #        name: package-linux-armv7
+  #        # The .tar.gz is built (the .deb wraps it) but not released for now.
+  #        path: |
+  #          # out/*.tar.gz
+  #          # out/*.tar.gz.sha256
+  #          out/*.deb
+  #          out/*.deb.sha256
+  #        if-no-files-found: error
+  #        retention-days: 14
 
   release:
     name: GitHub Release
-    needs: [plan, build, linux, linux-armv7]
+    needs: [plan, build, linux]  # + linux-armv7 when it is back
     # A platform group that was not ticked is skipped — release unless something failed.
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-24.04
@@ -352,7 +355,6 @@ jobs:
             | `*-darwin-x64.pkg` | Intel Mac — signed installer |
             | `*_arm64.deb` | Raspberry Pi 64-bit / ARM64 — Debian package with systemd service |
             | `*_amd64.deb` | Linux x86_64 — Debian package with systemd service |
-            | `*_armhf.deb` | Raspberry Pi OS 32-bit (Pi 2 and newer) — Debian package with systemd service |
             | `install-linux.sh` | one-line installer for the `.deb` |
             | `*-win32-x64.zip` | Windows x64 (portable, experimental) — when built |
 

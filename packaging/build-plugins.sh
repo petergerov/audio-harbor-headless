@@ -90,10 +90,16 @@ if built; then
 fi
 
 # 32-bit ARM (Raspberry Pi OS armhf): LSP takes `uname -m` (armv7l) to mean -march=armv7-a, which
-# has no FPU, and Debian's hard-float compiler refuses that. Its "armhf" is -march=armv7-a+fp.
+# has no FPU, and Debian's hard-float compiler refuses that — its "armhf" is -march=armv7-a+fp.
+# 64-bit file offsets too: its resource generator walks the source tree with readdir, which fails
+# on 32-bit where inode numbers do not fit (overlay file systems, Docker, QEMU).
 ARCH_ARGS=()
 case "$(uname -m)" in
-  armv7l|armv8l) ARCH_ARGS=(ARCHITECTURE=armhf HOST_BUILD_ARCH=armhf) ;;
+  armv7l|armv8l)
+    ARM_FLAGS="-march=armv7-a+fp -marm -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE"
+    ARCH_ARGS=(ARCHITECTURE=armhf HOST_BUILD_ARCH=armhf
+      "ARCHITECTURE_CFLAGS=$ARM_FLAGS" "HOST_ARCHITECTURE_CFLAGS=$ARM_FLAGS")
+    ;;
 esac
 
 log "Building LSP Plugins (CLAP, no UI)"

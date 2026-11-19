@@ -27,7 +27,7 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 
 ### Which package
 
-There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards), for `armhf` (32-bit Raspberry Pi OS, Pi 2 or newer) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.2.3 has** `.deb` and `.tar.gz` for `arm64` (Raspberry Pi) and `.pkg` and `.tar.gz` for Apple Silicon Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
+There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. An `armhf` one (32-bit Raspberry Pi OS, Pi 2 or newer) builds with `release-local.sh --platforms linux-armv7`, but releases do not carry it for now. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.2.3 has** `.deb` and `.tar.gz` for `arm64` (Raspberry Pi) and `.pkg` and `.tar.gz` for Apple Silicon Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
 
 ```bash
 dpkg --print-architecture   # arm64, armhf or amd64 — the <arch> in the file name
@@ -38,7 +38,6 @@ The files of a release ([release page](https://github.com/petergerov/audio-harbo
 | File | For |
 |---|---|
 | `audio-harbor-headless_<ver>_arm64.deb` (+ `.sha256`) | Raspberry Pi OS / Debian / Ubuntu on arm64 — this guide |
-| `audio-harbor-headless_<ver>_armhf.deb` (+ `.sha256`) | 32-bit Raspberry Pi OS (Pi 2 or newer) — this guide |
 | `audio-harbor-headless_<ver>_amd64.deb` (+ `.sha256`) | Debian / Ubuntu on x86_64 — this guide |
 | `install-linux.sh` | the one-line installer above; picks the `.deb` for the CPU |
 | `audio-harbor-headless-<ver>-linux-<arm64\|armv7\|x64>.tar.gz` | portable, no service — see [Portable `.tar.gz`](#portable-targz) |
