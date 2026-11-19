@@ -24,8 +24,8 @@ command -v curl >/dev/null 2>&1 || die "curl not found — sudo apt install curl
 
 ARCH="$(dpkg --print-architecture)"
 case "$ARCH" in
-  amd64|arm64) ;;
-  armhf|armel) die "32-bit ARM ($ARCH) is not supported — install the 64-bit Raspberry Pi OS (Pi 3 or newer)." ;;
+  amd64|arm64|armhf) ;;
+  armel) die "ARMv6 ($ARCH: Pi Zero / Pi 1) is not supported — Node.js no longer runs there." ;;
   *) die "no package for CPU architecture $ARCH" ;;
 esac
 

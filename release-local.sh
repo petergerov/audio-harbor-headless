@@ -11,6 +11,7 @@
 # Platforms:
 #   linux-arm64   Raspberry Pi / ARM64 .deb + .tar.gz — Docker debian:bookworm, native on Apple Silicon
 #   linux-x64     Intel / AMD .deb + .tar.gz — Docker, emulated: works, but takes much longer
+#   linux-armv7   Raspberry Pi OS 32-bit (armhf) .deb + .tar.gz — Docker linux/arm/v7, emulated (slow)
 #   darwin-arm64  Apple Silicon .pkg (Developer ID signed) + .tar.gz — on this Mac
 #   (darwin-x64 and Windows need their own machines: use the workflow for those.)
 #
@@ -64,9 +65,9 @@ has() { [[ ",$PLATFORMS," == *",$1,"* ]]; }
 IFS=',' read -r -a PLATFORM_LIST <<< "$PLATFORMS"
 for p in "${PLATFORM_LIST[@]}"; do
   case "$p" in
-    linux-arm64|linux-x64|darwin-arm64) ;;
+    linux-arm64|linux-x64|linux-armv7|darwin-arm64) ;;
     darwin-x64|win32-x64) die "$p cannot be built here — use the GitHub workflow for it" ;;
-    *) die "unknown platform: $p (linux-arm64, linux-x64, darwin-arm64)" ;;
+    *) die "unknown platform: $p (linux-arm64, linux-x64, linux-armv7, darwin-arm64)" ;;
   esac
 done
 
@@ -98,7 +99,7 @@ if [[ $release_exists == 1 || $tag_exists == 1 ]] && [[ $REPLACE == 0 && $DRY_RU
   die "$TAG exists on GitHub already (release: $release_exists, tag: $tag_exists) — bump the version, or --replace"
 fi
 
-if has linux-arm64 || has linux-x64; then
+if has linux-arm64 || has linux-x64 || has linux-armv7; then
   docker info >/dev/null 2>&1 || die "Docker is not running (needed for the Linux packages)"
 fi
 NOTARY_ARG=""
@@ -135,6 +136,7 @@ build_linux() {
   case "$plat" in
     linux-arm64) docker_arch="linux/arm64" ;;
     linux-x64) docker_arch="linux/amd64" ;;
+    linux-armv7) docker_arch="linux/arm/v7" ;;
   esac
   log "$plat in Docker debian:bookworm ($docker_arch)"
   local buildlog="$OUT/build-$plat.log"
@@ -186,16 +188,18 @@ build_darwin() {
 
 has linux-arm64 && build_linux linux-arm64
 has linux-x64 && build_linux linux-x64
+has linux-armv7 && build_linux linux-armv7
 has darwin-arm64 && build_darwin
 
 # ---------------------------------------------------------------------------------------------
 log "Packages"
-if has linux-arm64 || has linux-x64; then
+if has linux-arm64 || has linux-x64 || has linux-armv7; then
   cp "$ROOT/packaging/linux/install-linux.sh" "$OUT/"
 fi
 expect=()
 has linux-arm64 && expect+=("audio-harbor-headless_${VERSION}_arm64.deb" "audio-harbor-headless-${VERSION}-linux-arm64.tar.gz")
 has linux-x64 && expect+=("audio-harbor-headless_${VERSION}_amd64.deb" "audio-harbor-headless-${VERSION}-linux-x64.tar.gz")
+has linux-armv7 && expect+=("audio-harbor-headless_${VERSION}_armhf.deb" "audio-harbor-headless-${VERSION}-linux-armv7.tar.gz")
 has darwin-arm64 && expect+=("audio-harbor-headless-${VERSION}-darwin-arm64.pkg" "audio-harbor-headless-${VERSION}-darwin-arm64.tar.gz")
 assets=()
 for f in "${expect[@]}"; do
@@ -216,9 +220,11 @@ Prebuilt **ready-to-start** packages (Node ${NODE_MAJOR}), built locally with \`
 | \`*-darwin-arm64.tar.gz\` | Apple Silicon Mac (portable) |
 | \`*_arm64.deb\` | Raspberry Pi 64-bit / ARM64 — Debian package with systemd service |
 | \`*_amd64.deb\` | Linux x86_64 — Debian package with systemd service |
+| \`*_armhf.deb\` | Raspberry Pi OS 32-bit (Pi 2 and newer) — Debian package with systemd service |
 | \`install-linux.sh\` | one-line installer for the \`.deb\` |
 | \`*-linux-x64.tar.gz\` | Linux x86_64 (portable) |
 | \`*-linux-arm64.tar.gz\` | Raspberry Pi 64-bit / ARM64 Linux (portable) |
+| \`*-linux-armv7.tar.gz\` | Raspberry Pi OS 32-bit / ARMv7 Linux (portable) |
 
 This release has: **${PLATFORMS//,/, }**.
 

@@ -413,7 +413,7 @@ public:
     uint8_t header[8];
     while (std::fread(header, 1, 8, file_) == 8) {
       const uint32_t size = be32(header + 4);
-      const long body = std::ftell(file_);
+      const uint64_t body = tell();
       if (std::memcmp(header, "COMM", 4) == 0) {
         uint8_t comm[22] {};
         if (std::fread(comm, 1, std::min<uint32_t>(size, 22), file_) < 18) break;
@@ -438,7 +438,7 @@ public:
         dataStart_ = uint64_t(body) + 8 + be32(ssnd);
         ssndBytes = size >= 8 + be32(ssnd) ? size - 8 - be32(ssnd) : 0;
       }
-      if (std::fseek(file_, body + long(size) + long(size & 1), SEEK_SET) != 0) break;
+      if (!seek(body + size + (size & 1))) break;
     }
     const uint32_t bytes = (sourceBits_ + 7) / 8;
     if (!haveComm || dataStart_ == 0 || channels_ == 0 || rate_ == 0 || bytes == 0 || bytes > 4) {
@@ -531,6 +531,15 @@ private:
 #else
     return fseeko(file_, off_t(offset), SEEK_SET) == 0;
 #endif
+  }
+  /** Where the file is, past 2 GB too (a 32-bit `long` stops there). */
+  uint64_t tell() {
+#if defined(_WIN32)
+    const int64_t at = _ftelli64(file_);
+#else
+    const off_t at = ftello(file_);
+#endif
+    return at < 0 ? 0 : uint64_t(at);
   }
 
   std::FILE* file_ = nullptr;

@@ -89,12 +89,19 @@ if built; then
   exit 0
 fi
 
+# 32-bit ARM (Raspberry Pi OS armhf): LSP takes `uname -m` (armv7l) to mean -march=armv7-a, which
+# has no FPU, and Debian's hard-float compiler refuses that. Its "armhf" is -march=armv7-a+fp.
+ARCH_ARGS=()
+case "$(uname -m)" in
+  armv7l|armv8l) ARCH_ARGS=(ARCHITECTURE=armhf HOST_BUILD_ARCH=armhf) ;;
+esac
+
 log "Building LSP Plugins (CLAP, no UI)"
 (
   cd "$WORK/lsp-plugins"
-  "$MAKE" config FEATURES="clap" PREFIX=/usr >/dev/null
-  "$MAKE" -j"$JOBS" >/dev/null
-  "$MAKE" install DESTDIR="$WORK/install" >/dev/null
+  "$MAKE" config FEATURES="clap" PREFIX=/usr ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} >/dev/null
+  "$MAKE" -j"$JOBS" ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} >/dev/null
+  "$MAKE" install DESTDIR="$WORK/install" ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} >/dev/null
 )
 
 rm -rf "$OUT/clap" "$OUT/LICENSES"

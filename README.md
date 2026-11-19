@@ -80,7 +80,7 @@ Prebuilt archives **bundle Node.js 22** under `runtime/` — you do not need a s
 curl -fsSL https://github.com/petergerov/audio-harbor-headless/releases/latest/download/install-linux.sh | sudo bash
 ```
 
-Installs to `/opt/audio-harbor-headless` and runs as systemd service `audioharbor@<user>` (starts at boot; config stays in `~/.audio-harbor-headless`). Needs 64-bit Raspberry Pi OS Bookworm or newer, Debian 12+ or Ubuntu 22.04+.
+Installs to `/opt/audio-harbor-headless` and runs as systemd service `audioharbor@<user>` (starts at boot; config stays in `~/.audio-harbor-headless`). Needs Raspberry Pi OS Bookworm or newer — 64-bit, or 32-bit (`armhf`) from the Pi 2 on — Debian 12+ or Ubuntu 22.04+.
 
 Later versions install from the remote: Settings → About → **Software Update** → Install (downloads the release `.deb` for this CPU from GitHub, checks its checksum and restarts the service). A Mac or a portable install sees the new version there and installs it by hand.
 

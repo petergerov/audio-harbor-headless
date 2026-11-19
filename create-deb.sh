@@ -17,7 +17,7 @@
 #   ./create-deb.sh            # wrap dist/packages/*-linux-<arch>.tar.gz
 #   ./create-deb.sh --build    # npm run package:prebuilt first
 #
-# Output: dist/packages/audio-harbor-headless_<ver>_<amd64|arm64>.deb (+ .sha256)
+# Output: dist/packages/audio-harbor-headless_<ver>_<amd64|arm64|armhf>.deb (+ .sha256)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -45,7 +45,8 @@ command -v dpkg-deb >/dev/null 2>&1 || { echo "dpkg-deb not found." >&2; exit 1;
 case "$(uname -m)" in
   x86_64|amd64) ARCH="x64"; DEB_ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64"; DEB_ARCH="arm64" ;;
-  *) echo "Unsupported CPU $(uname -m) — .deb is built for amd64 and arm64." >&2; exit 1 ;;
+  armv7l|armv8l|armhf) ARCH="armv7"; DEB_ARCH="armhf" ;;
+  *) echo "Unsupported CPU $(uname -m) — .deb is built for amd64, arm64 and armhf." >&2; exit 1 ;;
 esac
 
 VERSION="$(node -p "require('./package.json').version")"

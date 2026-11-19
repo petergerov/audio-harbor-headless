@@ -66,9 +66,12 @@ export function isNewer(a: string, b: string): boolean {
   return false;
 }
 
-/** The Debian name of this CPU, as in the .deb file names. */
+/** The Debian name of this CPU, as in the .deb file names (32-bit Raspberry Pi OS: armhf). */
 function debArch(): string {
-  return os.arch() === 'x64' ? 'amd64' : os.arch();
+  const arch = os.arch();
+  if (arch === 'x64') return 'amd64';
+  if (arch === 'arm') return 'armhf';
+  return arch;
 }
 
 function installKind(): 'deb' | 'pkg' | 'other' {

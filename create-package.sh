@@ -88,6 +88,7 @@ bundle_nodejs() {
     darwin-x64)   name="node-v${ver}-darwin-x64";   url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
     linux-x64)    name="node-v${ver}-linux-x64";    url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
     linux-arm64)  name="node-v${ver}-linux-arm64";  url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
+    linux-armv7)  name="node-v${ver}-linux-armv7l"; url="https://nodejs.org/dist/v${ver}/${name}.tar.gz" ;;
     win32-x64)    name="node-v${ver}-win-x64";      url="https://nodejs.org/dist/v${ver}/${name}.zip" ;;
     *)
       log "No official Node bundle mapping for $plat — skipping runtime/"

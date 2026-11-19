@@ -86,6 +86,8 @@ std::string describeError(CFErrorRef error) {
 std::string linuxBinary(const std::string& bundle) {
 #if defined(__aarch64__)
   const char* arch = "aarch64-linux";
+#elif defined(__arm__)
+  const char* arch = "armv7l-linux";
 #else
   const char* arch = "x86_64-linux";
 #endif

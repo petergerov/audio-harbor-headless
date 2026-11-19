@@ -11,6 +11,11 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_definitions(-DNAPI_VERSION=8)
+# 32-bit Linux (Raspberry Pi OS armhf): 64-bit file offsets, so off_t / fseeko reach past 2 GB
+# (SACD ISOs, long DSD files). A no-op on 64-bit systems.
+if(UNIX AND NOT APPLE)
+  add_definitions(-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE)
+endif()
 
 # --- Node / N-API ---
 if(NOT DEFINED CMAKE_JS_INC)
@@ -229,15 +234,18 @@ set_target_properties(harbor-test-gain PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test-plugins
 )
 
-# FxStage against harbor-fx and the test plugins (not shipped): build/fx-stage-test
-add_executable(fx-stage-test fx/test/StageTest.cpp src/FxClient.cpp src/FxStage.cpp)
-target_include_directories(fx-stage-test PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/src
-  ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-)
-set_target_properties(fx-stage-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-if(UNIX AND NOT APPLE)
-  target_link_libraries(fx-stage-test PRIVATE Threads::Threads dl)
+# FxStage against harbor-fx and the test plugins (not shipped): build/fx-stage-test.
+# POSIX only (it kills harbor-fx with pkill to test the restart), so not on Windows.
+if(NOT WIN32)
+  add_executable(fx-stage-test fx/test/StageTest.cpp src/FxClient.cpp src/FxStage.cpp)
+  target_include_directories(fx-stage-test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+  )
+  set_target_properties(fx-stage-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(fx-stage-test PRIVATE Threads::Threads dl)
+  endif()
 endif()
 
 # The native ALAC decoder against a reference decode (not shipped): build/alac-test <file.m4a>…

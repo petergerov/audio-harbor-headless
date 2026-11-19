@@ -27,10 +27,10 @@ curl -fsSL …/install-linux.sh | sudo HARBOR_VERSION=v1.0.0 HARBOR_USER=pi bash
 
 ### Which package
 
-There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.2.3 has** `.deb` and `.tar.gz` for `arm64` (Raspberry Pi) and `.pkg` and `.tar.gz` for Apple Silicon Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
+There is a `.deb` for `arm64` (Raspberry Pi and other 64-bit ARM boards), for `armhf` (32-bit Raspberry Pi OS, Pi 2 or newer) and for `amd64` (x86_64 PCs); the installer picks the right one. A release holds the platforms ticked when it was built (see [Release workflow](#release-workflow)) — **v1.2.3 has** `.deb` and `.tar.gz` for `arm64` (Raspberry Pi) and `.pkg` and `.tar.gz` for Apple Silicon Macs. If a release lacks your CPU, the installer stops with `no .deb for <arch> in that release`; pick an older one with `HARBOR_VERSION=<tag>`. By hand, check the CPU first:
 
 ```bash
-dpkg --print-architecture   # arm64 or amd64 — the <arch> in the file name
+dpkg --print-architecture   # arm64, armhf or amd64 — the <arch> in the file name
 ```
 
 The files of a release ([release page](https://github.com/petergerov/audio-harbor-headless/releases)):
@@ -38,9 +38,10 @@ The files of a release ([release page](https://github.com/petergerov/audio-harbo
 | File | For |
 |---|---|
 | `audio-harbor-headless_<ver>_arm64.deb` (+ `.sha256`) | Raspberry Pi OS / Debian / Ubuntu on arm64 — this guide |
+| `audio-harbor-headless_<ver>_armhf.deb` (+ `.sha256`) | 32-bit Raspberry Pi OS (Pi 2 or newer) — this guide |
 | `audio-harbor-headless_<ver>_amd64.deb` (+ `.sha256`) | Debian / Ubuntu on x86_64 — this guide |
 | `install-linux.sh` | the one-line installer above; picks the `.deb` for the CPU |
-| `audio-harbor-headless-<ver>-linux-<arm64\|x64>.tar.gz` | portable, no service — see [Portable `.tar.gz`](#portable-targz) |
+| `audio-harbor-headless-<ver>-linux-<arm64\|armv7\|x64>.tar.gz` | portable, no service — see [Portable `.tar.gz`](#portable-targz) |
 | `audio-harbor-headless-<ver>-darwin-<arm64\|x64>.pkg` (+ `.sha256`) | Mac (Apple Silicon / Intel) — signed installer |
 | `audio-harbor-headless-<ver>-darwin-<arm64\|x64>.tar.gz` | Mac, portable |
 
@@ -101,7 +102,7 @@ sudo apt install ./audio-harbor-headless_1.2.3_arm64.deb
 
 ### Requirements
 
-- 64-bit OS on `arm64` or `amd64`. On a Raspberry Pi: the 64-bit Raspberry Pi OS, Pi 3 or newer. 32-bit (`armhf`) has no package. See [Which package](#which-package).
+- `arm64`, `armhf` or `amd64`. On a Raspberry Pi the 64-bit Raspberry Pi OS is the better choice (Pi 3 or newer); the 32-bit one (`armhf`) works from the Pi 2 on — not on a Pi Zero / Pi 1 (ARMv6), where Node.js no longer runs. On 32-bit, a 1 GB Pi has less room for large DSD files and SACD ISOs. See [Which package](#which-package).
 - glibc 2.32 or newer: Raspberry Pi OS Bookworm or newer, Debian 12+, Ubuntu 22.04+. The package states the exact version in `Depends`.
 - systemd for the service. Without it (e.g. in a container) the package installs and `audioharbor` starts by hand.
 - `ffmpeg`, optional: only for AAC (`.m4a` from iTunes purchases, say) and for scaling large cover art. Apple Lossless (ALAC) — like FLAC, WAV, AIFF, MP3 and DSD — needs nothing: the engine decodes it natively. The package suggests `ffmpeg` rather than installing it, since Debian's build brings ~200 packages (video codecs, GTK, Mesa) Harbor never uses; for AAC: `sudo apt install --no-install-recommends ffmpeg` (the remote says *AAC needs ffmpeg on the host* when it is missing).
