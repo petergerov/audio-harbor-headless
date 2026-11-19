@@ -6074,7 +6074,8 @@ button.path-crumb:hover,
 .app-shell:not(.wide) .page-header.phone-quiet {
   position: relative;
   min-height: 30px;
-  margin: 0 0 8px;
+  /* Room above and below alike: the title sits midway between the top and the tabs. */
+  margin: 8px 0;
 }
 
 /* The title stays centred; Select sits at the row's right end. */

@@ -140,6 +140,9 @@ build_linux() {
   esac
   log "$plat in Docker debian:bookworm ($docker_arch)"
   local buildlog="$OUT/build-$plat.log"
+  # One local tag holds one variant: without a pull, a linux/arm/v7 image left from an armv7 build
+  # would serve the arm64 build too (and it would make armhf packages).
+  docker pull -q --platform "$docker_arch" debian:bookworm >/dev/null || die "cannot pull debian:bookworm for $docker_arch"
   if ! docker run --rm --platform "$docker_arch" \
     -v "$TMP/src:/src:ro" \
     -v "$OUT:/out" \
