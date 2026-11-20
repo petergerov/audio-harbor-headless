@@ -1,9 +1,11 @@
 import type { HttpClient } from './http';
 import type {
   CollectionTracks,
+  LabelChoice,
   LabelSummary,
   PlaylistChoice,
   PlaylistExport,
+  PlaylistRemoval,
   PlaylistSummary,
   Selection,
 } from './types';
@@ -17,18 +19,27 @@ export interface CollectionsApi {
   renamePlaylist(id: string, name: string): Promise<void>;
   deletePlaylist(id: string): Promise<void>;
   addToPlaylist(id: string, selection: Selection): Promise<void>;
-  removeFromPlaylist(id: string, cataloguePath: string): Promise<void>;
+  removeFromPlaylist(id: string, cataloguePath: string): Promise<PlaylistRemoval>;
   addLabel(name: string, selection: Selection): Promise<void>;
-  removeLabel(name: string, selection: Selection): Promise<void>;
+  /** Answers the songs that carried the label. */
+  removeLabel(name: string, selection: Selection): Promise<string[]>;
   renameLabel(name: string, next: string): Promise<void>;
   deleteLabel(name: string): Promise<void>;
   /** The labels on one track. */
   trackLabels(cataloguePath: string): Promise<string[]>;
   /** The playlists, each marked if it holds every one of `paths`. */
   playlistChoices(paths: string[]): Promise<PlaylistChoice[]>;
+  /** Every label, with whether none, some or all of `paths` carry it. */
+  labelChoices(paths: string[]): Promise<LabelChoice[]>;
   /** Appends the songs in order, skipping ones the playlist holds; returns how many went in. */
   addPaths(id: string, paths: string[]): Promise<number>;
-  removePaths(id: string, paths: string[]): Promise<void>;
+  removePaths(id: string, paths: string[]): Promise<PlaylistRemoval>;
+  /** Undo for a removal: the removed songs back in their places. */
+  restorePaths(id: string, removal: PlaylistRemoval): Promise<void>;
+  /** Labels the songs; returns how many did not carry it yet. */
+  addLabelToPaths(name: string, paths: string[]): Promise<number>;
+  /** Answers the songs that carried the label. */
+  removeLabelFromPaths(name: string, paths: string[]): Promise<string[]>;
   /** The playlists as listed, in their new order. */
   reorderPlaylists(ids: string[]): Promise<void>;
   /** A playlist's songs as listed, in their new order. */
@@ -45,6 +56,11 @@ function target(selection: Selection): Omit<Selection, 'title'> {
     artist: selection.artist,
     folder: selection.folder,
   };
+}
+
+/** What a removal took out, read defensively. */
+function removal(r: Partial<PlaylistRemoval>): PlaylistRemoval {
+  return { removed: r.removed ?? [], snapshot: r.snapshot ?? [] };
 }
 
 const playlistPath = (id: string) => `/api/v1/playlists/${encodeURIComponent(id)}`;
@@ -85,17 +101,18 @@ export class HttpCollectionsApi implements CollectionsApi {
     await this.http.post(`${playlistPath(id)}/items`, target(selection));
   }
 
-  async removeFromPlaylist(id: string, cataloguePath: string): Promise<void> {
-    await this.http.delete(`${playlistPath(id)}/items`, { cataloguePath });
+  async removeFromPlaylist(id: string, cataloguePath: string): Promise<PlaylistRemoval> {
+    return removal(await this.http.delete<Partial<PlaylistRemoval>>(`${playlistPath(id)}/items`, { cataloguePath }));
   }
 
   async addLabel(name: string, selection: Selection): Promise<void> {
     await this.http.post('/api/v1/labels/items', { name, ...target(selection) });
   }
 
-  async removeLabel(name: string, selection: Selection): Promise<void> {
+  async removeLabel(name: string, selection: Selection): Promise<string[]> {
     // POST: some stacks drop DELETE bodies.
-    await this.http.post('/api/v1/labels/remove-items', { name, ...target(selection) });
+    const r = await this.http.post<{ removed?: string[] }>('/api/v1/labels/remove-items', { name, ...target(selection) });
+    return r.removed ?? [];
   }
 
   async renameLabel(name: string, next: string): Promise<void> {
@@ -110,12 +127,29 @@ export class HttpCollectionsApi implements CollectionsApi {
     return (await this.http.post<{ playlists: PlaylistChoice[] }>('/api/v1/playlists/choices', { paths })).playlists;
   }
 
+  async labelChoices(paths: string[]): Promise<LabelChoice[]> {
+    return (await this.http.post<{ labels?: LabelChoice[] }>('/api/v1/playlists/choices', { paths })).labels ?? [];
+  }
+
   async addPaths(id: string, paths: string[]): Promise<number> {
     return (await this.http.post<{ added: number }>(`${playlistPath(id)}/items`, { paths })).added;
   }
 
-  async removePaths(id: string, paths: string[]): Promise<void> {
-    await this.http.delete(`${playlistPath(id)}/items`, { paths });
+  async removePaths(id: string, paths: string[]): Promise<PlaylistRemoval> {
+    return removal(await this.http.delete<Partial<PlaylistRemoval>>(`${playlistPath(id)}/items`, { paths }));
+  }
+
+  async restorePaths(id: string, { removed, snapshot }: PlaylistRemoval): Promise<void> {
+    await this.http.post(`${playlistPath(id)}/restore`, { removed, snapshot });
+  }
+
+  async addLabelToPaths(name: string, paths: string[]): Promise<number> {
+    return (await this.http.post<{ added: number }>('/api/v1/labels/items', { name, paths })).added;
+  }
+
+  async removeLabelFromPaths(name: string, paths: string[]): Promise<string[]> {
+    const r = await this.http.post<{ removed?: string[] }>('/api/v1/labels/remove-items', { name, paths });
+    return r.removed ?? [];
   }
 
   async reorderPlaylists(ids: string[]): Promise<void> {

@@ -1,8 +1,10 @@
 import type { Selection } from '../../api/types';
 import type { OpenCollection } from '../../state/appState';
-import { openActionMenu, showToast, type MenuItem } from '../overlay';
+import { songs } from '../../core/format';
+import { openActionMenu, type MenuItem } from '../overlay';
 import { openLabelEditor } from './labelEditor';
 import { openPlaylistPicker } from './playlistPicker';
+import { removeSongs, removeTitle } from './removeSongs';
 import type { SheetDeps } from './sheetDeps';
 
 /** "Play or organize" for a row — inside a playlist or label also "remove from it". */
@@ -30,38 +32,21 @@ export function openOrganize(selection: Selection, inCollection: OpenCollection 
   openActionMenu({ title: selection.title, subtitle: 'Play or organize', groups });
 }
 
-/** Takes the track out of the open playlist or label, with an undo. */
+/**
+ * Takes the song out of the open playlist or label, with Undo — and with it every other ticked
+ * song when this one is ticked too, as the Mac's right-click menu does for a selection.
+ */
 function removeFrom(collection: OpenCollection, cataloguePath: string, deps: SheetDeps): MenuItem {
-  const track: Selection = { cataloguePath, title: '' };
-  const reload = () => deps.nav.refresh();
-  if (collection.kind === 'playlist') {
-    return {
-      label: 'Remove from Playlist',
-      danger: true,
-      run: async () => {
-        await deps.collections.removeFromPlaylist(collection.id, cataloguePath);
-        showToast('Removed', {
-          undo: async () => {
-            await deps.collections.addToPlaylist(collection.id, track);
-            await reload();
-          },
-        });
-        await reload();
-      },
-    };
-  }
+  const picks = deps.store.get().picks;
+  const ticked = picks.selecting && picks.tracks.some((t) => t.cataloguePath === cataloguePath);
+  const paths = ticked ? picks.tracks.map((t) => t.cataloguePath) : [cataloguePath];
+  const title = removeTitle(collection);
   return {
-    label: `Remove Label “${collection.id}”`,
+    label: paths.length > 1 ? `${title} (${songs(paths.length)})` : title,
     danger: true,
     run: async () => {
-      await deps.collections.removeLabel(collection.id, track);
-      showToast('Label removed', {
-        undo: async () => {
-          await deps.collections.addLabel(collection.id, track);
-          await reload();
-        },
-      });
-      await reload();
+      const removed = await removeSongs(collection, paths, deps);
+      if (removed && ticked) deps.store.update(() => ({ picks: { selecting: false, tracks: [] } }));
     },
   };
 }

@@ -997,14 +997,46 @@ export class Catalogue extends EventEmitter {
     return added;
   }
 
-  removePathsFromPlaylist(id: string, paths: string[]): void {
+  /**
+   * Takes the songs out of the playlist, every entry of each. Answers which of them it held and
+   * the entries as they stood before — what `restorePlaylistPaths` needs to put them back.
+   */
+  removePathsFromPlaylist(id: string, paths: string[]): { removed: string[]; snapshot: string[] } {
     const row = this.db.prepare('SELECT paths_json FROM playlists WHERE id = ?').get(id) as
       | { paths_json: string }
       | undefined;
     if (!row) throw new Error('playlist not found');
-    const drop = new Set(paths);
-    const next = (JSON.parse(row.paths_json) as string[]).filter((p) => !drop.has(p));
+    const snapshot = JSON.parse(row.paths_json) as string[];
+    const held = new Set(snapshot);
+    const removed = [...new Set(paths)].filter((p) => held.has(p));
+    if (!removed.length) return { removed, snapshot };
+    const drop = new Set(removed);
+    const next = snapshot.filter((p) => !drop.has(p));
     this.db.prepare('UPDATE playlists SET paths_json = ? WHERE id = ?').run(JSON.stringify(next), id);
+    return { removed, snapshot };
+  }
+
+  /**
+   * Undo for `removePathsFromPlaylist`: puts the `removed` entries back where they stood in
+   * `snapshot` (the entries before the removal). Entries added since stay, after the restored
+   * ones; entries taken out since stay out. Answers whether anything changed.
+   */
+  restorePlaylistPaths(id: string, snapshot: string[], removed: string[]): boolean {
+    const playlist = this.getPlaylist(id);
+    if (!playlist) throw new Error('playlist not found');
+    const current = playlist.paths;
+    const kept = new Set(current);
+    const back = new Set(removed);
+    const before = new Set(snapshot);
+    const restored = [
+      ...snapshot.filter((p) => kept.has(p) || back.has(p)),
+      ...current.filter((p) => !before.has(p)),
+    ];
+    if (restored.length === current.length && restored.every((p, i) => p === current[i])) return false;
+    this.db
+      .prepare('UPDATE playlists SET paths_json = ? WHERE id = ?')
+      .run(JSON.stringify(restored), playlist.id);
+    return true;
   }
 
   /**
@@ -1059,6 +1091,25 @@ export class Catalogue extends EventEmitter {
     return this.listPlaylists().map((p) => {
       const held = new Set(p.paths);
       return { id: p.id, name: p.name, containsTrack: wanted.length > 0 && wanted.every((x) => held.has(x)) };
+    });
+  }
+
+  /**
+   * Every label, and whether none, some or all of the songs at `paths` carry it — the remote's
+   * Labels for several songs.
+   */
+  labelChoices(paths: string[]): Array<{ name: string; coverage: 'none' | 'some' | 'all' }> {
+    const wanted = [...new Set(paths)].filter((p) => this.getTrack(p));
+    const carrying = new Map<string, number>();
+    const stmt = this.db.prepare('SELECT label FROM labels WHERE catalogue_path = ?');
+    for (const p of wanted) {
+      for (const { label } of stmt.all(p) as Array<{ label: string }>) {
+        carrying.set(label, (carrying.get(label) ?? 0) + 1);
+      }
+    }
+    return this.allLabels().map((name) => {
+      const n = carrying.get(name) ?? 0;
+      return { name, coverage: n === 0 ? 'none' : n === wanted.length ? 'all' : 'some' };
     });
   }
 
@@ -1131,12 +1182,17 @@ export class Catalogue extends EventEmitter {
     return n;
   }
 
-  removeLabelFromPaths(label: string, paths: string[]): void {
+  /** Takes the label off the songs; answers the ones that carried it (what an undo puts back). */
+  removeLabelFromPaths(label: string, paths: string[]): string[] {
     const name = label.trim();
     const stmt = this.db.prepare(
       'DELETE FROM labels WHERE catalogue_path = ? AND label = ?'
     );
-    for (const p of paths) stmt.run(p, name);
+    const removed: string[] = [];
+    for (const p of new Set(paths)) {
+      if (stmt.run(p, name).changes > 0) removed.push(p);
+    }
+    return removed;
   }
 
   /** Remove a label from every track. Returns how many rows were deleted. */

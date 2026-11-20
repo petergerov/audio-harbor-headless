@@ -8,7 +8,14 @@ import { isDragging, paintReorderList, type ReorderEntry } from '../components/r
 import { icons } from '../icons';
 import { showToast } from '../overlay';
 import { CATALOGUE_SCOPES } from './catalogueScopes';
-import { paintLoadError, paintMediaList, paintPlaceholders, pickablesIn, syncTicks } from './mediaList';
+import {
+  collectionOf,
+  paintLoadError,
+  paintMediaList,
+  paintPlaceholders,
+  pickablesIn,
+  syncTicks,
+} from './mediaList';
 import type { View, ViewHost } from './view';
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -256,7 +263,7 @@ export class LibraryView implements View {
       button.classList.toggle('on', selecting);
       button.setAttribute(
         'aria-label',
-        selecting ? 'Stop selecting songs' : 'Select songs to add them to a playlist together'
+        selecting ? 'Stop selecting songs' : 'Select songs to add them to a playlist, label them, or take them out'
       );
     });
   }
@@ -293,7 +300,10 @@ export class LibraryView implements View {
     tools.querySelector('[data-export]')?.addEventListener('click', () => this.ctx.actions.exportPlaylists());
   }
 
-  /** While selecting: how many are ticked, Select All, Clear and Add to Playlist. */
+  /**
+   * While selecting: how many are ticked, Select All, Clear, then what to do with them — Remove
+   * (inside a playlist), Labels, Add to Playlist.
+   */
   private paintPickBar(bar: HTMLElement, list: HTMLElement): void {
     const { selecting, tracks } = this.ctx.store.get().picks;
     bar.hidden = !selecting;
@@ -302,6 +312,10 @@ export class LibraryView implements View {
       return;
     }
     const listed = pickablesIn(list);
+    const playlist = collectionOf({ kind: 'library', library: this.ctx.store.get().library });
+    // Remove takes out the ticked songs this playlist lists; ticks made elsewhere stay out of it.
+    const shown = new Set(listed.map((t) => t.cataloguePath));
+    const removable = tracks.filter((t) => shown.has(t.cataloguePath)).map((t) => t.cataloguePath);
     bar.innerHTML = `
       <div class="pick-text">
         <p class="pick-count">${tracks.length ? `${songs(tracks.length)} selected` : 'Tap songs to tick them'}</p>
@@ -310,12 +324,26 @@ export class LibraryView implements View {
           <button type="button" data-pick-clear ${tracks.length ? '' : 'disabled'}>Clear</button>
         </div>
       </div>
-      <button type="button" class="pick-add" data-pick-add ${tracks.length ? '' : 'disabled'}>
-        ${icons.macList}<span>Add to Playlist</span>
-      </button>`;
+      <div class="pick-actions">
+        ${
+          playlist
+            ? `<button type="button" class="pick-act danger" data-pick-remove ${removable.length ? '' : 'disabled'}
+                title="Take the ticked songs out of this playlist — the files stay where they are">Remove</button>`
+            : ''
+        }
+        <button type="button" class="pick-act" data-pick-labels ${tracks.length ? '' : 'disabled'}
+          title="Put a label on the ticked songs, or take one off">Labels</button>
+        <button type="button" class="pick-add" data-pick-add ${tracks.length ? '' : 'disabled'}>
+          ${icons.macList}<span>Add to Playlist</span>
+        </button>
+      </div>`;
     bar.querySelector('[data-pick-all]')?.addEventListener('click', () => this.ctx.picks.select(pickablesIn(list)));
     bar.querySelector('[data-pick-clear]')?.addEventListener('click', () => this.ctx.picks.clear());
     bar.querySelector('[data-pick-add]')?.addEventListener('click', () => this.ctx.actions.addPicksToPlaylist());
+    bar.querySelector('[data-pick-labels]')?.addEventListener('click', () => this.ctx.actions.labelPicks());
+    bar.querySelector('[data-pick-remove]')?.addEventListener('click', () => {
+      if (playlist) void this.ctx.actions.removePicks(playlist, removable);
+    });
   }
 
   /** A drop in Reorder: the new order shows at once and goes to the host. */

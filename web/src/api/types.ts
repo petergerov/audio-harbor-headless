@@ -202,6 +202,18 @@ export interface PlaylistChoice {
   containsTrack: boolean;
 }
 
+/** One label for several songs: whether none, some or all of them carry it. */
+export interface LabelChoice {
+  name: string;
+  coverage: 'none' | 'some' | 'all';
+}
+
+/** What a removal from a playlist took out, and the entries before it — what Undo needs. */
+export interface PlaylistRemoval {
+  removed: string[];
+  snapshot: string[];
+}
+
 /** What Export All wrote into the folder. */
 export interface PlaylistExport {
   folder: string;

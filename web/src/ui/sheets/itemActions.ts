@@ -12,7 +12,9 @@ import { closeOverlay, showToast } from '../overlay';
 import { openCollectionMenu, openNewPlaylist } from './collectionMenu';
 import { openExportPlaylists } from './exportPlaylists';
 import { openOrganize } from './organizeSheet';
+import { openPicksLabels } from './picksLabels';
 import { openPicksPicker } from './picksPicker';
+import { removeSongs } from './removeSongs';
 import type { SheetDeps } from './sheetDeps';
 
 /** What a screen can do with an item beyond navigating: play it, organize it, manage collections. */
@@ -24,6 +26,10 @@ export interface ItemActions {
   createPlaylist(): void;
   /** Add to Playlist for the songs ticked in Catalogue. */
   addPicksToPlaylist(): void;
+  /** Labels for the ticked songs: put one on all of them, or take it off. */
+  labelPicks(): void;
+  /** Takes the ticked songs in `paths` out of the open playlist or label, with Undo; Select ends. */
+  removePicks(collection: OpenCollection, paths: string[]): Promise<void>;
   /** Every playlist as an M3U8 file into a folder on the host. */
   exportPlaylists(): void;
 }
@@ -77,6 +83,17 @@ export class SheetActions implements ItemActions {
 
   addPicksToPlaylist(): void {
     void openPicksPicker(this.picks, this.sheets);
+  }
+
+  labelPicks(): void {
+    void openPicksLabels(
+      this.picks.state.tracks.map((t) => t.cataloguePath),
+      this.sheets
+    );
+  }
+
+  async removePicks(collection: OpenCollection, paths: string[]): Promise<void> {
+    if (await removeSongs(collection, paths, this.sheets)) this.picks.end();
   }
 
   exportPlaylists(): void {

@@ -217,6 +217,17 @@ function playContextFor(cataloguePath: string, scope: ListScope): PlayContext {
   return { cataloguePath };
 }
 
+/**
+ * The playlist or label whose songs the list shows — what a row's menu can take the song out of:
+ * an open label, or a playlist opened in Catalogue (not its search hits).
+ */
+export function collectionOf(scope: ListScope): OpenCollection | null {
+  if (scope.kind === 'collection') return scope.collection;
+  const { scope: libraryScope, playlist, query } = scope.library;
+  if (libraryScope !== 'playlists' || !playlist || query.trim()) return null;
+  return { kind: 'playlist', id: playlist.id, title: playlist.name };
+}
+
 /** Grey rows where the items will be, while they are on their way. */
 export function paintPlaceholders(list: HTMLElement, rows = 8): void {
   const row = `
@@ -270,14 +281,13 @@ export function paintMediaList(list: HTMLElement, items: BrowseItem[], scope: Li
         : `<div class="empty"><strong>No Music</strong>Add a folder in Settings → Sources.</div>`;
     return;
   }
-  const inCollection = scope.kind === 'collection' ? scope.collection : null;
-  // Select mode is the Catalogue's: songs tick there instead of playing.
-  const canPick = scope.kind === 'library';
-  const selecting = canPick && ctx.picks.state.selecting;
+  const inCollection = collectionOf(scope);
+  // Songs tick instead of playing in Select mode — Catalogue's, or an open label's.
+  const selecting = ctx.picks.state.selecting;
   const presentedRows = items
     .map((item) => PRESENTERS.reduce<PresentedRow | null>((found, present) => found ?? present(item, scope, ctx), null))
     .filter((p): p is PresentedRow => p !== null);
-  const pickables = canPick ? presentedRows.flatMap((p) => (p.pick ? [p.pick] : [])) : [];
+  const pickables = presentedRows.flatMap((p) => (p.pick ? [p.pick] : []));
   pickablesOf.set(list, pickables);
 
   const pick = (track: PickedTrack, range: boolean) => {
@@ -290,7 +300,7 @@ export function paintMediaList(list: HTMLElement, items: BrowseItem[], scope: Li
   };
 
   const entries: RowEntry[] = presentedRows.map((presented) => {
-    const track = canPick ? presented.pick : undefined;
+    const track = presented.pick;
     return {
       row: selecting && track ? { ...presented.row, picked: ctx.picks.has(track.cataloguePath) } : presented.row,
       path: presented.path,

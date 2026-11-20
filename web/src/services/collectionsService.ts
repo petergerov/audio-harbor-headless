@@ -1,5 +1,12 @@
 import type { CollectionsApi } from '../api/collectionsApi';
-import type { CollectionKind, PlaylistChoice, PlaylistExport, Selection } from '../api/types';
+import type {
+  CollectionKind,
+  LabelChoice,
+  PlaylistChoice,
+  PlaylistExport,
+  PlaylistRemoval,
+  Selection,
+} from '../api/types';
 import type { Store } from '../core/store';
 import { errorMessage } from '../core/errors';
 import type { AppState, CollectionsState } from '../state/appState';
@@ -68,7 +75,7 @@ export class CollectionsService {
     return this.api.addToPlaylist(id, selection);
   }
 
-  removeFromPlaylist(id: string, cataloguePath: string): Promise<void> {
+  removeFromPlaylist(id: string, cataloguePath: string): Promise<PlaylistRemoval> {
     return this.api.removeFromPlaylist(id, cataloguePath);
   }
 
@@ -76,7 +83,7 @@ export class CollectionsService {
     return this.api.addLabel(name, selection);
   }
 
-  removeLabel(name: string, selection: Selection): Promise<void> {
+  removeLabel(name: string, selection: Selection): Promise<string[]> {
     return this.api.removeLabel(name, selection);
   }
 
@@ -92,8 +99,24 @@ export class CollectionsService {
     return this.api.addPaths(id, paths);
   }
 
-  removePaths(id: string, paths: string[]): Promise<void> {
+  removePaths(id: string, paths: string[]): Promise<PlaylistRemoval> {
     return this.api.removePaths(id, paths);
+  }
+
+  restorePaths(id: string, removal: PlaylistRemoval): Promise<void> {
+    return this.api.restorePaths(id, removal);
+  }
+
+  labelChoices(paths: string[]): Promise<LabelChoice[]> {
+    return this.api.labelChoices(paths);
+  }
+
+  addLabelToPaths(name: string, paths: string[]): Promise<number> {
+    return this.api.addLabelToPaths(name, paths);
+  }
+
+  removeLabelFromPaths(name: string, paths: string[]): Promise<string[]> {
+    return this.api.removeLabelFromPaths(name, paths);
   }
 
   /** The playlists in a new order: the lists show it at once, then the host's answer. */

@@ -772,10 +772,31 @@ export async function buildServer(ctx: AppContext) {
           ...(req.body?.paths ?? []),
           ...(req.body?.cataloguePath ? [req.body.cataloguePath] : []),
         ];
-        ctx.catalogue.removePathsFromPlaylist(req.params.id, paths);
-        return { ok: true };
+        // What went, and the entries before: Undo puts them back in their places.
+        const { removed, snapshot } = ctx.catalogue.removePathsFromPlaylist(req.params.id, paths);
+        return { ok: true, removed, snapshot };
       } catch (err) {
         return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
+      }
+    }
+  );
+
+  // Undo for a removal: the removed entries back where they stood in the snapshot.
+  app.post<{ Params: { id: string }; Body: { snapshot?: unknown; removed?: unknown } }>(
+    '/api/v1/playlists/:id/restore',
+    async (req, reply) => {
+      const strings = (v: unknown) =>
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+      try {
+        return {
+          restored: ctx.catalogue.restorePlaylistPaths(
+            req.params.id,
+            strings(req.body?.snapshot),
+            strings(req.body?.removed)
+          ),
+        };
+      } catch (err) {
+        return reply.code(404).send({ error: err instanceof Error ? err.message : 'failed' });
       }
     }
   );
@@ -803,10 +824,11 @@ export async function buildServer(ctx: AppContext) {
     }
   );
 
-  // The playlists for several songs, each marked if it holds every one of them.
+  // The playlists for several songs, each marked if it holds every one of them, and every label
+  // with whether none, some or all of them carry it.
   app.post<{ Body: { paths?: unknown } }>('/api/v1/playlists/choices', async (req) => {
     const paths = Array.isArray(req.body?.paths) ? req.body.paths.filter((v): v is string => typeof v === 'string') : [];
-    return { playlists: ctx.catalogue.playlistChoices(paths) };
+    return { playlists: ctx.catalogue.playlistChoices(paths), labels: ctx.catalogue.labelChoices(paths) };
   });
 
   // Every playlist as <name>.m3u8 into a folder on this host.
@@ -879,8 +901,8 @@ export async function buildServer(ctx: AppContext) {
       if (!name || !paths.length) {
         return reply.code(400).send({ error: 'name and selection required' });
       }
-      ctx.catalogue.removeLabelFromPaths(name, paths);
-      return { ok: true };
+      // The songs that carried it: what Undo labels again.
+      return { ok: true, removed: ctx.catalogue.removeLabelFromPaths(name, paths) };
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : 'failed' });
     }

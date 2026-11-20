@@ -15,8 +15,10 @@ import { trackDto, wireNowPlaying, wirePlaylistId, wireQueue } from './wire.js';
  * 4: the plugin rack (`getRack`, `setRack`, `loadRackPreset`, topic `rack`).
  * 5: several songs filed at once (`playlistChoices`, `editTracks`), and playlists and their songs
  * put in order (`reorderPlaylists`, `reorderPlaylistTracks`).
+ * 6: `playlistChoices` also lists the labels, with whether none, some or all of the songs carry
+ * each — the app's Labels for several songs.
  */
-const PROTOCOL_VERSION = 5;
+const PROTOCOL_VERSION = 6;
 const SERVICE_TYPE = 'audioharbor';
 const MAX_FRAME = 4 << 20;
 const CAPABILITIES = ['transport', 'queueJump', 'browse', 'search', 'artwork'];
@@ -335,12 +337,16 @@ class RemoteSession {
     this.trackOptions(cataloguePath, id);
   }
 
-  /** The playlists for several songs: `containsTrack` means it holds every one of them. */
+  /**
+   * The playlists for several songs (`containsTrack` means it holds every one of them), and every
+   * label with whether none, some or all of them carry it.
+   */
   private playlistChoices(cataloguePaths: string[], id: number | undefined): void {
-    const playlists = this.opts.catalogue
+    const catalogue = this.opts.catalogue;
+    const playlists = catalogue
       .playlistChoices(cataloguePaths)
       .map((p) => ({ ...p, id: wirePlaylistId(p.id) }));
-    this.send({ playlistChoices: { playlists } }, id);
+    this.send({ playlistChoices: { playlists, labels: catalogue.labelChoices(cataloguePaths) } }, id);
   }
 
   /** One edit for several songs; answered with the choices as they stand after it. */

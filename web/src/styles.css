@@ -1174,7 +1174,8 @@ button.cell:disabled .value {
 
 .collection-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 12px;
   width: 100%;
   margin-top: 16px;
@@ -3023,6 +3024,17 @@ body.overlay-open .ah-toast {
   display: flex;
   width: auto;
   margin-top: 18px;
+}
+
+/* Select while it is on: Done, lit. */
+.pill-btn.on {
+  background: var(--amber);
+  color: var(--chassis);
+}
+
+/* The open label's selection bar, between the hero and its songs. */
+.collection-hero + .pick-bar {
+  margin: 0 0 12px;
 }
 
 .app-shell.wide .pill-btn {
@@ -6295,8 +6307,57 @@ button.path-crumb:hover,
 }
 
 .pick-links button:disabled,
-.pick-add:disabled {
+.pick-add:disabled,
+.pick-act:disabled {
   opacity: 0.45;
+}
+
+/* Remove · Labels · Add to Playlist. On a phone they go under the count when the row is full. */
+.pick-bar {
+  flex-wrap: wrap;
+}
+
+/* The count keeps its width: the actions go to a row of their own before it is cut. */
+.pick-bar > .pick-text {
+  flex: 1 1 150px;
+}
+
+.pick-links button {
+  white-space: nowrap;
+}
+
+.pick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.app-shell:not(.wide) .pick-actions {
+  flex: 1 1 100%;
+}
+
+.app-shell:not(.wide) .pick-actions .pick-add {
+  margin-left: auto;
+}
+
+.pick-act {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--faceplate);
+  color: var(--ivory);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pick-act.danger {
+  color: var(--danger);
+}
+
+.pick-act:active:not(:disabled) {
+  opacity: 0.8;
 }
 
 .pick-add {
@@ -6477,6 +6538,22 @@ button.path-crumb:hover,
 
 .queue-tools-note {
   font-size: 12px;
+  color: var(--secondary);
+}
+
+/* Labels for ticked songs: a tick when all carry it, a dash when some do. */
+.picker-row.label-choice + .picker-row.label-choice::before {
+  left: 50px;
+}
+
+.label-some {
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.picker-note {
+  margin: 8px 16px 0;
+  font-size: 13px;
   color: var(--secondary);
 }
 

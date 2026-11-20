@@ -6,7 +6,7 @@ import type { OpenCollection } from '../../state/appState';
 import { paintRows } from '../components/mediaRow';
 import { icons } from '../icons';
 import { showToast } from '../overlay';
-import { paintLoadError, paintMediaList, paintPlaceholders } from './mediaList';
+import { paintLoadError, paintMediaList, paintPlaceholders, pickablesIn, syncTicks } from './mediaList';
 import type { View, ViewHost } from './view';
 
 /** Playlists and labels: the overview, or the one that is open. */
@@ -18,6 +18,8 @@ export class CollectionsView implements View {
   dispose(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    // The ticks belong to the list they were made in.
+    if (this.ctx.picks.state.selecting) this.ctx.picks.end();
   }
 
   /**
@@ -31,10 +33,24 @@ export class CollectionsView implements View {
       const now = state.collections;
       const before = previous.collections;
       if (!root.isConnected || state.tab !== 'collections') return;
+      if (now.open?.kind !== before.open?.kind || now.open?.id !== before.open?.id) {
+        // Another one opened: the ticks stay with the one they were made in.
+        if (state.picks.selecting) this.ctx.picks.end();
+      }
       const changed = now.open
-        ? now.open !== before.open || now.items !== before.items || now.loading !== before.loading || now.error !== before.error
+        ? now.open !== before.open ||
+          now.items !== before.items ||
+          now.loading !== before.loading ||
+          now.error !== before.error ||
+          state.picks.selecting !== previous.picks.selecting
         : now.open !== before.open || now.playlists !== before.playlists || now.labels !== before.labels;
       if (changed) this.paint(root, host);
+      else if (now.open && state.picks.tracks !== previous.picks.tracks) {
+        const list = root.querySelector<HTMLElement>('[data-list]');
+        const bar = root.querySelector<HTMLElement>('[data-pickbar]');
+        if (list) syncTicks(list, this.ctx);
+        if (list && bar) this.paintPickBar(bar, list, now.open);
+      }
     });
   }
 
@@ -105,6 +121,7 @@ export class CollectionsView implements View {
     const count = items.length;
     const cover = items.find((t) => t.artworkHash)?.artworkHash ?? null;
     const isPlaylist = open.kind === 'playlist';
+    const selecting = this.ctx.picks.state.selecting;
     root.innerHTML = `
       <div class="nav-row">
         <button type="button" class="nav-link" data-back>‹ Catalogue</button>
@@ -119,16 +136,20 @@ export class CollectionsView implements View {
           <p class="collection-kind">${isPlaylist ? 'Playlist' : 'Label'}</p>
           <h1 class="collection-title">${escapeHtml(open.title)}</h1>
           <p class="collection-meta">${count === 0 ? (loading ? '&nbsp;' : 'No songs') : songs(count)}</p>
-          <div class="collection-actions ${isPlaylist ? '' : 'single'}">
+          <div class="collection-actions">
             <button type="button" class="pill-btn primary" data-play-all ${count ? '' : 'disabled'}>${icons.playSm}<span>Play</span></button>
             ${
               isPlaylist
                 ? `<button type="button" class="pill-btn" data-add-music><span aria-hidden="true">+</span><span>Add Music</span></button>`
                 : ''
             }
+            <button type="button" class="pill-btn${selecting ? ' on' : ''}" data-select ${count || selecting ? '' : 'disabled'}
+              aria-pressed="${selecting}"
+              title="${selecting ? 'Stop selecting' : 'Tick several songs to take them out together'}">${selecting ? 'Done' : 'Select'}</button>
           </div>
         </div>
       </header>
+      <div class="pick-bar" data-pickbar hidden></div>
       <div class="group" data-list></div>
     `;
 
@@ -143,10 +164,49 @@ export class CollectionsView implements View {
       void this.ctx.nav.goTo('library');
       showToast('Pick music in Catalogue, then use Add');
     });
+    root.querySelector('[data-select]')?.addEventListener('click', () => {
+      if (this.ctx.picks.state.selecting) this.ctx.picks.end();
+      else this.ctx.picks.start();
+    });
     this.ctx.covers.hydrate(root);
     const list = required(root, '[data-list]');
     if (!count && loading) paintPlaceholders(list);
     else if (!count && error) paintLoadError(list, error, () => void this.ctx.nav.refresh());
     else paintMediaList(list, items, { kind: 'collection', collection: open }, this.ctx);
+    this.paintPickBar(required(root, '[data-pickbar]'), list, open);
+  }
+
+  /** While selecting: how many are ticked, Select All, Clear and Remove Label / Remove from Playlist. */
+  private paintPickBar(bar: HTMLElement, list: HTMLElement, open: OpenCollection): void {
+    const { selecting, tracks } = this.ctx.store.get().picks;
+    bar.hidden = !selecting;
+    if (!selecting) {
+      bar.innerHTML = '';
+      return;
+    }
+    const listed = pickablesIn(list);
+    const isLabel = open.kind === 'label';
+    bar.innerHTML = `
+      <div class="pick-text">
+        <p class="pick-count">${tracks.length ? `${songs(tracks.length)} selected` : 'Tap songs to tick them'}</p>
+        <div class="pick-links">
+          <button type="button" data-pick-all ${listed.length ? '' : 'disabled'}>Select All</button>
+          <button type="button" data-pick-clear ${tracks.length ? '' : 'disabled'}>Clear</button>
+        </div>
+      </div>
+      <div class="pick-actions">
+        <button type="button" class="pick-act danger" data-pick-remove ${tracks.length ? '' : 'disabled'}
+          title="${isLabel ? 'Take this label off the ticked songs' : 'Take the ticked songs out of this playlist'} — the files stay where they are">${
+            isLabel ? 'Remove Label' : 'Remove from Playlist'
+          }</button>
+      </div>`;
+    bar.querySelector('[data-pick-all]')?.addEventListener('click', () => this.ctx.picks.select(pickablesIn(list)));
+    bar.querySelector('[data-pick-clear]')?.addEventListener('click', () => this.ctx.picks.clear());
+    bar.querySelector('[data-pick-remove]')?.addEventListener('click', () => {
+      void this.ctx.actions.removePicks(
+        open,
+        this.ctx.store.get().picks.tracks.map((t) => t.cataloguePath)
+      );
+    });
   }
 }
