@@ -113,8 +113,19 @@ body::before {
   color: var(--aluminum);
 }
 
+/* Lock the page under a sheet — kills Safari rubber-band / overscroll. */
+html.overlay-open,
 body.overlay-open {
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+body.overlay-open {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
 }
 
 button,
@@ -2095,6 +2106,9 @@ button.cell:disabled .value {
   background: rgba(0, 0, 0, 0.4);
   animation: backdrop-in 0.22s ease;
   transition: opacity 0.2s ease;
+  overscroll-behavior: none;
+  /* Sheet itself scrolls; backdrop must not bounce the page. */
+  touch-action: none;
 }
 
 .ah-overlay.closing {
@@ -2123,6 +2137,8 @@ button.cell:disabled .value {
   color: var(--label);
   outline: none;
   transition: transform 0.22s var(--ease-out);
+  overscroll-behavior: none;
+  touch-action: pan-y;
 }
 
 .ah-overlay.mobile .ah-panel {
@@ -2143,6 +2159,12 @@ button.cell:disabled .value {
   border-radius: 14px;
   box-shadow: var(--shadow-modal);
   animation: modal-in 0.22s var(--ease-out);
+}
+
+/* Graphic EQ / multiband — room for every fader and the frequency strip */
+.ah-overlay.desktop .ah-panel.wide {
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(780px, calc(100dvh - 48px));
 }
 
 .ah-overlay.desktop.closing .ah-panel {
@@ -2168,7 +2190,8 @@ button.cell:disabled .value {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
+  touch-action: pan-y;
   padding-bottom: calc(8px + var(--safe-bottom));
 }
 
@@ -4223,6 +4246,16 @@ html[data-nav="tab"]::view-transition-new(root) {
   padding: 0 16px;
 }
 
+.rack-sheet.is-wide {
+  padding: 0 12px;
+}
+
+@media (max-width: 699px) {
+  .rack-sheet.is-wide {
+    padding: 0 8px;
+  }
+}
+
 .rack-plugin:disabled {
   opacity: 0.4;
 }
@@ -4486,26 +4519,33 @@ html[data-nav="tab"]::view-transition-new(root) {
   margin-top: 4px;
 }
 
-/* Faders (graphic EQ) */
+/* Faders (graphic EQ) — fat touch targets on phone; scroll sideways if needed */
 .rack-faders {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  width: 100%;
   overflow-x: auto;
-  padding: 4px 0 8px;
-  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
+  padding: 8px 2px 12px;
+  scrollbar-width: thin;
+  touch-action: pan-x;
 }
 
 .rack-fader {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex: 1 1 0;
+  /* ~44px Apple HIG minimum; row may scroll horizontally on narrow phones. */
   min-width: 40px;
-  flex: 1 0 40px;
+  max-width: 52px;
+  padding: 4px 2px;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  scroll-snap-align: start;
+  -webkit-touch-callout: none;
 }
 
 .rack-fader:focus-visible {
@@ -4519,15 +4559,30 @@ html[data-nav="tab"]::view-transition-new(root) {
   font-size: 9px;
   color: var(--amber);
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: clip;
+  pointer-events: none;
 }
 
 .fader-track {
   position: relative;
   width: 6px;
-  height: 150px;
+  height: 148px;
   border-radius: 3px;
   background: var(--faceplate-lift);
   border: 1px solid var(--aluminum-dark);
+}
+
+/* Invisible fat hit area around the thin track (phone thumbs). */
+.fader-track::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  bottom: -12px;
+  left: 50%;
+  width: 44px;
+  margin-left: -22px;
 }
 
 .fader-zero {
@@ -4537,22 +4592,70 @@ html[data-nav="tab"]::view-transition-new(root) {
   top: 50%;
   height: 1px;
   background: var(--aluminum-dark);
+  pointer-events: none;
 }
 
 .fader-cap {
   position: absolute;
   left: 50%;
-  width: 26px;
-  height: 14px;
-  margin-left: -13px;
-  border-radius: 3px;
+  width: 28px;
+  height: 18px;
+  margin-left: -14px;
+  border-radius: 4px;
   background: linear-gradient(var(--ivory), var(--ivory-dim));
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+  z-index: 1;
+}
+
+@media (min-width: 700px) {
+  .rack-fader {
+    min-width: 0;
+    max-width: 44px;
+    padding: 0;
+  }
+
+  .fader-track {
+    width: 5px;
+    height: 150px;
+  }
+
+  .fader-track::before {
+    width: 28px;
+    margin-left: -14px;
+    top: -4px;
+    bottom: -4px;
+  }
+
+  .fader-cap {
+    width: 22px;
+    height: 12px;
+    margin-left: -11px;
+  }
+
+  .fader-text {
+    font-size: 9px;
+  }
+
+  .ah-panel.wide .fader-track {
+    height: 150px;
+  }
 }
 
 .fader-label {
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 1.1;
   color: var(--secondary);
+  max-width: 100%;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (min-width: 700px) {
+  .ah-panel.wide .fader-label {
+    font-size: 10px;
+  }
 }
 
 /* EQ curve */
@@ -4560,6 +4663,7 @@ html[data-nav="tab"]::view-transition-new(root) {
   display: block;
   width: 100%;
   height: auto;
+  min-height: 240px;
   border-radius: var(--radius);
   background: var(--chassis);
   border: 1px solid rgba(97, 89, 83, 0.45);
@@ -4581,11 +4685,143 @@ html[data-nav="tab"]::view-transition-new(root) {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* Dual In/Out spectrum */
+.spec-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.spec-toggles {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.spec-chip {
+  appearance: none;
+  border: 1px solid rgba(97, 89, 83, 0.55);
+  background: var(--faceplate-lift);
+  color: var(--secondary);
+  font: 600 11px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.spec-chip.is-on {
+  color: var(--chassis);
+  background: rgba(158, 148, 130, 0.85);
+  border-color: transparent;
+}
+
+.spec-chip.out.is-on {
+  background: var(--amber);
+  color: var(--chassis);
+}
+
+.eq-spectrum {
+  fill: rgba(158, 148, 130, 0.28);
+  stroke: rgba(158, 148, 130, 0.45);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.eq-spectrum.is-out {
+  fill: rgba(250, 197, 57, 0.22);
+  stroke: rgba(250, 197, 57, 0.4);
+}
+
+.eq-spectrum.is-hidden {
+  display: none;
+}
+
 .eq-line {
   fill: none;
   stroke: var(--amber);
   stroke-width: 2.5;
   filter: drop-shadow(0 0 4px var(--amber-glow));
+}
+
+/* Graphic EQ: tall spectrum above compact faders */
+.geq-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.geq-spectrum {
+  display: block;
+  width: 100%;
+  height: 140px;
+  border-radius: var(--radius);
+  background: var(--chassis);
+  border: 1px solid rgba(97, 89, 83, 0.45);
+}
+
+.geq-spectrum.tall {
+  height: 168px;
+}
+
+.mb-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.mb-spectrum {
+  position: absolute;
+  inset: 0 0 18px 0;
+  width: 100%;
+  height: calc(100% - 18px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Compact knobs / faders on plugin panels — more room for the graph */
+.rack-knobs.compact {
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 4px 2px;
+  margin-top: 6px;
+}
+
+.rack-knobs.compact .rack-knob svg {
+  width: 40px;
+  height: 40px;
+}
+
+.rack-knobs.compact .knob-text {
+  font-size: 10px;
+}
+
+.rack-knobs.compact .knob-name {
+  font-size: 10px;
+}
+
+/* Compact faders only on desktop — phone keeps the fat caps for touch. */
+@media (min-width: 700px) {
+  .rack-faders.compact .fader-track {
+    height: 110px;
+  }
+
+  .rack-faders.compact .fader-cap {
+    width: 18px;
+    height: 11px;
+    margin-left: -9px;
+  }
+}
+
+.panel-rows.compact .param-row {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.band-tabs.compact {
+  margin: 6px 0 2px;
+  gap: 4px;
 }
 
 .eq-point circle {
@@ -4615,6 +4851,360 @@ html[data-nav="tab"]::view-transition-new(root) {
   flex-wrap: wrap;
   gap: 6px;
   margin: 10px 0 4px;
+}
+
+/* Multiband frequency strip (Mastering Compressor) */
+.mb-strip {
+  position: relative;
+  margin: 4px 0 8px;
+  border-radius: var(--radius);
+  background: var(--chassis);
+  border: 1px solid rgba(97, 89, 83, 0.45);
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.mb-axis {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mb-grid {
+  position: absolute;
+  top: 0;
+  bottom: 18px;
+  width: 1px;
+  background: rgba(158, 148, 130, 0.18);
+  transform: translateX(-0.5px);
+}
+
+.mb-grid-label {
+  position: absolute;
+  bottom: 3px;
+  transform: translateX(4px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  color: var(--ivory-dim);
+  opacity: 0.75;
+}
+
+.mb-bands {
+  position: relative;
+  height: 168px;
+  margin: 0;
+}
+
+.mb-bands.tall,
+.mb-strip.tall .mb-bands {
+  height: 228px;
+}
+
+.mb-strip.tall .mb-band {
+  top: 10px;
+  bottom: 24px;
+}
+
+.mb-band {
+  position: absolute;
+  top: 8px;
+  bottom: 22px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(240, 232, 217, 0.14);
+  border-radius: 7px;
+  background: rgba(31, 28, 26, 0.55);
+  color: var(--ivory);
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+/* Live input / envelope — rises from the bottom */
+.mb-env {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--mb-hue);
+  opacity: 0.72;
+  transition: height 0.08s linear;
+  pointer-events: none;
+}
+
+/* Gain reduction — drops from the top (amber cut) */
+.mb-gr {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  background: linear-gradient(180deg, rgba(250, 120, 60, 0.75), rgba(250, 120, 60, 0.2));
+  transition: height 0.08s linear;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Threshold line across the band */
+.mb-thr {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  margin-bottom: -1px;
+  background: var(--ivory);
+  opacity: 0.85;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.mb-band.is-chosen {
+  border-color: var(--amber);
+  box-shadow: inset 0 0 0 1px rgba(250, 197, 57, 0.35), 0 0 14px rgba(250, 197, 57, 0.18);
+  z-index: 2;
+}
+
+.mb-band.is-soft {
+  border-style: dashed;
+}
+
+.mb-band.is-soft .mb-env {
+  opacity: 0.28;
+}
+
+.mb-band.is-dimmed {
+  opacity: 0.38;
+}
+
+.mb-band.is-mute {
+  opacity: 0.45;
+}
+
+.mb-band.is-solo {
+  border-color: #7ec8ff;
+  box-shadow: inset 0 0 0 1px rgba(126, 200, 255, 0.35);
+}
+
+.mb-band-meta {
+  position: absolute;
+  inset: 0 0 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1px;
+  padding: 8px 2px 4px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.mb-band-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ivory);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+.mb-band-range,
+.mb-band-ratio {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  color: var(--ivory);
+  opacity: 0.9;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.mb-band-ratio {
+  opacity: 0.75;
+}
+
+.mb-band-chips {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.mb-chip {
+  width: 22px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(240, 232, 217, 0.28);
+  background: rgba(18, 16, 14, 0.72);
+  color: var(--ivory-dim);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mb-chip.is-on {
+  background: rgba(126, 200, 255, 0.9);
+  border-color: #7ec8ff;
+  color: #0c1014;
+}
+
+.mb-chip.is-on.mute {
+  background: rgba(250, 120, 60, 0.92);
+  border-color: #fa783c;
+  color: #1a0c08;
+}
+
+@media (max-width: 699px) {
+  .mb-bands {
+    height: 148px;
+  }
+
+  .mb-band-ratio {
+    display: none;
+  }
+
+  .mb-band-range {
+    font-size: 7px;
+  }
+
+  .mb-chip {
+    width: 24px;
+    height: 20px;
+    font-size: 10px;
+  }
+}
+
+.mb-split {
+  position: absolute;
+  top: 6px;
+  bottom: 20px;
+  width: 18px;
+  margin-left: -9px;
+  z-index: 5;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.mb-split::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ivory);
+  opacity: 0.55;
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.45);
+}
+
+.mb-split::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 22px;
+  margin: -11px 0 0 -6px;
+  border-radius: 4px;
+  background: var(--ivory);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.mb-split:focus-visible {
+  outline: none;
+}
+
+.mb-split:focus-visible::after {
+  box-shadow: 0 0 0 2px var(--amber);
+}
+
+.mb-legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 8px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  color: var(--ivory-dim);
+}
+
+.mb-legend-hint {
+  font-family: inherit;
+  font-size: 9px;
+  opacity: 0.7;
+  text-align: center;
+}
+
+@media (max-width: 699px) {
+  .mb-legend-hint {
+    font-size: 8px;
+  }
+}
+
+.mb-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0 4px;
+  min-height: 24px;
+}
+
+.mb-chosen {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ivory);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.mb-chosen-range {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--amber);
+}
+
+.mb-add {
+  flex-shrink: 0;
+}
+
+.deck-pill.compact {
+  min-width: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.mb-soft-note {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(250, 197, 57, 0.08);
+  border: 1px solid rgba(250, 197, 57, 0.22);
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.mb-em {
+  color: var(--amber);
+  font-weight: 600;
 }
 
 /* Meter: in, out, gain change */

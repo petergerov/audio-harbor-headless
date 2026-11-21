@@ -2,6 +2,7 @@ import type { RackApi } from '../../../api/rackApi';
 import type { RackParam } from '../../../api/types';
 import { runMeter } from '../meter';
 import { ParamSender } from '../paramSender';
+import { bindSpectrumOverlay } from '../spectrumDraw';
 import type { InsertView } from '../insertView';
 import type { PanelContext, PanelSpec, Section } from './panelSpec';
 import { sectionRenderers } from './sections';
@@ -77,6 +78,19 @@ export class PanelView implements InsertView {
       watch: (paramId, update) => this.watchers.set(paramId, [...(this.watchers.get(paramId) ?? []), update]),
       redraw: () => this.draw(),
       startMeter: (el) => runMeter(el, this.rack, this.insertId),
+      startSpectrum: (el, width, height) => bindSpectrumOverlay(el, this.rack, this.insertId, width, height),
+      pollParams: (el, ids, update) => {
+        const tick = async () => {
+          if (!el.isConnected || !ids.length) return;
+          try {
+            update(await this.rack.paramValues(this.insertId, ids));
+          } catch {
+            // A missed reading is not worth a message.
+          }
+          if (el.isConnected) window.setTimeout(() => void tick(), 100);
+        };
+        window.setTimeout(() => void tick(), 0);
+      },
     };
   }
 }

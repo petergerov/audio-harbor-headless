@@ -186,6 +186,15 @@ export async function buildServer(ctx: AppContext) {
   app.get('/api/v1/rack/meters', { logLevel: 'warn' }, async (_req, reply) =>
     rackCall(reply, async () => ({ meters: await ctx.rack.meters() }))
   );
+  // A few parameter values (band meters) while a multiband panel is open.
+  app.post<{ Params: { id: string }; Body: { params?: string[] } }>(
+    '/api/v1/rack/inserts/:id/values',
+    { logLevel: 'warn' },
+    async (req, reply) =>
+      rackCall(reply, async () => ({
+        values: await ctx.rack.paramValues(req.params.id, Array.isArray(req.body?.params) ? req.body.params.map(String) : []),
+      }))
+  );
   app.get<{ Params: { id: string } }>('/api/v1/rack/inserts/:id/state', async (req, reply) =>
     rackCall(reply, async () => ({ state: await ctx.rack.state(req.params.id) }))
   );

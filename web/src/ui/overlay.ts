@@ -11,6 +11,8 @@ export type MenuItem = {
 };
 
 let lastFocus: HTMLElement | null = null;
+/** Scroll position locked while a sheet is open (iOS Safari bounce). */
+let lockedScrollY = 0;
 
 /** Browser history for sheets, so the back key (Android, browser) closes one instead of leaving the screen. */
 export interface OverlayHistory {
@@ -45,7 +47,7 @@ function dismiss(): boolean {
   if (panel) panel.style.transform = '';
   el.classList.add('closing');
   window.setTimeout(() => el.remove(), 220);
-  document.body.classList.remove('overlay-open');
+  unlockScroll();
   if (lastFocus) {
     lastFocus.focus();
     lastFocus = null;
@@ -54,7 +56,17 @@ function dismiss(): boolean {
 }
 
 function lockScroll(): void {
+  lockedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  document.documentElement.classList.add('overlay-open');
   document.body.classList.add('overlay-open');
+  document.body.style.top = `-${lockedScrollY}px`;
+}
+
+function unlockScroll(): void {
+  document.documentElement.classList.remove('overlay-open');
+  document.body.classList.remove('overlay-open');
+  document.body.style.top = '';
+  window.scrollTo(0, lockedScrollY);
 }
 
 function trapFocus(root: HTMLElement): void {
@@ -125,7 +137,15 @@ function enableSwipeDismiss(panel: HTMLElement, scroller: HTMLElement): void {
     'touchstart',
     (e) => {
       if (e.touches.length !== 1 || scroller.scrollTop > 0) return;
-      if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+      const target = e.target as HTMLElement;
+      // Knobs, faders, EQ points and spectrum need the gesture — not sheet dismiss.
+      if (
+        target.closest(
+          'input, textarea, select, [data-fader], [data-knob], [data-eq], [data-point], [data-mb-strip], .rack-fader, .rack-knob'
+        )
+      ) {
+        return;
+      }
       startY = e.touches[0]!.clientY;
       dy = 0;
       dragging = true;
@@ -215,9 +235,13 @@ export function openPanel(opts: {
   bodyHtml: string;
   primaryLabel?: string;
   onPrimary?: () => void | Promise<void>;
+  /** Wider desktop modal (EQ faders, multiband strip); phone stays full-width. */
+  size?: 'default' | 'wide';
   bind?: (root: HTMLElement, close: () => void) => void;
 }): void {
   const { panel } = mountShell(opts.title);
+  const shell = panel.closest('.ah-panel');
+  if (shell && opts.size === 'wide') shell.classList.add('wide');
   panel.innerHTML = `
     <header class="ah-head bar">
       <button type="button" class="ah-text-btn" data-close>Cancel</button>

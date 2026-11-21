@@ -39,19 +39,22 @@ function dnsLabel(name: string): string {
 }
 
 /**
- * This host on the LAN over mDNS / Bonjour: one responder for its `.local` name and for the
+ * This host on the LAN over mDNS / Bonjour: one responder for its `.local` name(s) and for the
  * services it offers. Records follow address changes, and leave with a goodbye on close.
  */
 export class Mdns {
-  /** The `.local` name this host answers to, once claimed. */
+  /** The primary `.local` name this host answers to, once claimed. */
   hostname: string | null = null;
-  /** The name asked for — differs from `hostname` when another device had it. */
+  /** Extra `.local` names that resolve to the same addresses. */
+  aliases: string[] = [];
+  /** The primary name asked for — differs from `hostname` when another device had it. */
   wanted: string | null = null;
 
   private readonly bonjour = new Bonjour();
   private readonly services: Service[] = [];
   private addresses = lanAddresses().join(',');
   private readonly watcher: NodeJS.Timeout;
+  private answering = false;
 
   constructor() {
     this.watcher = setInterval(() => this.followAddresses(), ADDRESS_CHECK_MS);
@@ -70,11 +73,28 @@ export class Mdns {
       const candidate = `${n === 1 ? label : `${label}-${n}`}.local`;
       if (!(await this.answeredElsewhere(candidate))) {
         this.hostname = candidate;
-        this.denyIpv6();
+        this.startAnswering();
         return candidate;
       }
     }
     return null;
+  }
+
+  /**
+   * Claims an extra `.local` name pointing at this host (no `-2` fallback — skip if taken).
+   * Call after `claim()` so AAAA NSEC / A answers cover every name.
+   */
+  async claimAlias(name: string): Promise<string | null> {
+    const label = dnsLabel(name);
+    if (!label) return null;
+    const candidate = `${label}.local`;
+    if (candidate === this.hostname) return candidate;
+    if (this.aliases.includes(candidate)) return candidate;
+    if (await this.answeredElsewhere(candidate)) return null;
+    this.aliases.push(candidate);
+    this.startAnswering();
+    this.announceAlias(candidate);
+    return candidate;
   }
 
   /**
@@ -103,22 +123,45 @@ export class Mdns {
     return (this.bonjour as unknown as { server?: { mdns?: MulticastDns } }).server?.mdns ?? null;
   }
 
+  private names(): string[] {
+    return [this.hostname, ...this.aliases].filter((n): n is string => Boolean(n));
+  }
+
   /**
-   * The name has A records only. Answering AAAA with an NSEC that says so (RFC 6762 §6.1)
-   * spares resolvers the seconds they would wait for an IPv6 answer that never comes.
+   * Answer A / AAAA for every claimed name. AAAA gets an NSEC that says A only
+   * (RFC 6762 §6.1). Alias A records are ours; the primary's A records also come from
+   * the published service.
    */
-  private denyIpv6(): void {
+  private startAnswering(): void {
+    if (this.answering) return;
     const mdns = this.socket;
-    mdns?.on('query', (query) => {
-      const name = this.hostname;
-      const asked = query.questions?.some(
-        (q) => q.name.toLowerCase() === name && (q.type === 'AAAA' || q.type === 'ANY')
-      );
-      if (!name || !asked) return;
-      mdns.respond({
-        answers: [{ name, type: 'NSEC', ttl: 120, data: { nextDomain: name, rrtypes: ['A'] } }],
-      });
+    if (!mdns) return;
+    this.answering = true;
+    mdns.on('query', (query) => {
+      const known = new Set(this.names().map((n) => n.toLowerCase()));
+      const addrs = lanAddresses();
+      for (const q of query.questions ?? []) {
+        const qn = q.name.toLowerCase();
+        if (!known.has(qn)) continue;
+        if (q.type === 'AAAA' || q.type === 'ANY') {
+          mdns.respond({
+            answers: [{ name: q.name, type: 'NSEC', ttl: 120, data: { nextDomain: q.name, rrtypes: ['A'] } }],
+          });
+        }
+        if ((q.type === 'A' || q.type === 'ANY') && this.aliases.some((a) => a.toLowerCase() === qn)) {
+          mdns.respond({
+            answers: addrs.map((data) => ({ name: q.name, type: 'A', ttl: 120, data })),
+          });
+        }
+      }
     });
+  }
+
+  private announceAlias(name: string): void {
+    const mdns = this.socket;
+    if (!mdns) return;
+    const answers = lanAddresses().map((data) => ({ name, type: 'A', ttl: 120, data }));
+    if (answers.length) mdns.respond({ answers });
   }
 
   private answeredElsewhere(name: string): Promise<boolean> {
@@ -164,5 +207,6 @@ export class Mdns {
     for (const service of this.services) {
       service.stop(() => service.start());
     }
+    for (const alias of this.aliases) this.announceAlias(alias);
   }
 }

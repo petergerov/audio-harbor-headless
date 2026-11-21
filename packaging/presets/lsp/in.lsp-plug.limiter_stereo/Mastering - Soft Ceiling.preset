@@ -1,0 +1,16 @@
+# Harbor: transparent ceiling just under 0 dBFS
+g_in = 0.00 db
+g_out = 0.00 db
+th = -1.00 db
+knee = 0.00 db
+lk = 5.00000
+at = 5.00000
+rt = 20.00000
+alr = true
+alr_at = 5.00000
+alr_rt = 50.00000
+boost = true
+mode = 0
+ovs = 0
+dith = 0
+slink = 1.00000

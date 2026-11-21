@@ -4,11 +4,15 @@ import { bindFader, faderHtml, showFader } from '../fader';
 import { bindKnob, knobHtml, showKnob } from '../knob';
 import { meterHtml } from '../meter';
 import { CONTROLS } from '../paramControls';
-import { isOn, onValue } from '../paramGroups';
 import { scaleBetween, viewOf } from '../paramModel';
 import { bindParamRow, paramRowHtml } from '../paramRow';
+import { spectrumPathsHtml, spectrumTogglesHtml } from '../spectrumDraw';
+import { bandTabsSection } from './bandStrip';
 import { eqCurveSection } from './eqCurve';
-import { bandName, type PanelContext, type Section, type SectionRenderer } from './panelSpec';
+import type { PanelContext, Section, SectionRenderer } from './panelSpec';
+
+const GEQ_SPEC_W = 600;
+const GEQ_SPEC_H = 160;
 
 type Named = string | [name: string, label: string];
 const named = (entry: Named): [string, string] => (typeof entry === 'string' ? [entry, entry] : entry);
@@ -25,7 +29,7 @@ const title = (text?: string) => (text ? `<p class="group-label panel-title">${e
 
 export function knobsHtml(params: Array<[RackParam, string]>): string {
   return params.length
-    ? `<div class="rack-knobs">${params.map(([p, label]) => knobHtml(viewOf(p), label)).join('')}</div>`
+    ? `<div class="rack-knobs compact">${params.map(([p, label]) => knobHtml(viewOf(p), label)).join('')}</div>`
     : '';
 }
 
@@ -65,6 +69,23 @@ const meter: SectionRenderer<Extract<Section, { kind: 'meter' }>> = {
   },
 };
 
+const SPEC_W = 600;
+const SPEC_H = 180;
+
+const spectrum: SectionRenderer<Extract<Section, { kind: 'spectrum' }>> = {
+  html: () => `
+    <div class="spec-stage" data-spec-only>
+      ${spectrumTogglesHtml()}
+      <svg class="geq-spectrum tall" viewBox="0 0 ${SPEC_W} ${SPEC_H}" preserveAspectRatio="none" aria-hidden="true">
+        ${spectrumPathsHtml()}
+      </svg>
+    </div>`,
+  bind: (root, _s, ctx) => {
+    const el = root.querySelector<HTMLElement>('[data-spec-only]');
+    if (el) ctx.startSpectrum(el, SPEC_W, SPEC_H);
+  },
+};
+
 const knobs: SectionRenderer<Extract<Section, { kind: 'knobs' }>> = {
   html: (s, ctx) => title(s.title) + knobsHtml(present(s.params, ctx)),
   bind: (root, s, ctx) => bindKnobs(root, present(s.params, ctx), ctx),
@@ -84,11 +105,20 @@ const faderLabel = (name: string) => (/\s(\S+)$/.exec(name)?.[1] ?? name).replac
 const faders: SectionRenderer<Extract<Section, { kind: 'faders' }>> = {
   html: (s, ctx) => {
     const found = matching(s.match, ctx);
-    return `${title(s.title)}<div class="rack-faders">${found
-      .map((p) => faderHtml(p.id, faderLabel(p.name), p.text))
-      .join('')}</div>`;
+    return `${title(s.title)}
+      <div class="geq-wrap" data-geq>
+        ${spectrumTogglesHtml()}
+        <svg class="geq-spectrum" viewBox="0 0 ${GEQ_SPEC_W} ${GEQ_SPEC_H}" preserveAspectRatio="none" aria-hidden="true">
+          ${spectrumPathsHtml()}
+        </svg>
+        <div class="rack-faders compact">${found
+          .map((p) => faderHtml(p.id, faderLabel(p.name), p.text))
+          .join('')}</div>
+      </div>`;
   },
   bind: (root, s, ctx) => {
+    const wrap = root.querySelector<HTMLElement>('[data-geq]');
+    if (wrap) ctx.startSpectrum(wrap, GEQ_SPEC_W, GEQ_SPEC_H);
     const scale = scaleBetween(-s.range, s.range, 0.5, 0);
     for (const param of matching(s.match, ctx)) {
       const fader = root.querySelector<HTMLElement>(`[data-fader="${CSS.escape(param.id)}"]`);
@@ -104,57 +134,8 @@ function matching(pattern: RegExp, ctx: PanelContext): RackParam[] {
   return ctx.all().filter((p) => pattern.test(p.name));
 }
 
-/** Bands of a multiband plugin: a tab per band in play, the chosen one's knobs and rows. */
-function bandTabsSection(): SectionRenderer<Extract<Section, { kind: 'bandTabs' }>> {
-  let chosen: number | null = null;
-  const bands = (s: Extract<Section, { kind: 'bandTabs' }>, ctx: PanelContext) =>
-    Array.from({ length: s.count }, (_, i) => s.first + i).map((n) => {
-      const enable = s.enable ? ctx.param(bandName(s.enable, n)) : undefined;
-      const on = s.alwaysOn?.includes(n) || !enable || isOn(enable);
-      return { n, enable, on };
-    });
-  const forBand = (entries: Array<[string, string]>, n: number): Named[] =>
-    entries.map(([name, label]) => [bandName(name, n), label]);
-  return {
-    html: (s, ctx) => {
-      const all = bands(s, ctx);
-      const inPlay = all.filter((b) => b.on);
-      if (chosen === null || !inPlay.some((b) => b.n === chosen)) chosen = inPlay[0]?.n ?? s.first;
-      const next = all.find((b) => !b.on && b.enable);
-      const tabs = inPlay
-        .map((b) => `<button type="button" class="deck-pill ${b.n === chosen ? 'is-on' : ''}" data-band="${b.n}">${b.n}</button>`)
-        .join('');
-      const add = next ? `<button type="button" class="deck-pill" data-band-add="${next.n}" aria-label="Add band ${next.n}">+</button>` : '';
-      const n = chosen;
-      return `
-        <div class="band-tabs" role="tablist">${tabs}${add}</div>
-        ${knobsHtml(present(forBand(s.knobs, n), ctx))}
-        <div class="panel-rows">${rowsHtml(present(forBand(s.rows ?? [], n), ctx))}</div>`;
-    },
-    bind: (root, s, ctx) => {
-      const n = chosen ?? s.first;
-      bindKnobs(root, present(forBand(s.knobs, n), ctx), ctx);
-      bindRows(root, present(forBand(s.rows ?? [], n), ctx), ctx);
-      root.querySelectorAll<HTMLElement>('[data-band]').forEach((tab) =>
-        tab.addEventListener('click', () => {
-          chosen = Number(tab.dataset.band);
-          ctx.redraw();
-        })
-      );
-      root.querySelector<HTMLElement>('[data-band-add]')?.addEventListener('click', (e) => {
-        const band = Number((e.currentTarget as HTMLElement).dataset.bandAdd);
-        const enable = s.enable ? ctx.param(bandName(s.enable, band)) : undefined;
-        if (!enable) return;
-        chosen = band;
-        ctx.watch(enable.id, () => ctx.redraw());
-        ctx.io(enable).set(onValue(enable));
-      });
-    },
-  };
-}
-
 /** A renderer per kind of section — a new kind is a new entry. Stateful ones are made per panel. */
 export function sectionRenderers(): { [K in Section['kind']]: SectionRenderer<Extract<Section, { kind: K }>> } {
-  return { note, meter, knobs, rows, faders, eqCurve: eqCurveSection(), bandTabs: bandTabsSection() };
+  return { note, meter, spectrum, knobs, rows, faders, eqCurve: eqCurveSection(), bandTabs: bandTabsSection() };
 }
 

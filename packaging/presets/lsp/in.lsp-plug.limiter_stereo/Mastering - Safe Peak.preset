@@ -1,0 +1,16 @@
+# Harbor: safer peak margin for DAC headroom
+g_in = 0.00 db
+g_out = -0.50 db
+th = -1.50 db
+knee = 1.00 db
+lk = 8.00000
+at = 3.00000
+rt = 40.00000
+alr = true
+alr_at = 5.00000
+alr_rt = 80.00000
+boost = true
+mode = 1
+ovs = 0
+dith = 0
+slink = 1.00000

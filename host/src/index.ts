@@ -146,11 +146,16 @@ async function main(): Promise<void> {
   });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
 
-  // mDNS: this host as http://audioharbor.local:<port> — nothing to type, and a new DHCP
-  // address does not break a saved home-screen app. Also carries the Bonjour remote.
+  // mDNS: http://ahh.local:<port> (+ aliases) — not audioharbor.local, so the macOS
+  // Audio Harbor app keeps that name. A new DHCP address does not break a saved home screen.
   const mdns = cfg.server.local_hostname || cfg.remote.bonjour_enabled ? new Mdns() : null;
   const localName = mdns && cfg.server.local_hostname ? await mdns.claim(cfg.server.local_hostname) : null;
+  const aliasNames: string[] = [];
   if (mdns && localName) {
+    for (const alias of cfg.server.local_hostname_aliases) {
+      const claimed = await mdns.claimAlias(alias);
+      if (claimed && claimed !== localName) aliasNames.push(claimed);
+    }
     // The web remote as a Bonjour service; its address records make the name resolve, so
     // a clash of service names must not take them down (the name itself was probed).
     mdns.publish({ name: cfg.server.name, type: 'http', port: cfg.server.port, probe: false });
@@ -171,6 +176,9 @@ async function main(): Promise<void> {
   console.log(`Engine: ${engineVersion()}`);
   console.log(`Open on iPhone: ${url}`);
   if (localName) console.log(`            or: ${lan}`);
+  for (const alias of aliasNames) {
+    console.log(`            or: http://${alias}:${cfg.server.port}`);
+  }
   if (localName && localName !== mdns?.wanted) {
     console.log(`(${mdns?.wanted} is taken by another device on the network)`);
   }

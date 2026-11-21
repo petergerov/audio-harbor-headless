@@ -411,6 +411,12 @@ export interface RackParam {
 export interface InsertMeter {
   in: number;
   out: number;
+  /** @deprecated Prefer spectrumIn. */
+  spectrum?: number[];
+  /** Log-spaced input spectrum (20 Hz…20 kHz), dBFS. */
+  spectrumIn?: number[];
+  /** Log-spaced output spectrum (20 Hz…20 kHz), dBFS. */
+  spectrumOut?: number[];
 }
 
 /** A whole rack kept under a name. */

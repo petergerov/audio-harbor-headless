@@ -57,10 +57,10 @@ DSF, DFF und sogar ganze SACD-Abbilder erscheinen als Titel in der Mediathek. Si
 
 ## 6. Eine Fernbedienung ohne App und ohne Einrichtung
 
-Öffne `audioharbor.local` auf einem Handy, Tablet oder Computer im selben Netzwerk, und du bist drin. Keine App installieren, kein Konto, kein Code. Leg sie auf den iPhone-Home-Bildschirm, dann sieht sie aus und fühlt sich an wie eine App, mit eigenem Symbol. Sie funktioniert weiter, wenn der Host eine neue Adresse bekommt, und verbindet sich von selbst neu, wenn das WLAN kurz weg ist. Wer lieber eine richtige App mag: Die Audio-Harbor-App für iOS findet den Host von allein.
+Öffne `ahh.local` (oder `audioharbor-headless.local`) auf einem Handy, Tablet oder Computer im selben Netzwerk, und du bist drin. Keine App installieren, kein Konto, kein Code. Leg sie auf den iPhone-Home-Bildschirm, dann sieht sie aus und fühlt sich an wie eine App, mit eigenem Symbol. Sie funktioniert weiter, wenn der Host eine neue Adresse bekommt, und verbindet sich von selbst neu, wenn das WLAN kurz weg ist. Wer lieber eine richtige App mag: Die Audio-Harbor-App für iOS findet den Host von allein.
 
 **Dahinter:**
-- **mDNS / Bonjour:** Damit sprechen sich Geräte mit Namen an statt mit IP-Adresse. Deshalb funktioniert `audioharbor.local` und funktioniert weiter, wenn der Router eine neue Adresse vergibt.
+- **mDNS / Bonjour:** Damit sprechen sich Geräte mit Namen an statt mit IP-Adresse. Deshalb funktioniert `ahh.local` und funktioniert weiter, wenn der Router eine neue Adresse vergibt (und kollidiert nicht mit `audioharbor.local` der macOS-App).
 - **PWA (Progressive Web App):** eine Webseite, die sich wie eine App auf den Home-Bildschirm legen lässt, mit eigenem Symbol und Vollbild.
 - **Service Worker:** ein kleiner Helfer im Browser, der die Dateien der Fernbedienung aufbewahrt, sodass sie schnell öffnet und eine neue Version erkennt.
 - **WebSocket:** eine Verbindung, die offen bleibt, sodass der Host jede Änderung (Titel, Lautstärke, Position) sofort an die Fernbedienung schickt.

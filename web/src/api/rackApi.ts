@@ -17,6 +17,8 @@ export interface RackApi {
   setParam(id: string, param: string, value: number): Promise<RackParam | null>;
   /** Typed in the plugin's own units ("-3.5 dB", "1.2 kHz"); the plugin reads it. */
   setParamText(id: string, param: string, text: string): Promise<RackParam | null>;
+  /** Live values for a few parameters (band meters) while a panel is open. */
+  paramValues(id: string, params: string[]): Promise<Record<string, { value: number; text: string }>>;
   setPinned(id: string, params: string[]): Promise<RackSnapshot>;
   /** Peak in and out of every insert. */
   meters(): Promise<Record<string, InsertMeter>>;
@@ -82,6 +84,16 @@ export class HttpRackApi implements RackApi {
 
   setParamText(id: string, param: string, text: string): Promise<RackParam | null> {
     return this.putParam(id, param, { text });
+  }
+
+  async paramValues(id: string, params: string[]): Promise<Record<string, { value: number; text: string }>> {
+    if (!params.length) return {};
+    return (
+      await this.http.post<{ values: Record<string, { value: number; text: string }> }>(
+        `/api/v1/rack/inserts/${encodeURIComponent(id)}/values`,
+        { params }
+      )
+    ).values;
   }
 
   private async putParam(id: string, param: string, body: { value: number } | { text: string }): Promise<RackParam | null> {

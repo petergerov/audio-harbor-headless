@@ -11,13 +11,14 @@ import {
 } from '../eqResponse';
 import { onDrag } from '../drag';
 import { isOn, onValue } from '../paramGroups';
+import { spectrumPathsHtml, spectrumTogglesHtml } from '../spectrumDraw';
 import { bandName, type EqBandNames, type PanelContext, type Section, type SectionRenderer } from './panelSpec';
 import { bindRows, rowsHtml } from './sections';
 
 type EqSection = Extract<Section, { kind: 'eqCurve' }>;
 
 const W = 600;
-const H = 220;
+const H = 300;
 /** The curve shows ±18 dB. */
 const RANGE_DB = 18;
 const POINTS = 160;
@@ -37,6 +38,17 @@ interface Band {
   model: EqBand;
 }
 
+/** Q for the drawing: bells use Quality factor; shelves prefer Filter Width (octaves → Q). */
+function modelQ(shape: EqBand['shape'], qParam?: RackParam, widthParam?: RackParam): number {
+  const q = qParam ? numberIn(qParam.text) : Number.NaN;
+  const width = widthParam ? numberIn(widthParam.text) : Number.NaN;
+  const shelf = shape === 'lowshelf' || shape === 'highshelf';
+  if (shelf && width > 0 && width <= 8) return qFromOctaves(width);
+  if (q > 0) return Math.min(q, 100);
+  if (width > 0) return qFromOctaves(width);
+  return Math.SQRT1_2;
+}
+
 function bandsOf(section: EqSection, ctx: PanelContext): Band[] {
   const names: EqBandNames = section.bands;
   const out: Band[] = [];
@@ -45,15 +57,16 @@ function bandsOf(section: EqSection, ctx: PanelContext): Band[] {
     const type = get(names.type);
     if (!type) continue;
     const params = { type, freq: get(names.freq), gain: get(names.gain), q: get(names.q), width: get(names.width), slope: get(names.slope) };
-    const q = params.q ? numberIn(params.q.text) : Number.NaN;
+    const shape = isOn(type) ? shapeOf(type.text) : 'flat';
+    const gainText = params.gain ? numberIn(params.gain.text) : Number.NaN;
     out.push({
       n,
       params,
       model: {
-        shape: isOn(type) ? shapeOf(type.text) : 'flat',
+        shape,
         freq: params.freq ? numberIn(params.freq.text) : 1000,
-        gainDb: params.gain ? params.gain.value : 0,
-        q: q > 0 ? q : params.width ? qFromOctaves(numberIn(params.width.text)) : Math.SQRT1_2,
+        gainDb: Number.isFinite(gainText) ? gainText : params.gain ? params.gain.value : 0,
+        q: modelQ(shape, params.q, params.width),
         order: params.slope ? Math.max(1, numberIn(params.slope.text) || 1) : 1,
       },
     });
@@ -89,12 +102,14 @@ function pointHtml(band: Band, label: number, chosen: boolean): string {
 
 /** The chosen band's controls below the curve. */
 function bandRows(band: Band): Array<[RackParam, string]> {
-  const { type, freq, gain, q, slope } = band.params;
+  const { type, freq, gain, q, width, slope } = band.params;
+  const shelf = band.model.shape === 'lowshelf' || band.model.shape === 'highshelf';
+  // Shelves: Filter Width (octaves) is the musical control; Q is for bells / cuts.
   const rows: Array<[RackParam | undefined, string]> = [
     [type, 'Type'],
     [freq, 'Frequency'],
     [gain, 'Gain'],
-    [q, 'Q'],
+    shelf ? [width ?? q, width ? 'Width' : 'Q'] : [q, 'Q'],
     [slope, 'Slope'],
   ];
   return rows.filter((r): r is [RackParam, string] => r[0] !== undefined);
@@ -117,21 +132,27 @@ export function eqCurveSection(): SectionRenderer<EqSection> {
       const band = inPlay.find((b) => b.n === chosen);
       const next = bands.find((b) => !isOn(b.params.type));
       return `
-        <svg class="eq-curve" viewBox="0 0 ${W} ${H}" data-eq>
-          ${gridHtml()}
-          <path class="eq-line" data-eq-line d="${curvePath(bands)}" />
-          ${inPlay.map((b) => pointHtml(b, label(section, b.n), b.n === chosen)).join('')}
-        </svg>
-        <div class="band-tabs">
-          ${inPlay.map((b) => `<button type="button" class="deck-pill ${b.n === chosen ? 'is-on' : ''}" data-eq-band="${b.n}">${label(section, b.n)}</button>`).join('')}
-          ${next ? `<button type="button" class="deck-pill" data-eq-add="${next.n}" aria-label="Add a band">+ Band</button>` : ''}
+        <div class="spec-stage" data-spec-stage>
+          ${spectrumTogglesHtml()}
+          <svg class="eq-curve" viewBox="0 0 ${W} ${H}" data-eq>
+            ${gridHtml()}
+            ${spectrumPathsHtml()}
+            <path class="eq-line" data-eq-line d="${curvePath(bands)}" />
+            ${inPlay.map((b) => pointHtml(b, label(section, b.n), b.n === chosen)).join('')}
+          </svg>
         </div>
-        ${band ? `<div class="panel-rows">${rowsHtml(bandRows(band))}</div>` : '<p class="panel-note">No band in play — add one.</p>'}`;
+        <div class="band-tabs compact">
+          ${inPlay.map((b) => `<button type="button" class="deck-pill compact ${b.n === chosen ? 'is-on' : ''}" data-eq-band="${b.n}">${label(section, b.n)}</button>`).join('')}
+          ${next ? `<button type="button" class="deck-pill compact" data-eq-add="${next.n}" aria-label="Add a band">+</button>` : ''}
+        </div>
+        ${band ? `<div class="panel-rows compact">${rowsHtml(bandRows(band))}</div>` : '<p class="panel-note">No band in play — add one.</p>'}`;
     },
 
     bind(root, section, ctx) {
+      const stage = root.querySelector<HTMLElement>('[data-spec-stage]');
       const svg = root.querySelector<SVGSVGElement>('[data-eq]');
       const line = root.querySelector<SVGPathElement>('[data-eq-line]');
+      if (stage) ctx.startSpectrum(stage, W, H);
       const repaint = () => {
         if (line) line.setAttribute('d', curvePath(bandsOf(section, ctx)));
       };

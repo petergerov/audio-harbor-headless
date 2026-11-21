@@ -57,10 +57,10 @@ DSF, DFF and even whole SACD disc images play as tracks in the library. They go 
 
 ## 6. A remote with no app and no setup
 
-Open `audioharbor.local` on any phone, tablet or computer on the same network and you're in. There's no app to install, no account and no code to type. Add it to the iPhone home screen and it looks and feels like an app, with its own icon. It keeps working when the host gets a new address, and it reconnects by itself when the Wi‑Fi drops. If you prefer a native app, the Audio Harbor iOS app finds the host on its own.
+Open `ahh.local` (or `audioharbor-headless.local`) on any phone, tablet or computer on the same network and you're in. There's no app to install, no account and no code to type. Add it to the iPhone home screen and it looks and feels like an app, with its own icon. It keeps working when the host gets a new address, and it reconnects by itself when the Wi‑Fi drops. If you prefer a native app, the Audio Harbor iOS app finds the host on its own.
 
 **Behind it:**
-- **mDNS / Bonjour:** lets devices call each other by name instead of by IP address. That's why `audioharbor.local` works and keeps working when the router hands out a new address.
+- **mDNS / Bonjour:** lets devices call each other by name instead of by IP address. That's why `ahh.local` works and keeps working when the router hands out a new address (and stays clear of the macOS app's `audioharbor.local`).
 - **PWA (Progressive Web App):** a website that installs like an app on the home screen, with its own icon and full screen.
 - **Service worker:** a small helper in the browser that keeps the remote's files, so it opens fast and recognises a new version.
 - **WebSocket:** a connection that stays open, so the host can push every change (track, volume, position) to the remote at once.

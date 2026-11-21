@@ -1,0 +1,21 @@
+# Harbor: open top end, controlled low-mids
+g_in = 0.00 db
+g_out = 0.00 db
+mode = 0
+slope = 0
+g_0 = -1.00 db
+g_1 = -0.50 db
+g_2 = 0.00 db
+g_3 = 0.00 db
+g_4 = 0.00 db
+g_5 = -0.50 db
+g_6 = -1.00 db
+g_7 = -0.50 db
+g_8 = 0.00 db
+g_9 = 0.50 db
+g_10 = 1.00 db
+g_11 = 1.50 db
+g_12 = 2.00 db
+g_13 = 2.50 db
+g_14 = 3.00 db
+g_15 = 2.50 db

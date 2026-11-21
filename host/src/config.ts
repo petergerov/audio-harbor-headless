@@ -15,7 +15,8 @@ const DEFAULTS: HarborConfig = {
     host: '0.0.0.0',
     port: 8787,
     name: 'Audio Harbor',
-    local_hostname: 'audioharbor',
+    local_hostname: 'ahh',
+    local_hostname_aliases: ['audioharbor-headless'],
   },
   library: { roots: [] },
   output: {
@@ -160,6 +161,9 @@ export function loadConfig(): HarborConfig {
       port: Number(server.port ?? DEFAULTS.server.port),
       name: String(server.name ?? DEFAULTS.server.name),
       local_hostname: String(server.local_hostname ?? DEFAULTS.server.local_hostname),
+      local_hostname_aliases: Array.isArray(server.local_hostname_aliases)
+        ? server.local_hostname_aliases.map(String).map((s) => s.trim()).filter(Boolean)
+        : [...DEFAULTS.server.local_hostname_aliases],
     },
     library: {
       roots: Array.isArray(library.roots)

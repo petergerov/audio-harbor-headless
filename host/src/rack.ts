@@ -72,6 +72,12 @@ export interface RackParam {
 export interface InsertMeter {
   in: number;
   out: number;
+  /** @deprecated Prefer spectrumIn. */
+  spectrum?: number[];
+  /** Log-spaced input spectrum (20 Hz…20 kHz), dBFS. */
+  spectrumIn?: number[];
+  /** Log-spaced output spectrum (20 Hz…20 kHz), dBFS. */
+  spectrumOut?: number[];
 }
 
 /** A new value: as a number in the plugin's units, or as text the plugin reads ("-3.5 dB"). */
@@ -519,6 +525,22 @@ export class Rack extends EventEmitter {
     const reply = await engineFxRequest<{ ok: boolean; params?: RackParam[]; error?: string }>({ cmd: 'params', id });
     if (!reply.ok) throw new RackError(reply.error ?? 'The plugin did not answer', 409);
     return reply.params ?? [];
+  }
+
+  /**
+   * A few live parameter values (meters while a panel is open). Ids are the plugin's
+   * parameter ids from `params()`.
+   */
+  async paramValues(id: string, params: string[]): Promise<Record<string, { value: number; text: string }>> {
+    this.insert(id);
+    if (!params.length) return {};
+    const reply = await engineFxRequest<{
+      ok: boolean;
+      values?: Record<string, { value: number; text: string }>;
+      error?: string;
+    }>({ cmd: 'values', id, params });
+    if (!reply.ok) throw new RackError(reply.error ?? 'The plugin did not answer', 409);
+    return reply.values ?? {};
   }
 
   async setParam(id: string, param: string, input: ParamInput): Promise<RackParam | null> {

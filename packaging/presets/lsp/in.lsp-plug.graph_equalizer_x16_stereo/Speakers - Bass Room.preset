@@ -1,0 +1,21 @@
+# Harbor: tame room boom, keep punch
+g_in = 0.00 db
+g_out = 0.00 db
+mode = 0
+slope = 0
+g_0 = -2.00 db
+g_1 = -3.50 db
+g_2 = -4.00 db
+g_3 = -2.00 db
+g_4 = 1.00 db
+g_5 = 0.50 db
+g_6 = -1.00 db
+g_7 = -0.50 db
+g_8 = 0.00 db
+g_9 = 0.50 db
+g_10 = 1.00 db
+g_11 = 0.50 db
+g_12 = 0.00 db
+g_13 = 0.50 db
+g_14 = 1.00 db
+g_15 = 0.50 db

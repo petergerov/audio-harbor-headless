@@ -149,6 +149,19 @@ function linearIncrement(param: RackParam, unit: string): number {
   return span / 100;
 }
 
+/**
+ * Q / Quality factor: useful values sit around 0.3…10; a linear 0…100 slider piles them
+ * against the left stop and feels nothing like a real EQ.
+ */
+function isQualityFactor(param: RackParam, unit: string): boolean {
+  if (/^oct$/i.test(unit)) return false;
+  if (/\bquality\b/i.test(param.name)) return true;
+  if (/(^|\s)q(\s|$|\d)/i.test(param.name) && !/\bfreq/i.test(param.name)) return true;
+  // Unitless, spans decades — typical of a Q control (e.g. 0…100 or 0.1…100).
+  const lo = param.min > 0 ? param.min : 0.05;
+  return !unit && param.max >= 10 && param.max / lo >= 20;
+}
+
 /** A linear scale over a range of the panel's choosing (a fader's ±15 dB), with a detent. */
 export function scaleBetween(min: number, max: number, increment: number, detent?: number): Scale {
   const base = new LinearScale(min, max, increment);
@@ -157,10 +170,16 @@ export function scaleBetween(min: number, max: number, increment: number, detent
 
 export function scaleFor(param: RackParam, unit: string): Scale {
   const isFrequency = /^k?Hz$/i.test(unit);
-  const base: Scale =
-    isFrequency && param.min > 0 && param.max / param.min >= 50
-      ? new LogScale(param.min, param.max)
-      : new LinearScale(param.min, param.max, linearIncrement(param, unit));
+  let base: Scale;
+  if (isFrequency && param.min > 0 && param.max / param.min >= 50) {
+    base = new LogScale(param.min, param.max);
+  } else if (isQualityFactor(param, unit) && param.max > 0) {
+    // LSP allows 0; log needs a floor — below ~0.05 is wider than most musical EQ use.
+    const floor = Math.max(param.min > 0 ? param.min : 0.05, 0.05);
+    base = new LogScale(floor, param.max);
+  } else {
+    base = new LinearScale(param.min, param.max, linearIncrement(param, unit));
+  }
   const inside = param.default > param.min && param.default < param.max;
   return inside && !param.stepped ? new DetentScale(base, param.default) : base;
 }

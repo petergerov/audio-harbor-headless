@@ -76,6 +76,13 @@ export function onValue(param: RackParam): number {
   return options.find((o) => !OFF.test(o.text))?.value ?? param.max;
 }
 
+/** The value that switches a band / solo / mute off. */
+export function offValue(param: RackParam): number {
+  const options = param.options ?? [];
+  if (options.length === 2 && param.min === 0 && param.max === 1) return param.min;
+  return options.find((o) => OFF.test(o.text))?.value ?? param.min;
+}
+
 /** Main first, then the groups in the plugin's order; a group of one stays in Main. */
 export function groupParams(params: RackParam[]): ParamGroup[] {
   const byKey = new Map<string, RackParam[]>();

@@ -8,6 +8,7 @@
 #include "FxPlugin.h"
 #include "FxProtocol.h"
 #include "MainLoop.h"
+#include "Spectrum.h"
 
 #include <json.hpp>
 
@@ -69,11 +70,17 @@ json descriptorJson(const FxDescriptor& d) {
 struct Meter {
   float in = 0;
   float out = 0;
+  Spectrum spectrumIn;
+  Spectrum spectrumOut;
 
   void feed(const std::vector<float>* before, const std::vector<float>* after, uint32_t n, double rate) {
     const float fall = rate > 0 ? float(std::exp(-double(n) / (rate * kFallSecs))) : 0.0f;
     in = std::max(peak(before, n), in * fall);
     out = std::max(peak(after, n), out * fall);
+    spectrumIn.setRate(rate);
+    spectrumOut.setRate(rate);
+    spectrumIn.feed(before, n);
+    spectrumOut.feed(after, n);
   }
 
   static float decibels(float level) { return level > 1e-6f ? 20.0f * std::log10(level) : -120.0f; }
@@ -227,11 +234,21 @@ public:
     return out;
   }
 
-  /** Peak in and out of each insert in dBFS. */
-  json meters() const {
+  /** Peak in and out of each insert in dBFS, plus log-spaced input and output spectra. */
+  json meters() {
     json out = json::object();
-    for (const auto& ins : chain_) {
-      out[ins.id] = {{"in", Meter::decibels(ins.meter.in)}, {"out", Meter::decibels(ins.meter.out)}};
+    for (auto& ins : chain_) {
+      json binsIn = json::array();
+      json binsOut = json::array();
+      for (float db : ins.meter.spectrumIn.binsDb()) binsIn.push_back(db);
+      for (float db : ins.meter.spectrumOut.binsDb()) binsOut.push_back(db);
+      out[ins.id] = {
+          {"in", Meter::decibels(ins.meter.in)},
+          {"out", Meter::decibels(ins.meter.out)},
+          {"spectrum", binsIn},
+          {"spectrumIn", binsIn},
+          {"spectrumOut", std::move(binsOut)},
+      };
     }
     return out;
   }

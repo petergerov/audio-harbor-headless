@@ -47,9 +47,25 @@ case "$(uname -s)" in
     ;;
 esac
 PRESETS="$OUT/presets/lsp"
+# Harbor factory presets for plugins LSP does not ship (graphic EQ, multiband, limiter, …).
+HARBOR_PRESETS="$ROOT/packaging/presets/lsp"
+
+merge_harbor_presets() {
+  local src="$HARBOR_PRESETS"
+  [[ -d "$src" ]] || return 0
+  local plugin
+  for plugin in "$src"/*/; do
+    [[ -d "$plugin" ]] || continue
+    mkdir -p "$PRESETS/$(basename "$plugin")"
+    cp -f "$plugin"*.preset "$PRESETS/$(basename "$plugin")/" 2>/dev/null || true
+  done
+  log "Merged Harbor presets from $src"
+}
+
 built() { [[ -f "$STAMP" && "$(cat "$STAMP")" == "$LSP_VERSION" && -f "$OUT/clap/lsp-plugins.clap" ]]; }
 if built && [[ -d "$PRESETS" ]]; then
   log "LSP Plugins $LSP_VERSION already built"
+  merge_harbor_presets
   exit 0
 fi
 
@@ -81,6 +97,7 @@ copy_presets() {
       mkdir -p "$PRESETS/in.lsp-plug.$id"
       cp "${files[@]}" "$PRESETS/in.lsp-plug.$id/"
     done
+  merge_harbor_presets
   log "LSP presets for $(ls "$PRESETS" | wc -l | tr -d ' ') plugins in $PRESETS"
 }
 

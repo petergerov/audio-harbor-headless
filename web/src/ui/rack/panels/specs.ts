@@ -6,6 +6,7 @@ import type { PanelSpec } from './panelSpec';
  */
 export const PANELS: Record<string, PanelSpec> = {
   'in.lsp-plug.graph_equalizer_x16_stereo': {
+    size: 'wide',
     sections: [
       { kind: 'faders', match: /^Band gain /, range: 15 },
       { kind: 'knobs', params: [['Input gain', 'Input'], ['Output gain', 'Output']] },
@@ -13,6 +14,7 @@ export const PANELS: Record<string, PanelSpec> = {
     ],
   },
   'in.lsp-plug.para_equalizer_x16_stereo': {
+    size: 'wide',
     sections: [
       {
         kind: 'eqCurve',
@@ -32,6 +34,7 @@ export const PANELS: Record<string, PanelSpec> = {
     ],
   },
   'in.lsp-plug.mb_compressor_stereo': {
+    size: 'wide',
     sections: [
       { kind: 'meter' },
       {
@@ -40,6 +43,10 @@ export const PANELS: Record<string, PanelSpec> = {
         count: 8,
         enable: 'Compression band enable #',
         alwaysOn: [1],
+        solo: 'Solo #',
+        mute: 'Mute #',
+        envelope: 'Envelope level meter #',
+        reduction: 'Reduction level meter #',
         knobs: [
           ['Attack threshold #', 'Threshold'],
           ['Ratio #', 'Ratio'],
@@ -58,7 +65,9 @@ export const PANELS: Record<string, PanelSpec> = {
     ],
   },
   'in.lsp-plug.limiter_stereo': {
+    size: 'wide',
     sections: [
+      { kind: 'spectrum' },
       { kind: 'meter' },
       {
         kind: 'knobs',
@@ -83,7 +92,9 @@ export const PANELS: Record<string, PanelSpec> = {
     ],
   },
   'in.lsp-plug.loud_comp_stereo': {
+    size: 'wide',
     sections: [
+      { kind: 'spectrum' },
       {
         kind: 'note',
         text: 'Quiet listening loses bass and treble to the ear. Set Volume to how loud you listen; the curve gives back what the ear misses.',

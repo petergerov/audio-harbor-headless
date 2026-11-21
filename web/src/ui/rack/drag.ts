@@ -13,6 +13,9 @@ export function onDrag(el: Element, handlers: DragHandlers): void {
   let pointer: number | null = null;
   el.addEventListener('pointerdown', (event) => {
     const e = event as PointerEvent;
+    // Stop the page / sheet from scrolling or rubber-banding while we drag.
+    e.preventDefault();
+    e.stopPropagation();
     pointer = e.pointerId;
     try {
       el.setPointerCapture(e.pointerId);
@@ -23,7 +26,9 @@ export function onDrag(el: Element, handlers: DragHandlers): void {
   });
   el.addEventListener('pointermove', (event) => {
     const e = event as PointerEvent;
-    if (pointer === e.pointerId) handlers.move(e);
+    if (pointer !== e.pointerId) return;
+    e.preventDefault();
+    handlers.move(e);
   });
   const finish = (event: Event) => {
     const e = event as PointerEvent;

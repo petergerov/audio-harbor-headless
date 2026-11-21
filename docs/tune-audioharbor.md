@@ -54,7 +54,7 @@ They overlap on “self-hosted local library + web UI + DLNA out/in.” They div
 | Host OS | macOS, Windows, Linux, **Docker** (recommended) | macOS (arm64/x64), Linux x64/arm64 (Pi), Windows |
 | Packaging | Docker one-liner, Homebrew, Windows installer | GitHub Release prebuilts (Node 22 bundled): signed `.pkg` + menu bar app on Mac, `.deb` + systemd service and one-line installer on Linux; or `npm` / `install.sh` |
 | Always-on NAS story | Strong (Docker + host network) | Strong on Pi/Linux: systemd service, updates from Settings → About; no Docker image |
-| Discovery | Web at `localhost:8888` | mDNS `audioharbor.local:8787` + QR / PIN pairing |
+| Discovery | Web at `localhost:8888` | mDNS `ahh.local:8787` (+ `audioharbor-headless.local`) + QR / PIN pairing |
 
 ---
 

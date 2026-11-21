@@ -2,9 +2,10 @@
 host = "0.0.0.0"
 port = 8787
 name = "Audio Harbor Headless"
-# Reachable as http://audioharbor.local:8787 (mDNS / Bonjour; "audioharbor-2" when the
-# name is taken on the network). "" turns it off.
-local_hostname = "audioharbor"
+# Reachable as http://ahh.local:8787 (mDNS / Bonjour; "ahh-2" when taken).
+# Not "audioharbor" — that name belongs to the macOS Audio Harbor app.
+local_hostname = "ahh"
+local_hostname_aliases = ["audioharbor-headless"]
 
 [library]
 roots = []

@@ -1,0 +1,10 @@
+# Harbor: mild contour for everyday levels
+input = 0.00 db
+mode = 0
+std = 4
+fft = 4
+approx = 2
+volume = -10.00 db
+refer = false
+hclip = false
+hcrange = 6.00 db

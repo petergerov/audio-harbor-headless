@@ -25,8 +25,9 @@ export function openInsertSheet(rack: RackApi, insert: RackInsert, onRack: (snap
   openPanel({
     title: insert.name,
     subtitle: insert.vendor,
+    size: spec?.size ?? 'default',
     bodyHtml: `
-      <div class="rack-sheet">
+      <div class="rack-sheet ${spec?.size === 'wide' ? 'is-wide' : ''}">
         <div class="insert-tools">
           <div class="segmented compact" data-modes ${spec ? '' : 'hidden'}>
             <button type="button" data-mode="panel">Panel</button>

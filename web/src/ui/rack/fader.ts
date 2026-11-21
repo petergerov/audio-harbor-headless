@@ -23,7 +23,7 @@ export function bindFader(fader: HTMLElement, scale: Scale, start: number, fallb
   let value = start;
   const paint = () => {
     const position = scale.toPosition(value);
-    if (cap) cap.style.bottom = `calc(${(position * 100).toFixed(2)}% - 7px)`;
+    if (cap) cap.style.bottom = `calc(${(position * 100).toFixed(2)}% - 5px)`;
     fader.setAttribute('aria-valuenow', String(Math.round(position * 100)));
   };
   const setValue = (next: number) => {

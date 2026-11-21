@@ -162,8 +162,13 @@ export interface HarborConfig {
     host: string;
     port: number;
     name: string;
-    /** mDNS name: "audioharbor" → http://audioharbor.local:<port>; "" turns it off. */
+    /**
+     * Primary mDNS name: "ahh" → http://ahh.local:<port>; "" turns names off.
+     * Kept separate from the macOS Audio Harbor app's `audioharbor.local`.
+     */
     local_hostname: string;
+    /** Extra `.local` names that resolve to this host (e.g. `audioharbor-headless`). */
+    local_hostname_aliases: string[];
   };
   library: {
     roots: string[];

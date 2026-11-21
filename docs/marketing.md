@@ -82,7 +82,7 @@ Use in “vs” threads and FAQ — not as attack copy on the homepage.
 | Bit-perfect when the device allows | Native Exclusive (Core Audio hog / ALSA `hw:` / WASAPI Exclusive); rate follows the file |
 | Real DSD, not theatre | DoP on local DAC; Auto / PCM / DoP per network player; badge when it becomes PCM |
 | SACD without a separate rip step | ISO → catalogue tracks; DST decoded; DFF cache; same path to DAC or UPnP |
-| Phone is enough | Web remote at `audioharbor.local`; Bonjour for Audio Harbor iOS; PIN pairing |
+| Phone is enough | Web remote at `ahh.local` / `audioharbor-headless.local`; Bonjour for Audio Harbor iOS; PIN pairing |
 | Network player = output | SSDP discovery, `upnp:<UDN>`, Range-seekable WAV/DoP, SetNextAVTransportURI gapless |
 | No silent surprises | Path badge on every path: rate and bits the DAC or player gets, and the path (`44.1 → 48 kHz / 24-bit · Shared` when the system resamples) |
 | An appliance, not a project | `.deb` with systemd service, USB drives and SMB shares from the remote, Software Update in Settings |
@@ -170,7 +170,7 @@ Docs: https://petergerov.github.io/audio-harbor-headless/
 
 Screenshots / clips that sell:
 
-1. Terminal: `./start.sh` → `audioharbor.local` + QR  
+1. Terminal: `./start.sh` → `ahh.local` + QR  
 2. Phone: album play → Deck + path badge — **done**: the gallery on the product page (`docs/images/web/shots/`, desktop and phone, `FLAC 96 kHz / 24-bit · Network`)  
 3. Settings: output list with `(Network player)` and DSD Auto / PCM / DoP  
 4. Badge strip: Shared → Exclusive → DoP (same track)

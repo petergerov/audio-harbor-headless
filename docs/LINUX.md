@@ -59,7 +59,7 @@ journalctl -u audioharbor@audioharbor -b --no-pager | tail -40   # URL and QR co
 sudo -u audioharbor audioharbor pair                             # PIN (the first remote shows it itself)
 ```
 
-The `./` matters — without it apt looks for the name in its repositories. `curl -f` stops on a missing file (a wrong version or CPU) instead of saving GitHub's `Not Found` page as `.deb` — apt would then report `Invalid archive signature`. Downloading to `/tmp` keeps the file readable for apt's download user `_apt` (see [Troubleshooting](#troubleshooting)). apt pulls in the dependencies (ALSA, sudo). Then open `http://audioharbor.local:8787` on the phone — or the IP URL from the journal — and add music under Settings → Sources.
+The `./` matters — without it apt looks for the name in its repositories. `curl -f` stops on a missing file (a wrong version or CPU) instead of saving GitHub's `Not Found` page as `.deb` — apt would then report `Invalid archive signature`. Downloading to `/tmp` keeps the file readable for apt's download user `_apt` (see [Troubleshooting](#troubleshooting)). apt pulls in the dependencies (ALSA, sudo). Then open `http://ahh.local:8787` on the phone (or `http://audioharbor-headless.local:8787`) — or the IP URL from the journal — and add music under Settings → Sources.
 
 ### Dedicated service user
 
@@ -110,7 +110,7 @@ Tested on Debian 12 (Bookworm) and Debian 13 (Trixie), arm64.
 
 ## First steps
 
-1. Open `http://audioharbor.local:8787` on the iPhone (Safari → Share → Add to Home Screen keeps it as an app).
+1. Open `http://ahh.local:8787` on the iPhone (or `http://audioharbor-headless.local:8787`; Safari → Share → Add to Home Screen keeps it as an app).
 2. Connect: no code is needed — the remote opens straight away on any device on the network, the iOS app too. To let in only paired devices, turn on Settings → About → **Require Pairing Code**. Then a new device pairs once with the PIN: as long as none is paired, the remote shows **First Setup** with the PIN filled in; later the PIN is in Settings → About on a paired device (**New PIN** makes a fresh one), or `audioharbor pair` as the service user. The PIN changes after each pairing.
 3. Add music: Settings → Sources → Choose Folder… walks the host's folders — no path to type. A USB drive is set up there too, see [Music on a USB drive](#music-on-a-usb-drive). Adding a folder does not scan it: **Library → Update Library → Rescan**, at the top of Sources once there is a folder, drive or share, reads it and shows the progress.
 4. Pick the DAC: Settings → Output → Device. Each output is listed once — `SMSL USB AUDIO`, `bcm2835 Headphones`, `vc4-hdmi-0` — as `aplay -l` shows them, not every ALSA alias of it. The mode decides how it is opened: **Shared** through `plughw` (converts format and rate), **Exclusive** / **DoP** directly as `hw:` (bit-perfect; a rate the DAC lacks is refused, not resampled). The Deck badge shows what the DAC gets, e.g. `96 kHz / 24-bit · Exclusive`, or `96 → 48 kHz / 16-bit · Shared` when `plughw` converts for a card that cannot do the file's rate.
@@ -469,7 +469,7 @@ No service; start it yourself (or write a unit like `packaging/linux/audioharbor
 
 | Symptom | Check |
 |---|---|
-| `audioharbor.local` not found | the host answers mDNS itself; it may have taken `audioharbor-2.local` (see the journal). Phone and Pi on the same network? Or use the IP URL from the journal. |
+| `ahh.local` not found | the host answers mDNS itself (`ahh.local` / `audioharbor-headless.local`; it may have taken `ahh-2.local` — see the journal). Phone and Pi on the same network? Or use the IP URL from the journal. |
 | Service does not start | `journalctl -u audioharbor@pi -b` — e.g. port 8787 taken by a manual `./start.sh`. |
 | Output list differs from `aplay -l` (a card missing, or an output twice) | send `aplay -l` and a screenshot of Settings → Output. The list is one entry per playback device of each card, named like the card (`SMSL USB AUDIO`); a card with several outputs shows `card · output`. |
 | Selected DAC shows as missing after an update | it is not connected, or its card id changed (`aplay -l`, the name after `card N:`). Pick it again under Settings → Output. |

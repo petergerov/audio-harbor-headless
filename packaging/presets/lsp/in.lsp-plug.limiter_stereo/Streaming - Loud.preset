@@ -1,0 +1,16 @@
+# Harbor: hotter level with a firm ceiling
+g_in = 1.50 db
+g_out = 0.00 db
+th = -0.30 db
+knee = 0.00 db
+lk = 6.00000
+at = 2.00000
+rt = 30.00000
+alr = true
+alr_at = 3.00000
+alr_rt = 40.00000
+boost = true
+mode = 0
+ovs = 0
+dith = 0
+slink = 1.00000

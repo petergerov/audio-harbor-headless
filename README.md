@@ -32,7 +32,7 @@ npm run build:web
 npm run serve          # or: npm run harbor -- serve
 ```
 
-Open `http://audioharbor.local:8787` on your iPhone (or scan the QR in the terminal; the IP URL printed next to it works too). **No code is needed**: any phone, tablet or the Audio Harbor iOS app on the same network connects at once. To let in only paired devices, turn on **Settings → About → Require Pairing Code** (`remote.require_pairing = true`): the device that turns it on stays connected, every other one pairs once with the PIN shown there. With the code on and no device paired yet, the remote fills in the PIN itself. A host that already had paired devices before the code became optional keeps asking for it.
+Open `http://ahh.local:8787` on your iPhone (also `http://audioharbor-headless.local:8787`, or scan the QR in the terminal; the IP URL printed next to it works too). **No code is needed**: any phone, tablet or the Audio Harbor iOS app on the same network connects at once. To let in only paired devices, turn on **Settings → About → Require Pairing Code** (`remote.require_pairing = true`): the device that turns it on stays connected, every other one pairs once with the PIN shown there. With the code on and no device paired yet, the remote fills in the PIN itself. A host that already had paired devices before the code became optional keeps asking for it.
 
 ```bash
 npm run harbor -- pair     # show / rotate pairing PIN
@@ -47,11 +47,11 @@ DLNA sharing (`Share Library on the Network` in Settings, or `sharing.enabled` i
 
 ### Name on the network
 
-The host answers to **`audioharbor.local`** over mDNS / Bonjour, so the remote is at `http://audioharbor.local:8787`. The QR code uses that name, so an app saved to the iPhone home screen keeps working when the host gets a new IP. The web remote (`_http._tcp`) and the Bonjour remote are announced on it, IPv4 only.
+The host answers to **`ahh.local`** (and **`audioharbor-headless.local`**) over mDNS / Bonjour — not `audioharbor.local`, so it does not clash with the macOS Audio Harbor app. The remote is at `http://ahh.local:8787`. The QR code uses that name, so an app saved to the iPhone home screen keeps working when the host gets a new IP. The web remote (`_http._tcp`) and the Bonjour remote are announced on it, IPv4 only.
 
-- When another device already answers to the name, the host takes `audioharbor-2.local` (then `-3` …) and says so at start.
-- Change it or turn it off with `server.local_hostname` (`""` = off).
-- For the bare name `audioharbor` through the router's DNS (e.g. `audioharbor.fritz.box`), give the machine that hostname — on a Raspberry Pi `sudo hostnamectl set-hostname audioharbor`.
+- When another device already answers to the primary name, the host takes `ahh-2.local` (then `-3` …) and says so at start.
+- Change names with `server.local_hostname` / `server.local_hostname_aliases` (`local_hostname = ""` turns them off).
+- For a bare name through the router's DNS (e.g. `ahh.fritz.box`), give the machine that hostname — on a Raspberry Pi `sudo hostnamectl set-hostname ahh`.
 
 ### Prebuilt packages (ready to start)
 
@@ -95,7 +95,7 @@ Publish a release (manual only):
 1. Push `main` with the commits you want
 2. Set macOS signing secrets (once) — see [packaging/macos/README.md](packaging/macos/README.md)
 3. GitHub → **Actions** → **Release packages** → **Run workflow**
-4. Enter tag (e.g. `v1.2.7`), tick the platforms (all but Windows by default) — optional: draft / skip notarization
+4. Enter tag (e.g. `v1.2.8`), tick the platforms (all but Windows by default) — optional: draft / skip notarization
 
 The macOS jobs import **Developer ID** certificates from secrets, sign binaries, build a `.pkg`, and notarize when App Store Connect / Apple ID secrets are present.
 
