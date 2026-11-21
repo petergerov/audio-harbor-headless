@@ -1,9 +1,10 @@
 [server]
 host = "0.0.0.0"
-port = 8787
+port = 8887
 name = "Audio Harbor Headless"
-# Reachable as http://ahh.local:8787 (mDNS / Bonjour; "ahh-2" when the name is taken).
+# Reachable as http://ahh.local:8887 (mDNS / Bonjour; "ahh-2" when the name is taken).
 # Not "audioharbor" — that name belongs to the macOS Audio Harbor app.
+# Ports are offset from the Mac app (8787 / 49153 / 8200) so both can run on one machine.
 # "" turns names off. Extra names resolve to the same host:
 local_hostname = "ahh"
 local_hostname_aliases = ["audioharbor-headless"]
@@ -25,7 +26,8 @@ network_stream = "full"
 
 [network]
 # Network players pull audio from this HTTP port (any free port when taken).
-media_port = 49153
+# 49253 avoids the Mac app's preferred 49153.
+media_port = 49253
 
 # How each network player gets DSF / DFF / SACD with network_stream = "full":
 #   auto → the DSD file untouched when the player lists DSD, else PCM 88.2 kHz / 24-bit
@@ -38,12 +40,12 @@ media_port = 49153
 
 [sharing]
 enabled = false
-port = 8200
+port = 8300
 friendly_name = "Audio Harbor Headless"
 
 [remote]
 bonjour_enabled = true
-bonjour_port = 8788
+bonjour_port = 8888
 # false: remotes on the local network connect without a code. true: they pair with the PIN
 # first (Settings → About → Require Pairing Code).
 require_pairing = false

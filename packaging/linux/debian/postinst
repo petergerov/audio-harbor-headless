@@ -25,7 +25,7 @@ if [ "$1" = "configure" ] && [ -d /run/systemd/system ]; then
     if [ -n "$user" ]; then
       systemctl enable --now "audioharbor@${user}.service" || true
       echo "Audio Harbor Headless runs as ${user} (service audioharbor@${user})."
-      echo "Remote: http://audioharbor.local:8787 — PIN: audioharbor pair"
+      echo "Remote: http://ahh.local:8887 — PIN: audioharbor pair"
     else
       echo "Start it for a user with: sudo systemctl enable --now audioharbor@<user>"
     fi

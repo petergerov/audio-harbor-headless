@@ -25,15 +25,15 @@ flowchart TB
   end
 
   subgraph host["host — one Node process"]
-    api["api/server.ts<br/>REST, WebSocket, web/dist<br/>:8787"]
-    bonjour["remote/bonjour.ts<br/>Harbor frame protocol<br/>:8788"]
-    mediaserver["upnp/mediaServer.ts<br/>DLNA server :8200"]
+    api["api/server.ts<br/>REST, WebSocket, web/dist<br/>:8887"]
+    bonjour["remote/bonjour.ts<br/>Harbor frame protocol<br/>:8888"]
+    mediaserver["upnp/mediaServer.ts<br/>DLNA server :8300"]
     playback["playback/service.ts<br/>PlaybackService"]
     catalogue["library/catalogue.ts<br/>SQLite + FTS5"]
     sacd["library/sacd.ts<br/>SACD ISO to DFF cache"]
     netplayer["upnp/networkPlayer.ts<br/>NetworkPlayer"]
     ssdp["upnp/ssdp.ts<br/>RendererBrowser"]
-    mediahttp["upnp/mediaHttp.ts<br/>MediaHttpServer :49153"]
+    mediahttp["upnp/mediaHttp.ts<br/>MediaHttpServer :49253"]
     bridge["engine/bridge.ts"]
   end
 
@@ -132,10 +132,10 @@ One process: `node host/dist/index.js serve` (or `./start.sh`). At start it load
 
 | Port | What | Config |
 |---|---|---|
-| 8787 TCP | REST API, WebSocket `/api/v1/ws`, the web remote's files | `server.port` |
-| 8788 TCP | Bonjour remote for the iOS app (`_audioharbor._tcp`) | `remote.bonjour_port`, `remote.bonjour_enabled` |
-| 49153 TCP | Audio for network players (`/t/…`, `/a/…`); any free port when taken | `network.media_port` |
-| 8200 TCP | DLNA MediaServer, only with sharing on | `sharing.port`, `sharing.enabled` |
+| 8887 TCP | REST API, WebSocket `/api/v1/ws`, the web remote's files | `server.port` |
+| 8888 TCP | Bonjour remote for the iOS app (`_audioharbor._tcp`) | `remote.bonjour_port`, `remote.bonjour_enabled` |
+| 49253 TCP | Audio for network players (`/t/…`, `/a/…`); any free port when taken | `network.media_port` |
+| 8300 TCP | DLNA MediaServer, only with sharing on | `sharing.port`, `sharing.enabled` |
 | 1900 UDP | SSDP: finds renderers (M-SEARCH every 30 s, NOTIFY alive / byebye), announces the DLNA server | — |
 | 5353 UDP | mDNS: `ahh.local` (`-2`, `-3` … when taken) + `local_hostname_aliases`, `_http._tcp`, `_audioharbor._tcp`; IPv4 only | `server.local_hostname`, `server.local_hostname_aliases` |
 

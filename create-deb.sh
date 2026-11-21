@@ -112,7 +112,7 @@ Installed-Size: $(du -sk "$PKG" | cut -f1)
 Description: GUI-less audiophile media host with an iPhone web remote
  Plays a music library to ALSA DACs (shared, exclusive, DoP) and to
  UPnP / DLNA network players, and shares the library as a DLNA server.
- Control it from a phone at http://audioharbor.local:8787.
+ Control it from a phone at http://ahh.local:8887.
  .
  Runs as a systemd service per user: audioharbor@<user>.
 EOF

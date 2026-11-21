@@ -10,10 +10,11 @@ import type {
 } from './types.js';
 import { configPath, exampleConfigPath } from './paths.js';
 
+/** Ports offset from the macOS Audio Harbor app (8787/49153/8200) so both can run on one Mac. */
 const DEFAULTS: HarborConfig = {
   server: {
     host: '0.0.0.0',
-    port: 8787,
+    port: 8887,
     name: 'Audio Harbor',
     local_hostname: 'ahh',
     local_hostname_aliases: ['audioharbor-headless'],
@@ -28,17 +29,17 @@ const DEFAULTS: HarborConfig = {
     network_stream: 'full',
   },
   network: {
-    media_port: 49153,
+    media_port: 49253,
     dsd_modes: {},
   },
   sharing: {
     enabled: false,
-    port: 8200,
+    port: 8300,
     friendly_name: 'Audio Harbor Headless',
   },
   remote: {
     bonjour_enabled: true,
-    bonjour_port: 8788,
+    bonjour_port: 8888,
     require_pairing: false,
   },
   recording: {

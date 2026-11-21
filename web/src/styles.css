@@ -4814,6 +4814,153 @@ html[data-nav="tab"]::view-transition-new(root) {
   }
 }
 
+/*
+ * Phone plugin panels: fit Graphic EQ (and similar) on one screen.
+ * Portrait: 16 bands → 2 rows of 8. Landscape: one short row (width allows it).
+ */
+@media (max-width: 699px) {
+  .ah-overlay.mobile .ah-panel.wide {
+    max-height: calc(100dvh - var(--safe-top) - 8px);
+  }
+
+  .ah-overlay.mobile .ah-panel.wide .ah-head.bar {
+    padding-top: 2px;
+    padding-bottom: 4px;
+  }
+
+  .ah-overlay.mobile .ah-panel.wide .ah-text-btn {
+    min-height: 36px;
+  }
+
+  .ah-overlay.mobile .ah-panel.wide .ah-body {
+    padding-bottom: 4px;
+  }
+
+  .ah-overlay.mobile .ah-panel.wide .panel-section + .panel-section {
+    margin-top: 8px;
+  }
+
+  .geq-wrap {
+    gap: 4px;
+  }
+
+  .geq-spectrum {
+    height: 88px;
+  }
+
+  .geq-spectrum.tall {
+    height: 96px;
+  }
+
+  .spec-chip {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  .rack-faders {
+    overflow-x: hidden;
+    padding: 4px 0 6px;
+    gap: 6px 0;
+    touch-action: none;
+  }
+
+  .rack-fader {
+    min-width: 0;
+    max-width: none;
+    gap: 2px;
+    padding: 2px 0;
+  }
+
+  .fader-track {
+    width: 5px;
+    height: 76px;
+  }
+
+  .fader-track::before {
+    top: -6px;
+    bottom: -6px;
+    width: 100%;
+    max-width: 44px;
+    margin-left: 0;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .fader-cap {
+    width: 24px;
+    height: 14px;
+    margin-left: -12px;
+  }
+
+  .fader-text {
+    font-size: 8px;
+  }
+
+  .fader-label {
+    font-size: 8px;
+  }
+
+  .ah-overlay.mobile .ah-panel.wide .rack-knobs.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 4px;
+    gap: 2px;
+  }
+
+  .ah-overlay.mobile .ah-panel.wide .rack-knobs.compact .rack-knob svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .ah-overlay.mobile .ah-panel.wide .panel-rows .param-row {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  /* Portrait: two rows of eight — no sideways scroll. */
+  @media (orientation: portrait) {
+    .rack-faders {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      align-items: end;
+    }
+  }
+
+  /* Landscape / short height: one compact row; width fits all 16 bands. */
+  @media (orientation: landscape), (max-height: 500px) {
+    .geq-spectrum {
+      height: 56px;
+    }
+
+    .geq-spectrum.tall {
+      height: 64px;
+    }
+
+    .rack-faders {
+      display: flex;
+      gap: 0;
+      padding: 2px 0 4px;
+    }
+
+    .rack-fader {
+      flex: 1 1 0;
+    }
+
+    .fader-track {
+      height: 52px;
+    }
+
+    .fader-cap {
+      width: 18px;
+      height: 11px;
+      margin-left: -9px;
+    }
+
+    .fader-text {
+      font-size: 7px;
+    }
+  }
+}
+
 .panel-rows.compact .param-row {
   padding-top: 4px;
   padding-bottom: 4px;

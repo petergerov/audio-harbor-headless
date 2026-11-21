@@ -52,7 +52,7 @@ func configValue(section: String, key: String) -> String? {
 
 /// `[server] port` from config.toml, else the host's default.
 func serverPort() -> Int {
-    configValue(section: "server", key: "port").flatMap { Int($0.replacingOccurrences(of: "_", with: "")) } ?? 8787
+    configValue(section: "server", key: "port").flatMap { Int($0.replacingOccurrences(of: "_", with: "")) } ?? 8887
 }
 
 /// `[remote] require_pairing`: remotes must enter the PIN. Off (the default) they connect without one.

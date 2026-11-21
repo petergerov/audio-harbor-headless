@@ -59,7 +59,7 @@ HARBOR_USER="$USER_NAME" DEBIAN_FRONTEND=noninteractive apt-get install "${APT_A
 
 echo
 log "Done"
-echo "  Remote:   http://audioharbor.local:8787  (iPhone: open it in Safari, add to home screen)"
+echo "  Remote:   http://ahh.local:8887  (iPhone: open it in Safari, add to home screen)"
 echo "  PIN:      audioharbor pair"
 echo "  Music:    Settings → Sources → Add Folder in the remote"
 if [[ -n "$USER_NAME" && "$USER_NAME" != "root" ]]; then
