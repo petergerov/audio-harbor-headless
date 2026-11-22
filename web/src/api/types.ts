@@ -301,6 +301,21 @@ export interface PowerStatus {
   } | null;
 }
 
+/** Raspberry Pi: a GPIO high while Harbor runs (Settings → About → Start Signal). */
+export interface StartSignalStatus {
+  supported: boolean;
+  board: string;
+  enabled: boolean;
+  /** BCM GPIO number. */
+  gpio: number;
+  /** Physical header pin. */
+  pin: number;
+  /** The pin is high now. */
+  active: boolean;
+  error: string | null;
+  choices: Array<{ gpio: number; pin: number }>;
+}
+
 /** Where the host's library scan is (pushed as `scan`); `lastScan` stays after it ends. */
 export interface ScanProgress {
   scanning: boolean;

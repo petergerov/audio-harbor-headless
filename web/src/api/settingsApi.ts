@@ -5,6 +5,7 @@ import type {
   Mount,
   PowerStatus,
   ScanProgress,
+  StartSignalStatus,
   SystemStatus,
   UpdateStatus,
   NetworkPlayerFormats,
@@ -54,6 +55,9 @@ export interface SettingsApi {
   powerAction(action: 'poweroff' | 'reboot'): Promise<void>;
   /** The power button on GPIO3 (Pi 3/4) on or off; works after the next restart. */
   setPowerButton(on: boolean): Promise<PowerStatus>;
+  /** Raspberry Pi: the GPIO that goes high while Harbor runs. */
+  startSignal(): Promise<StartSignalStatus>;
+  setStartSignal(change: { enabled?: boolean; gpio?: number }): Promise<StartSignalStatus>;
   /** Remotes must pair with the PIN first (off: anyone on the network connects). */
   pairingRequired(): Promise<boolean>;
   /** On: this device stays connected, every other one needs the PIN again. */
@@ -170,6 +174,14 @@ export class HttpSettingsApi implements SettingsApi {
 
   setPowerButton(on: boolean): Promise<PowerStatus> {
     return this.http.put('/api/v1/power/button', { on });
+  }
+
+  startSignal(): Promise<StartSignalStatus> {
+    return this.http.get('/api/v1/gpio/start-signal');
+  }
+
+  setStartSignal(change: { enabled?: boolean; gpio?: number }): Promise<StartSignalStatus> {
+    return this.http.put('/api/v1/gpio/start-signal', change);
   }
 
   async pairingRequired(): Promise<boolean> {

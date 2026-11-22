@@ -109,6 +109,7 @@ host/src/
   system.ts          CPU, memory and disk space for Settings → About
   update.ts          Software Update: latest GitHub release, install through harbor-update
   hostPower.ts       Shut Down / Restart Host and the Pi power button, through harbor-power
+  startSignal.ts     Raspberry Pi: a GPIO high while Harbor runs (pinctrl or gpioset)
   resolution.ts      the rate / bits part of the path badge, and its " · FX"
   rack.ts            the plugin rack: rack.json, plugin scan, chain to harbor-fx, state, meters
   rackPresets.ts     rack presets: save, load (fresh ids), summaries
@@ -244,6 +245,7 @@ player ◀── FxStage.read() ◀── ring ◀── worker ─────�
 | `system.ts` | CPU model, cores and load, memory (and what Harbor uses), free space on the disks that hold Harbor's data and the library — Settings → About. |
 | `update.ts` | Software Update: asks GitHub for the latest release (cached an hour), compares versions, and on the `.deb` starts `harbor-update install <tag>`. The helper runs as a transient systemd unit, so the service restart during `apt install` does not stop it; it takes only this repo's releases, checks the `.sha256`, package name, architecture and that the version is newer. The remote follows the status file and reloads when the host comes back with the new version. |
 | `hostPower.ts` | Settings → About → Power on the `.deb`: `harbor-power poweroff\|reboot` through sudo, which runs `systemctl` 2 s later as the transient unit `audio-harbor-power`, so the answer reaches the remote first (playback pauses before). On a Raspberry Pi, `harbor-power button [on\|off]` reports and switches `dtoverlay=gpio-shutdown` in `config.txt`: built in on a Pi 5, refused while I2C uses GPIO3 (a DAC HAT). `GET`/`POST /api/v1/power`, `PUT /api/v1/power/button`. |
+| `startSignal.ts` | Settings → About → GPIO on a Raspberry Pi: `[gpio] start_signal` drives `start_signal_gpio` (BCM, default 17 = pin 11) high once the server listens and low on stop (also from the `exit` handler). `pinctrl set <n> op dh\|dl` where Raspberry Pi OS has it, else libgpiod `gpioset` (v1 `--mode=signal`, v2 by line name), which holds the line while it runs. Needs the group `gpio` (postinst adds it). `GET`/`PUT /api/v1/gpio/start-signal`. |
 | `rack.ts` | The plugin rack — see [Plugin rack](#plugin-rack). |
 | `config.ts` | Loads `config.toml`, normalizes every value, writes it back on change. |
 | `power.ts` | `KeepAwake`: `caffeinate` (macOS) or `systemd-inhibit` (Linux) while a network player streams. |

@@ -201,6 +201,12 @@ export interface HarborConfig {
     require_pairing: boolean;
   };
   recording: RecordingConfig;
+  gpio: {
+    /** Raspberry Pi: a GPIO goes high once Harbor is up, low when it stops (amplifier, relay, LED). */
+    start_signal: boolean;
+    /** BCM GPIO number; 17 = header pin 11. */
+    start_signal_gpio: number;
+  };
 }
 
 /** Recording from a digital input (S/PDIF), bit-perfect. */

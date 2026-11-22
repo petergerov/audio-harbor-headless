@@ -65,3 +65,10 @@ silence_db = -70
 silence_seconds = 2
 # keep the raw 32-bit WAV of each take in <folder>/.takes
 keep_raw = false
+
+# Raspberry Pi: a GPIO goes high (3.3 V) once Harbor has started and low when it stops — for an
+# amplifier, a relay or an LED. Settings → About → GPIO in the remote.
+[gpio]
+start_signal = false
+# BCM GPIO number; 17 = header pin 11
+start_signal_gpio = 17

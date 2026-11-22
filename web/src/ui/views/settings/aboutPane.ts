@@ -1,6 +1,6 @@
 import type { SettingsApi } from '../../../api/settingsApi';
 import { reloadRemote } from '../../reloadRemote';
-import type { PowerStatus, SystemStatus, UpdateStatus } from '../../../api/types';
+import type { PowerStatus, StartSignalStatus, SystemStatus, UpdateStatus } from '../../../api/types';
 import { errorMessage } from '../../../core/errors';
 import { escapeHtml, required } from '../../../core/html';
 import type { Store } from '../../../core/store';
@@ -195,6 +195,33 @@ function powerNote(s: PowerStatus): string {
   }
 }
 
+/** The start signal's switch and GPIO picker. */
+function startSignalHtml(s: StartSignalStatus): string {
+  const options = s.choices
+    .map(
+      (c) =>
+        `<option value="${c.gpio}" ${c.gpio === s.gpio ? 'selected' : ''}>GPIO${c.gpio} · Pin ${c.pin}</option>`
+    )
+    .join('');
+  return `
+    <label class="cell">
+      <span>Start Signal</span>
+      <input type="checkbox" role="switch" class="switch" data-signal-on ${s.enabled ? 'checked' : ''} />
+    </label>
+    <div class="cell">
+      <label for="signal-gpio">Output</label>
+      <select id="signal-gpio" data-signal-gpio>${options}</select>
+    </div>
+    ${s.enabled ? `<div class="cell"><span>Status</span><span class="value">${s.active ? 'High' : 'Low'}</span></div>` : ''}`;
+}
+
+function startSignalNote(s: StartSignalStatus): string {
+  const what =
+    `GPIO${s.gpio} (pin ${s.pin}) goes high (3.3 V) as soon as Harbor has started, and low when it stops — ` +
+    'for an amplifier, a relay or an LED. Ground is pin 6, 9 or 14.';
+  return s.error && s.enabled ? `${s.error}. ${what}` : what;
+}
+
 /** What the host says about itself: app, version, updates, tagline, license — and the PIN for another device. */
 export class AboutPane implements Pane {
   private timer: number | null = null;
@@ -249,6 +276,11 @@ export class AboutPane implements Pane {
         <div class="group" data-power></div>
         <p class="footer-note" data-power-note hidden></p>
       </div>
+      <div data-signal-section hidden>
+        <p class="group-label">GPIO</p>
+        <div class="group" data-signal></div>
+        <p class="footer-note" data-signal-note></p>
+      </div>
       <p class="group-label">License</p>
       <div class="group">
         <div class="cell"><span>${escapeHtml(about.licenseHeadline)}</span></div>
@@ -272,6 +304,7 @@ export class AboutPane implements Pane {
 
     this.renderUpdate(root);
     this.renderPower(root);
+    this.renderStartSignal(root);
 
     const pinValue = required(root, '[data-pin]');
     const show = (pin: string) => {
@@ -385,6 +418,38 @@ export class AboutPane implements Pane {
     };
     void this.api
       .power()
+      .then(paint)
+      .catch(() => undefined);
+  }
+
+  /** Raspberry Pi: the GPIO that is high while Harbor runs. */
+  private renderStartSignal(root: HTMLElement): void {
+    const section = required(root, '[data-signal-section]');
+    const group = required(root, '[data-signal]');
+    const note = required(root, '[data-signal-note]');
+    const paint = (s: StartSignalStatus) => {
+      section.hidden = !s.supported;
+      if (!s.supported) return;
+      group.innerHTML = startSignalHtml(s);
+      note.textContent = startSignalNote(s);
+      const toggle = required<HTMLInputElement>(group, '[data-signal-on]');
+      const picker = required<HTMLSelectElement>(group, '[data-signal-gpio]');
+      const apply = async (change: { enabled?: boolean; gpio?: number }) => {
+        toggle.disabled = picker.disabled = true;
+        try {
+          const next = await this.api.setStartSignal(change);
+          paint(next);
+          if (next.enabled && next.error) showToast(next.error, { error: true });
+        } catch (err) {
+          showToast(errorMessage(err, 'Could not change it'), { error: true });
+          paint(s);
+        }
+      };
+      toggle.addEventListener('change', () => void apply({ enabled: toggle.checked }));
+      picker.addEventListener('change', () => void apply({ gpio: Number(picker.value) }));
+    };
+    void this.api
+      .startSignal()
       .then(paint)
       .catch(() => undefined);
   }

@@ -24,6 +24,7 @@ import { SourceUnavailableError, type SourceMonitor } from '../library/sources.j
 import { splitShare, type SourceOrigin, type SourceOrigins } from '../library/origins.js';
 import type { AccessPolicy } from '../access.js';
 import { PowerError, type HostPower } from '../hostPower.js';
+import { isHeaderGpio, type StartSignal } from '../startSignal.js';
 import { isFirstRun, loadPairing, pairingLockedOut, pairWithPin, rotatePin } from '../pairing.js';
 import { isRepeatMode, PlaybackService } from '../playback/service.js';
 import { dataDir, webDistPath } from '../paths.js';
@@ -62,6 +63,8 @@ export interface AppContext {
   updates: Updater;
   /** Shut down / restart the host, and the Raspberry Pi's power button (Settings → About). */
   power: HostPower;
+  /** Raspberry Pi: a GPIO high while Harbor runs (Settings → About → Start Signal). */
+  startSignal: StartSignal;
   /** The URL the remotes should open (mDNS name or LAN IP); null until known. */
   remoteUrl?: () => string | null;
   /** The plugin rack. */
@@ -565,6 +568,22 @@ export async function buildServer(ctx: AppContext) {
       if (err instanceof PowerError) return reply.code(400).send({ error: err.message });
       throw err;
     }
+  });
+
+  // Raspberry Pi: a GPIO (17 = pin 11 by default) high while Harbor runs.
+  app.get('/api/v1/gpio/start-signal', async () => ctx.startSignal.status());
+
+  app.put<{ Body: { enabled?: unknown; gpio?: unknown } }>('/api/v1/gpio/start-signal', async (req, reply) => {
+    const { enabled, gpio } = req.body ?? {};
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      return reply.code(400).send({ error: 'enabled: true or false' });
+    }
+    if (gpio !== undefined && !isHeaderGpio(gpio)) {
+      return reply.code(400).send({ error: 'gpio: a GPIO of the 40-pin header (2–27)' });
+    }
+    const status = await ctx.startSignal.set({ enabled, gpio });
+    req.log.info({ enabled: status.enabled, gpio: status.gpio, active: status.active }, 'Start signal');
+    return status;
   });
 
   app.get<{

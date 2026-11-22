@@ -9,6 +9,7 @@ import type {
   RecordingConfig,
 } from './types.js';
 import { configPath, exampleConfigPath } from './paths.js';
+import { DEFAULT_START_SIGNAL_PIN, isHeaderGpio } from './startSignal.js';
 
 /** Ports offset from the macOS Audio Harbor app (8787/49153/8200) so both can run on one Mac. */
 const DEFAULTS: HarborConfig = {
@@ -51,6 +52,10 @@ const DEFAULTS: HarborConfig = {
     silence_db: -70,
     silence_seconds: 2,
     keep_raw: false,
+  },
+  gpio: {
+    start_signal: false,
+    start_signal_gpio: DEFAULT_START_SIGNAL_PIN,
   },
 };
 
@@ -153,6 +158,7 @@ export function loadConfig(): HarborConfig {
   const sharing = (parsed.sharing ?? {}) as Record<string, unknown>;
   const remote = (parsed.remote ?? {}) as Record<string, unknown>;
   const network = (parsed.network ?? {}) as Record<string, unknown>;
+  const gpio = (parsed.gpio ?? {}) as Record<string, unknown>;
   absent.clear();
   if (remote.require_pairing === undefined) absent.add('remote.require_pairing');
 
@@ -194,6 +200,10 @@ export function loadConfig(): HarborConfig {
       require_pairing: Boolean(remote.require_pairing ?? DEFAULTS.remote.require_pairing),
     },
     recording: normalizeRecording(parsed.recording),
+    gpio: {
+      start_signal: typeof gpio.start_signal === 'boolean' ? gpio.start_signal : DEFAULTS.gpio.start_signal,
+      start_signal_gpio: isHeaderGpio(gpio.start_signal_gpio) ? gpio.start_signal_gpio : DEFAULTS.gpio.start_signal_gpio,
+    },
   };
 }
 
@@ -213,6 +223,7 @@ export function saveConfig(cfg: HarborConfig): void {
     sharing: cfg.sharing,
     remote: cfg.remote,
     recording: { ...cfg.recording },
+    gpio: cfg.gpio,
   });
   fs.writeFileSync(configPath(), body);
 }

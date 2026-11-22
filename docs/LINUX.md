@@ -433,7 +433,7 @@ dtoverlay=gpio-shutdown
 - Pressed while it is halted: the Pi starts again — the Pi 3/4 boot firmware does that on GPIO3 by itself, with or without the overlay.
 - It works after the next restart; until then About says *Takes effect after the next restart.*
 
-**When it is not offered:** GPIO3 is also the clock line (SCL) of I2C. With `dtparam=i2c_arm=on` in `config.txt`, or a device on I2C bus 1 (most DAC HATs, HiFiBerry, IQaudIO and the like, have their codec there), the switch is refused and About says why: a button on that pin would disturb the DAC. Use a USB DAC, or set up `gpio-shutdown` on another pin by hand (`dtoverlay=gpio-shutdown,gpio_pin=17` — shutdown only; starting again works only from GPIO3). A `gpio-shutdown` line put in `config.txt` by hand is left alone; About then shows *Power Button: On* without the switch.
+**When it is not offered:** GPIO3 is also the clock line (SCL) of I2C. With `dtparam=i2c_arm=on` in `config.txt`, or a device on I2C bus 1 (most DAC HATs, HiFiBerry, IQaudIO and the like, have their codec there), the switch is refused and About says why: a button on that pin would disturb the DAC. Use a USB DAC, or set up `gpio-shutdown` on another pin by hand (`dtoverlay=gpio-shutdown,gpio_pin=26` — shutdown only; starting again works only from GPIO3). A `gpio-shutdown` line put in `config.txt` by hand is left alone; About then shows *Power Button: On* without the switch.
 
 From a terminal:
 
@@ -441,6 +441,24 @@ From a terminal:
 sudo /usr/libexec/audio-harbor-headless/harbor-power button       # state=, board=, pending=, note=
 sudo /usr/libexec/audio-harbor-headless/harbor-power button on    # then: sudo reboot
 sudo poweroff                                                     # shut down by hand
+```
+
+## Start signal (GPIO)
+
+On a Raspberry Pi, Harbor can drive a GPIO **high (3.3 V) as soon as it has started**, and low again when it stops — to switch on an amplifier, a relay or an LED. Settings → About → GPIO:
+
+- **Start Signal** on or off (off by default).
+- **Output**: the GPIO, by default **GPIO17 = pin 11**; ground is pin 6, 9 or 14. Any GPIO of the 40-pin header can be picked. Keep clear of pins a DAC HAT uses (I2S on GPIO18–21, I2C on GPIO2/3) and of GPIO3 when the power button is on.
+- **Status** shows whether the pin is high right now.
+
+The pin goes high once the remote answers, and low on a clean stop (`systemctl stop`, a restart, an update). After a crash or a power cut it stays as it was until Harbor starts again. A GPIO gives only a few milliamps: a relay or an amplifier's trigger input needs a transistor or a relay module in between.
+
+Harbor sets the pin with `pinctrl` (part of Raspberry Pi OS), or with `gpioset` from `gpiod` where there is no `pinctrl`. The service user needs the group `gpio`; the `.deb` adds it on install and update (Raspberry Pi OS gives it to the first user anyway). In `config.toml`:
+
+```toml
+[gpio]
+start_signal = true
+start_signal_gpio = 17   # BCM number; 17 = pin 11
 ```
 
 ## Remove

@@ -15,6 +15,7 @@ import { PlaybackService } from './playback/service.js';
 import { KeepAwake } from './power.js';
 import { Rack } from './rack.js';
 import { RecordingService } from './recording/service.js';
+import { StartSignal } from './startSignal.js';
 import { startBonjourRemote } from './remote/bonjour.js';
 import { RemoteRack } from './remote/rack.js';
 import { Mdns } from './remote/mdns.js';
@@ -128,6 +129,10 @@ async function main(): Promise<void> {
   const access = new AccessPolicy(getConfig, persist);
   if (configLacked('remote.require_pairing')) access.adoptExistingInstall();
 
+  // Raspberry Pi: a GPIO goes high once the remote is up, low when Harbor stops.
+  const startSignal = new StartSignal(getConfig, persist);
+  process.once('exit', () => startSignal.stopSync());
+
   let remoteUrl: string | null = null;
   const app = await buildServer({
     catalogue,
@@ -139,12 +144,14 @@ async function main(): Promise<void> {
     sharing,
     updates,
     power: new HostPower(),
+    startSignal,
     remoteUrl: () => remoteUrl,
     rack,
     access,
     recording,
   });
   const address = await app.listen({ host: cfg.server.host, port: cfg.server.port });
+  await startSignal.start().catch((err) => console.warn('Start signal:', err));
 
   // mDNS: http://ahh.local:<port> (+ aliases) — not audioharbor.local, so the macOS
   // Audio Harbor app keeps that name. A new DHCP address does not break a saved home screen.
@@ -162,6 +169,7 @@ async function main(): Promise<void> {
   }
   // Plugin settings go to rack.json before the process ends.
   const shutdown = () => {
+    startSignal.stopSync();
     recording.shutdown();
     setTimeout(() => process.exit(0), 1500).unref();
     void Promise.allSettled([rack.flush(), mdns?.close()]).then(() => process.exit(0));

@@ -18,11 +18,27 @@ if [ "$1" = "configure" ] && ! getent group harbor-drives >/dev/null; then
   groupadd --system harbor-drives
 fi
 
+# Raspberry Pi: the start signal sets a GPIO (/dev/gpiochip*, /dev/gpiomem: group gpio).
+add_gpio() {
+  if getent group gpio >/dev/null && id "$1" >/dev/null 2>&1 && ! id -nG "$1" | tr ' ' '\n' | grep -qx gpio; then
+    usermod -aG gpio "$1" || true
+  fi
+}
+
+if [ "$1" = "configure" ]; then
+  for unit in /etc/systemd/system/multi-user.target.wants/audioharbor@*.service; do
+    [ -e "$unit" ] || continue
+    u="${unit##*/audioharbor@}"
+    add_gpio "${u%.service}"
+  done
+fi
+
 if [ "$1" = "configure" ] && [ -d /run/systemd/system ]; then
   systemctl daemon-reload || true
   if [ -z "$2" ]; then
     user="$(pick_user)"
     if [ -n "$user" ]; then
+      add_gpio "$user"
       systemctl enable --now "audioharbor@${user}.service" || true
       echo "Audio Harbor Headless runs as ${user} (service audioharbor@${user})."
       echo "Remote: http://ahh.local:8887 — PIN: audioharbor pair"
